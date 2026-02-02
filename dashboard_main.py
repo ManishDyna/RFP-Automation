@@ -1,0 +1,54 @@
+import sys
+import asyncio
+
+# Fix for Windows: Playwright requires ProactorEventLoop for subprocess support
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+from fastapi import FastAPI, APIRouter
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+from routes import dashboard, user_management, auth, automation
+from routes import api as api_routes
+from config.config import SESSION_TIMEOUT_SECONDS
+import os
+
+
+app = FastAPI(title="Bahra Dashboard")
+
+# Static assets for templates
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "Dashboard", "static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Sessions (dashboard only)
+app.add_middleware(SessionMiddleware, secret_key="change-me-please", max_age=SESSION_TIMEOUT_SECONDS)
+
+# CORS - include React dev server
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", "http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# API router for React frontend (with /api prefix)
+app.include_router(api_routes.router)
+
+# Automation router (with /api prefix for frontend compatibility)
+app.include_router(automation.router, prefix="/api")
+
+# Dashboard router for template-based views and Excel/Material endpoints
+app.include_router(dashboard.router)
+
+# Legacy routers for old template-based UI (keeping for backward compatibility)
+app.include_router(auth.router)
+app.include_router(user_management.router)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("dashboard_main:app", host="0.0.0.0", port=8000, reload=True)
+
+

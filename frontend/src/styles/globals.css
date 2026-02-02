@@ -1,0 +1,377 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Bahra Electric Industrial Theme - Light Mode */
+    /* Based on bahra-electric.com color palette */
+    --background: 210 20% 98%;
+    --foreground: 210 24% 16%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 210 24% 16%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 24% 16%;
+
+    /* Primary - Industrial Dark Gray */
+    --primary: 210 10% 23%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 199 89% 48%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 16% 82%;
+    --muted-foreground: 210 10% 40%;
+
+    /* Accent - Vivid Cyan Blue */
+    --accent: 199 89% 48%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 4 78% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 16% 88%;
+    --input: 210 16% 88%;
+    --ring: 199 89% 48%;
+
+    --radius: 0.625rem;
+
+    /* Sidebar - Industrial Dark */
+    --sidebar-background: 210 24% 16%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 199 89% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 18% 22%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 210 18% 22%;
+    --sidebar-ring: 199 89% 48%;
+
+    /* Bahra Electric Brand Colors */
+    --bahra-dark-gray: #32373c;
+    --bahra-cyan-blue: #0693e3;
+    --bahra-green-cyan: #00d084;
+    --bahra-red: #cf2e2e;
+    --bahra-orange: #ff6900;
+    --bahra-amber: #fcb900;
+    --bahra-purple: #9b51e0;
+    --bahra-light-gray: #abb8c3;
+  }
+
+  .dark {
+    --background: 210 24% 9%;
+    --foreground: 210 40% 98%;
+
+    --card: 210 24% 12%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 210 24% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 199 89% 48%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 18% 22%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 210 18% 22%;
+    --muted-foreground: 210 20% 65%;
+
+    --accent: 199 70% 35%;
+    --accent-foreground: 199 89% 80%;
+
+    --destructive: 4 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 18% 22%;
+    --input: 210 18% 22%;
+    --ring: 199 89% 48%;
+
+    --sidebar-background: 210 24% 7%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 199 89% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 18% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 210 18% 15%;
+    --sidebar-ring: 199 89% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Custom scrollbar - Industrial theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bahra-light-gray);
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--bahra-cyan-blue);
+}
+
+/* Page transition animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-enter {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Status badge pulse animation */
+.status-pulse::before {
+  content: '';
+  @apply absolute inset-0 rounded-full bg-current animate-pulse-ring;
+}
+
+/* Gradient text - Bahra Industrial Cyan */
+.gradient-text {
+  background: linear-gradient(135deg, #0693e3 0%, #00d084 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glass morphism effect */
+.glass {
+  @apply bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl;
+  border: 1px solid rgba(6, 147, 227, 0.15);
+}
+
+/* Sidebar gradient background - Industrial Dark */
+.sidebar-gradient {
+  background: linear-gradient(180deg, #1a1f24 0%, #32373c 100%);
+}
+
+/* Soft background for main content */
+.bg-soft-gradient {
+  background: linear-gradient(135deg, #f8fafc 0%, #e8f4fc 50%, #f1f5f9 100%);
+}
+
+/* Card hover effect */
+.card-hover {
+  @apply transition-all duration-300 hover:-translate-y-0.5;
+  box-shadow: 0 4px 20px rgba(50, 55, 60, 0.08);
+}
+
+.card-hover:hover {
+  box-shadow: 0 8px 30px rgba(6, 147, 227, 0.15);
+}
+
+/* Button shine effect */
+.btn-shine {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-shine::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.btn-shine:hover::before {
+  left: 100%;
+}
+
+/* Table styles */
+.table-container {
+  @apply rounded-xl border overflow-hidden;
+  border-color: rgba(6, 147, 227, 0.2);
+}
+
+/* Form focus ring with brand color */
+.focus-ring-primary {
+  @apply focus:ring-2 focus:border-transparent;
+  --tw-ring-color: rgba(6, 147, 227, 0.3);
+}
+
+/* Modern input styling */
+.input-modern {
+  @apply bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700
+         focus:bg-white dark:focus:bg-slate-800
+         transition-all duration-200;
+  border-color: rgba(171, 184, 195, 0.5);
+}
+
+.input-modern:focus {
+  border-color: var(--bahra-cyan-blue);
+  box-shadow: 0 0 0 3px rgba(6, 147, 227, 0.15);
+}
+
+/* Stats card gradient backgrounds - Bahra colors */
+.stat-card-blue {
+  background: linear-gradient(135deg, #e8f4fc 0%, #cce7f8 100%);
+}
+
+.stat-card-emerald {
+  background: linear-gradient(135deg, #e6f9f1 0%, #ccf2e4 100%);
+}
+
+.stat-card-amber {
+  background: linear-gradient(135deg, #fff8e6 0%, #fef0cc 100%);
+}
+
+.stat-card-rose {
+  background: linear-gradient(135deg, #fef2f2 0%, #fce8e8 100%);
+}
+
+/* Login page specific - Industrial gradient */
+.login-illustration {
+  background: linear-gradient(135deg, #1a1f24 0%, #32373c 50%, #0a3d62 100%);
+}
+
+.login-pattern {
+  background-image:
+    radial-gradient(circle at 25% 25%, rgba(6, 147, 227, 0.2) 0%, transparent 50%),
+    radial-gradient(circle at 75% 75%, rgba(0, 208, 132, 0.15) 0%, transparent 50%);
+}
+
+/* Bahra Electric specific utility classes */
+.bg-bahra-primary {
+  background-color: var(--bahra-dark-gray);
+}
+
+.bg-bahra-accent {
+  background-color: var(--bahra-cyan-blue);
+}
+
+.bg-bahra-success {
+  background-color: var(--bahra-green-cyan);
+}
+
+.bg-bahra-warning {
+  background-color: var(--bahra-amber);
+}
+
+.bg-bahra-danger {
+  background-color: var(--bahra-red);
+}
+
+.text-bahra-primary {
+  color: var(--bahra-dark-gray);
+}
+
+.text-bahra-accent {
+  color: var(--bahra-cyan-blue);
+}
+
+.text-bahra-success {
+  color: var(--bahra-green-cyan);
+}
+
+.text-bahra-warning {
+  color: var(--bahra-amber);
+}
+
+.text-bahra-danger {
+  color: var(--bahra-red);
+}
+
+/* Industrial button styles */
+.btn-industrial {
+  background: linear-gradient(135deg, #32373c 0%, #1a1f24 100%);
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.btn-industrial:hover {
+  background: linear-gradient(135deg, #0693e3 0%, #0570b0 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(6, 147, 227, 0.3);
+}
+
+.btn-cyan {
+  background: linear-gradient(135deg, #0693e3 0%, #0570b0 100%);
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.btn-cyan:hover {
+  background: linear-gradient(135deg, #00d084 0%, #00a868 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 208, 132, 0.3);
+}
+
+/* Header accent line */
+.header-accent {
+  border-bottom: 3px solid var(--bahra-cyan-blue);
+}
+
+/* Industrial card style */
+.card-industrial {
+  background: white;
+  border-radius: 16px;
+  border: 1px solid rgba(50, 55, 60, 0.08);
+  box-shadow: 0 4px 20px rgba(50, 55, 60, 0.06);
+  transition: all 0.3s ease;
+}
+
+.card-industrial:hover {
+  border-color: rgba(6, 147, 227, 0.3);
+  box-shadow: 0 8px 30px rgba(6, 147, 227, 0.1);
+}
+
+/* Progress bar styles */
+.progress-industrial {
+  background: linear-gradient(90deg, #0693e3 0%, #00d084 100%);
+}
+
+/* Badge styles */
+.badge-industrial {
+  background: linear-gradient(135deg, #32373c 0%, #1a1f24 100%);
+  color: white;
+}
+
+.badge-cyan {
+  background: linear-gradient(135deg, #0693e3 0%, #0570b0 100%);
+  color: white;
+}
+
+.badge-success {
+  background: linear-gradient(135deg, #00d084 0%, #00a868 100%);
+  color: white;
+}
+
+.badge-warning {
+  background: linear-gradient(135deg, #fcb900 0%, #ff6900 100%);
+  color: #1a1f24;
+}
+
+.badge-danger {
+  background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%);
+  color: white;
+}

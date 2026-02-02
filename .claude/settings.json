@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"c:\\\\python\\\\RFP-automation\\\\env\\\\Scripts\\\\python.exe\" main.py sharepoint \"Assembly Drawings/675 Assembly Drawings\" \"Assembly Drawings/All-Excel-files\")"
+    ]
+  }
+}
