@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from Dashboard.backend.user_management import authenticate_user
-from Dashboard.backend.user_management import list_users, update_user, get_user_by_email
+from services.user_service import authenticate_user, list_users, update_user, get_user_by_email
 from config.config import FORGOT_PASSWORD_FLOW_URL, COMPANY_OPTIONS
 import hmac, hashlib, base64, time, json
 import os
@@ -10,7 +9,7 @@ import os
 router = APIRouter(tags=["Auth"])
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATES_DIR = os.path.join(BASE_DIR, "Dashboard", "templates")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 templates.env.globals["COMPANY_OPTIONS"] = COMPANY_OPTIONS
 

@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Calendar, Save } from 'lucide-react'
+import { Calendar, Save, Loader2 } from 'lucide-react'
 
 import {
   Dialog,
@@ -59,6 +59,7 @@ const TIMEZONE_OPTIONS = [
 
 export function ScheduleDialog({ open, onOpenChange }: ScheduleDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   const {
@@ -77,6 +78,38 @@ export function ScheduleDialog({ open, onOpenChange }: ScheduleDialogProps) {
       max_concurrency: 1,
     },
   })
+
+  // Fetch existing schedule when dialog opens
+  useEffect(() => {
+    if (open) {
+      setIsLoading(true)
+      api.getSchedule()
+        .then((response) => {
+          if (response.ok && response.data) {
+            const data = response.data
+            // Populate form with existing schedule data
+            if (data.interval) setValue('interval', data.interval)
+            if (data.frequency) setValue('frequency', data.frequency)
+            if (data.timezone) setValue('timezone', data.timezone)
+            if (data.start_time) setValue('start_time', data.start_time)
+            if (data.max_concurrency) {
+              setValue('max_concurrency', data.max_concurrency)
+              setShowAdvanced(true)
+            }
+            if (data.notes) {
+              setValue('notes', data.notes)
+              setShowAdvanced(true)
+            }
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to fetch schedule:', error)
+        })
+        .finally(() => {
+          setIsLoading(false)
+        })
+    }
+  }, [open, setValue])
 
   const onSubmit = async (data: ScheduleFormData) => {
     setIsSubmitting(true)
@@ -109,6 +142,11 @@ export function ScheduleDialog({ open, onOpenChange }: ScheduleDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -216,6 +254,7 @@ export function ScheduleDialog({ open, onOpenChange }: ScheduleDialogProps) {
             </Button>
           </DialogFooter>
         </form>
+        )}
       </DialogContent>
     </Dialog>
   )

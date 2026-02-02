@@ -13,7 +13,7 @@ from rfp.download_rfp import *
 from core.common_process import *
 from helpers.email_helper import *  # if this file exists
 from rfp.rfp_reminder import send_rfp_deadline_reminders
-from Dashboard.backend.dashboard_backend import get_dashboard_data
+from services.dashboard_service import get_dashboard_data
 from fastapi import HTTPException
 from core.log_events import log_rfp_activity, start_new_run
 from bs4 import BeautifulSoup

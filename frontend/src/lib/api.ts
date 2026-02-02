@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api'
+import { ENDPOINTS } from './endpoints'
 
 export interface ApiError {
   message: string
@@ -22,9 +22,9 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 export const api = {
-  // Authentication
+  // ==================== Authentication ====================
   login: async (email: string, password: string) => {
-    const response = await fetch(`${API_BASE_URL}/login`, {
+    const response = await fetch(ENDPOINTS.AUTH.LOGIN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -34,7 +34,7 @@ export const api = {
   },
 
   logout: async () => {
-    const response = await fetch(`${API_BASE_URL}/logout`, {
+    const response = await fetch(ENDPOINTS.AUTH.LOGOUT, {
       method: 'POST',
       credentials: 'include',
     })
@@ -42,7 +42,7 @@ export const api = {
   },
 
   forgotPassword: async (email: string) => {
-    const response = await fetch(`${API_BASE_URL}/forgot`, {
+    const response = await fetch(ENDPOINTS.AUTH.FORGOT_PASSWORD, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
@@ -51,7 +51,7 @@ export const api = {
   },
 
   resetPassword: async (token: string, password: string) => {
-    const response = await fetch(`${API_BASE_URL}/reset-password`, {
+    const response = await fetch(ENDPOINTS.AUTH.RESET_PASSWORD, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, password }),
@@ -60,7 +60,7 @@ export const api = {
   },
 
   refreshSession: async () => {
-    const response = await fetch(`${API_BASE_URL}/session/refresh`, {
+    const response = await fetch(ENDPOINTS.AUTH.SESSION_REFRESH, {
       method: 'POST',
       credentials: 'include',
     })
@@ -68,21 +68,21 @@ export const api = {
   },
 
   getSessionStatus: async () => {
-    const response = await fetch(`${API_BASE_URL}/session/status`, {
+    const response = await fetch(ENDPOINTS.AUTH.SESSION_STATUS, {
       credentials: 'include',
     })
     return handleResponse<{ valid: boolean; user?: any }>(response)
   },
 
-  // Dashboard
+  // ==================== Dashboard ====================
   getDashboardData: async () => {
-    const response = await fetch(`${API_BASE_URL}/dashboard/data`, {
+    const response = await fetch(ENDPOINTS.DASHBOARD.DATA, {
       credentials: 'include',
     })
     return handleResponse<any>(response)
   },
 
-  // RFP Operations
+  // ==================== RFP Operations ====================
   getRfpDetails: async (params: {
     status?: string
     company?: string
@@ -94,15 +94,15 @@ export const api = {
     Object.entries(params).forEach(([key, value]) => {
       if (value) searchParams.append(key, value)
     })
-    const response = await fetch(`${API_BASE_URL}/dashboard/rfp-details?${searchParams}`, {
+    const response = await fetch(`${ENDPOINTS.DASHBOARD.RFP_DETAILS}?${searchParams}`, {
       credentials: 'include',
     })
     return handleResponse<any>(response)
   },
 
-  // Automation
+  // ==================== Automation ====================
   getAutomationStatus: async () => {
-    const response = await fetch(`${API_BASE_URL}/automation/status`, {
+    const response = await fetch(ENDPOINTS.AUTOMATION.STATUS, {
       credentials: 'include',
     })
     return handleResponse<{ status: string; progress: number }>(response)
@@ -110,8 +110,8 @@ export const api = {
 
   downloadRfps: async (company?: string) => {
     const url = company
-      ? `${API_BASE_URL}/download-rfp?company=${encodeURIComponent(company)}`
-      : `${API_BASE_URL}/download-rfp`
+      ? `${ENDPOINTS.RFP.DOWNLOAD}?company=${encodeURIComponent(company)}`
+      : ENDPOINTS.RFP.DOWNLOAD
     const response = await fetch(url, {
       credentials: 'include',
     })
@@ -119,7 +119,7 @@ export const api = {
   },
 
   submitRfp: async (formData: FormData) => {
-    const response = await fetch(`${API_BASE_URL}/dashboard/submit-rfp`, {
+    const response = await fetch(ENDPOINTS.DASHBOARD.SUBMIT_RFP, {
       method: 'POST',
       body: formData,
       credentials: 'include',
@@ -128,7 +128,7 @@ export const api = {
   },
 
   declineRfp: async (rfpTitle: string, company: string) => {
-    const response = await fetch(`${API_BASE_URL}/decline-rfp`, {
+    const response = await fetch(ENDPOINTS.RFP.DECLINE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rfp_title: rfpTitle, company }),
@@ -138,7 +138,7 @@ export const api = {
   },
 
   updateRfpStatus: async (rfpId: string, status: string) => {
-    const response = await fetch(`${API_BASE_URL}/rfp/status`, {
+    const response = await fetch(ENDPOINTS.RFP.UPDATE_STATUS, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rfp_id: rfpId, status }),
@@ -148,24 +148,24 @@ export const api = {
   },
 
   syncPortalData: async () => {
-    const response = await fetch(`${API_BASE_URL}/sync_portal_data`, {
+    const response = await fetch(ENDPOINTS.RFP.SYNC_PORTAL, {
       credentials: 'include',
     })
     return handleResponse(response)
   },
 
-  // Logs
+  // ==================== Logs ====================
   getAutomationLogs: async (page: number = 1, pageSize: number = 20) => {
     const response = await fetch(
-      `${API_BASE_URL}/dashboard/view-logs?page=${page}&page_size=${pageSize}`,
+      `${ENDPOINTS.DASHBOARD.VIEW_LOGS}?page=${page}&page_size=${pageSize}`,
       { credentials: 'include' }
     )
     return handleResponse<any>(response)
   },
 
-  // User Management
+  // ==================== User Management ====================
   getUsers: async () => {
-    const response = await fetch(`${API_BASE_URL}/users/user-list`, {
+    const response = await fetch(ENDPOINTS.USERS.LIST, {
       credentials: 'include',
     })
     return handleResponse<any>(response)
@@ -186,7 +186,7 @@ export const api = {
       role: userData.role,
       password: userData.password,
     }
-    const response = await fetch(`${API_BASE_URL}/users/create`, {
+    const response = await fetch(ENDPOINTS.USERS.CREATE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -202,7 +202,7 @@ export const api = {
       payload.mobile_number = payload.mobile
       delete payload.mobile
     }
-    const response = await fetch(`${API_BASE_URL}/users/update/${userId}`, {
+    const response = await fetch(ENDPOINTS.USERS.UPDATE(userId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -212,23 +212,23 @@ export const api = {
   },
 
   deleteUser: async (userId: string) => {
-    const response = await fetch(`${API_BASE_URL}/users/delete/${userId}`, {
+    const response = await fetch(ENDPOINTS.USERS.DELETE(userId), {
       method: 'DELETE',
       credentials: 'include',
     })
     return handleResponse(response)
   },
 
-  // Profile
+  // ==================== Profile ====================
   getProfile: async () => {
-    const response = await fetch(`${API_BASE_URL}/profile`, {
+    const response = await fetch(ENDPOINTS.PROFILE.GET, {
       credentials: 'include',
     })
     return handleResponse<any>(response)
   },
 
   updateProfile: async (profileData: { name?: string; mobile?: string }) => {
-    const response = await fetch(`${API_BASE_URL}/profile/update`, {
+    const response = await fetch(ENDPOINTS.PROFILE.UPDATE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(profileData),
@@ -238,7 +238,7 @@ export const api = {
   },
 
   changePassword: async (currentPassword: string, newPassword: string) => {
-    const response = await fetch(`${API_BASE_URL}/profile/change-password`, {
+    const response = await fetch(ENDPOINTS.PROFILE.CHANGE_PASSWORD, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
@@ -247,9 +247,9 @@ export const api = {
     return handleResponse(response)
   },
 
-  // SAP Password
+  // ==================== SAP Password ====================
   changeSapPassword: async (username: string, password: string) => {
-    const response = await fetch(`${API_BASE_URL}/sap/change-password`, {
+    const response = await fetch(ENDPOINTS.SAP.CHANGE_PASSWORD, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -259,15 +259,22 @@ export const api = {
   },
 
   getSapPasswordLogs: async () => {
-    const response = await fetch(`${API_BASE_URL}/dashboard/sap-password-logs`, {
+    const response = await fetch(ENDPOINTS.DASHBOARD.SAP_PASSWORD_LOGS, {
       credentials: 'include',
     })
     return handleResponse<any>(response)
   },
 
-  // Schedule
+  // ==================== Schedule ====================
+  getSchedule: async () => {
+    const response = await fetch(ENDPOINTS.SCHEDULE.GET_LATEST, {
+      credentials: 'include',
+    })
+    return handleResponse<{ ok: boolean; data: any }>(response)
+  },
+
   saveSchedule: async (scheduleData: any) => {
-    const response = await fetch(`${API_BASE_URL}/schedule/save`, {
+    const response = await fetch(ENDPOINTS.SCHEDULE.SAVE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(scheduleData),

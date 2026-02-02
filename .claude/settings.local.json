@@ -12,7 +12,9 @@
       "Bash(taskkill:*)",
       "Bash(exit 0)",
       "Bash(env\\\\Scripts\\\\python.exe -m pytest:*)",
-      "WebFetch(domain:bahra-electric.com)"
+      "WebFetch(domain:bahra-electric.com)",
+      "Bash(xcopy:*)",
+      "Bash(powershell:*)"
     ]
   }
 }

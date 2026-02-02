@@ -5,14 +5,14 @@ All routes are prefixed with /api
 
 from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import JSONResponse
-from Dashboard.backend.user_management import (
+from services.user_service import (
     authenticate_user, list_users, get_user, create_user, update_user, delete_user, get_user_by_email
 )
-from Dashboard.backend.dashboard_backend import (
+from services.dashboard_service import (
     get_dashboard_data_cached, get_all_rfp_data_cached, get_logs_data_cached
 )
-from Dashboard.backend.sap_password import create_sap_password_record, list_sap_password_records_cached
-from Dashboard.backend.role_management import has_access_to_feature
+from services.sap_service import create_sap_password_record, list_sap_password_records_cached
+from services.role_service import has_access_to_feature
 from config.config import FORGOT_PASSWORD_FLOW_URL
 import time
 import hmac

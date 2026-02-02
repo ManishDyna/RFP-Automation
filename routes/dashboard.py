@@ -1,14 +1,14 @@
 
 from fastapi import APIRouter, Request, HTTPException, Query, Body, UploadFile, File
-from Dashboard.backend.dashboard_backend import (
+from services.dashboard_service import (
     get_dashboard_data,
     get_logs_data,
     get_logs_data_cached,
     get_dashboard_data_cached,
     get_all_rfp_data_cached,
 )
-from Dashboard.backend.user_management import get_user, update_user, authenticate_user, get_user_by_email
-from Dashboard.backend.sap_password import create_sap_password_record, list_sap_password_records, list_sap_password_records_cached, invalidate_sap_password_cache
+from services.user_service import get_user, update_user, authenticate_user, get_user_by_email
+from services.sap_service import create_sap_password_record, list_sap_password_records, list_sap_password_records_cached, invalidate_sap_password_cache
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -64,7 +64,7 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up
-TEMPLATES_DIR = os.path.join(BASE_DIR, "Dashboard", "templates")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 templates.env.globals["COMPANY_OPTIONS"] = COMPANY_OPTIONS
@@ -87,7 +87,7 @@ _RFP_FILTER_OPTIONS = [
 ]
 
 # ===== Role-based Access Control Helpers =====
-from Dashboard.backend.role_management import is_admin, is_rfp_bidder, has_access_to_feature
+from services.role_service import is_admin, is_rfp_bidder, has_access_to_feature
 
 def _normalize_participation(raw_status: str) -> str:
     value = (raw_status or "").strip().lower()
@@ -379,7 +379,7 @@ async def analytics(request: Request, refresh: int = Query(0)):
     user = request.session.get("user")
     if not has_access_to_feature(user, "analytics"):
         return HTMLResponse(status_code=403, content="Access denied. Admin access required.")
-    from Dashboard.backend.dashboard_backend import get_dashboard_data_cached
+    from services.dashboard_service import get_dashboard_data_cached
     data = get_dashboard_data_cached(force_refresh=bool(refresh))
     headers = {
         "Cache-Control": f"private, max-age={DASHBOARD_HTTP_MAX_AGE}",

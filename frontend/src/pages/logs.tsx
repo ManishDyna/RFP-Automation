@@ -165,7 +165,7 @@ export default function LogsPage() {
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b border-slate-100 bg-slate-50/50">
           <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
-            <Activity className="h-5 w-5 text-indigo-600" />
+            <Activity className="h-5 w-5 text-red-600" />
             Event History
           </CardTitle>
           <div className="flex items-center gap-3">
@@ -253,7 +253,7 @@ export default function LogsPage() {
                           {log.event_type || '-'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="font-medium text-indigo-600">
+                      <TableCell className="font-medium text-red-600">
                         {log.rfp_id || '-'}
                       </TableCell>
                       <TableCell className="text-sm text-slate-600">{log.action || '-'}</TableCell>

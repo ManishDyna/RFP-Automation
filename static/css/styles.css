@@ -2,7 +2,7 @@
  * Bahra Electric Color Scheme
  * Based on bahra-electric.com website palette
  * Primary: Industrial Dark Gray (#32373c)
- * Accent: Vivid Cyan Blue (#0693e3)
+ * Accent: Bahra Red (#cf2e2e)
  * Success: Vivid Green Cyan (#00d084)
  */
 
@@ -10,20 +10,20 @@
     --primary-color: #32373c;
     --primary-dark: #1a1f24;
     --primary-light: #474d52;
-    --accent-color: #0693e3;
-    --accent-dark: #0570b0;
-    --accent-light: #4ab3f0;
+    --accent-color: #cf2e2e;
+    --accent-dark: #a82424;
+    --accent-light: #e85555;
     --secondary-color: #abb8c3;
     --success-color: #00d084;
     --danger-color: #cf2e2e;
     --warning-color: #fcb900;
     --warning-orange: #ff6900;
-    --info-color: #0693e3;
+    --info-color: #cf2e2e;
     --light-color: #f8fafc;
     --dark-color: #1a1f24;
     --purple-accent: #9b51e0;
     --bahra-gray: #32373c;
-    --bahra-cyan: #0693e3;
+    --bahra-red: #cf2e2e;
     --bahra-muted: #abb8c3;
 }
 
@@ -35,14 +35,14 @@
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #f8fafc 0%, #e8f4fc 50%, #f1f5f9 100%);
+    background: linear-gradient(135deg, #f8fafc 0%, #fcf0f0 50%, #f1f5f9 100%);
     background-attachment: fixed;
     line-height: 1.6;
 }
 
 /* Login Styles */
 .login-container {
-    background: linear-gradient(135deg, #1a1f24 0%, #32373c 50%, #0a3d62 100%);
+    background: linear-gradient(135deg, #1a1f24 0%, #32373c 50%, #3d1a1a 100%);
     min-height: 100vh;
     display: flex;
     align-items: center;
@@ -59,8 +59,8 @@ body {
     right: 0;
     bottom: 0;
     background-image:
-        radial-gradient(circle at 25% 25%, rgba(6, 147, 227, 0.2) 0%, transparent 50%),
-        radial-gradient(circle at 75% 75%, rgba(0, 208, 132, 0.15) 0%, transparent 50%);
+        radial-gradient(circle at 25% 25%, rgba(207, 46, 46, 0.2) 0%, transparent 50%),
+        radial-gradient(circle at 75% 75%, rgba(255, 105, 0, 0.15) 0%, transparent 50%);
     pointer-events: none;
 }
 
@@ -104,7 +104,7 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    background: linear-gradient(180deg, rgba(6, 147, 227, 0.05) 0%, rgba(0, 208, 132, 0.03) 100%);
+    background: linear-gradient(180deg, rgba(207, 46, 46, 0.05) 0%, rgba(255, 105, 0, 0.03) 100%);
     z-index: 0;
 }
 
@@ -127,9 +127,9 @@ body {
 .sidebar .nav-link:hover,
 .sidebar .nav-link.active {
     color: white;
-    background: linear-gradient(135deg, rgba(6, 147, 227, 0.3) 0%, rgba(6, 147, 227, 0.15) 100%);
+    background: linear-gradient(135deg, rgba(207, 46, 46, 0.3) 0%, rgba(207, 46, 46, 0.15) 100%);
     transform: translateX(8px);
-    box-shadow: 0 4px 15px rgba(6, 147, 227, 0.3);
+    box-shadow: 0 4px 15px rgba(207, 46, 46, 0.3);
     border-left: 3px solid var(--accent-color);
 }
 
@@ -156,12 +156,12 @@ body {
 
 .card:hover {
     transform: translateY(-4px);
-    box-shadow: 0 8px 30px rgba(6, 147, 227, 0.12);
-    border-color: rgba(6, 147, 227, 0.2);
+    box-shadow: 0 8px 30px rgba(207, 46, 46, 0.12);
+    border-color: rgba(207, 46, 46, 0.2);
 }
 
 .card-header {
-    border-bottom: 2px solid rgba(6, 147, 227, 0.1);
+    border-bottom: 2px solid rgba(207, 46, 46, 0.1);
     padding: 20px;
     background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
 }
@@ -189,8 +189,8 @@ body {
 
 .stats-card:hover {
     transform: translateY(-6px);
-    box-shadow: 0 10px 40px rgba(6, 147, 227, 0.15);
-    border-color: rgba(6, 147, 227, 0.3);
+    box-shadow: 0 10px 40px rgba(207, 46, 46, 0.15);
+    border-color: rgba(207, 46, 46, 0.3);
 }
 
 .stats-icon {
@@ -219,7 +219,7 @@ body {
 }
 
 .stats-icon.bg-primary {
-    background: linear-gradient(135deg, #0693e3 0%, #0570b0 100%) !important;
+    background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%) !important;
 }
 
 .stats-icon.bg-success {
@@ -278,17 +278,17 @@ body {
 
 .btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(6, 147, 227, 0.25);
+    box-shadow: 0 6px 20px rgba(207, 46, 46, 0.25);
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, #0693e3 0%, #0570b0 100%);
+    background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%);
     border: none;
     color: white;
 }
 
 .btn-primary:hover {
-    background: linear-gradient(135deg, #00d084 0%, #00a868 100%);
+    background: linear-gradient(135deg, #e85555 0%, #cf2e2e 100%);
 }
 
 .btn-secondary {
@@ -352,7 +352,7 @@ body {
 }
 
 .table th {
-    background: linear-gradient(135deg, #f8fafc 0%, #e8f4fc 100%);
+    background: linear-gradient(135deg, #f8fafc 0%, #fcf0f0 100%);
     border: none;
     font-weight: 600;
     color: var(--bahra-gray);
@@ -360,7 +360,7 @@ body {
     font-size: 14px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    border-bottom: 2px solid rgba(6, 147, 227, 0.15);
+    border-bottom: 2px solid rgba(207, 46, 46, 0.15);
 }
 
 .table td {
@@ -375,7 +375,7 @@ body {
 }
 
 .table tbody tr:hover {
-    background-color: rgba(6, 147, 227, 0.04);
+    background-color: rgba(207, 46, 46, 0.04);
     transform: none;
 }
 
@@ -389,7 +389,7 @@ body {
 }
 
 .badge.bg-primary {
-    background: linear-gradient(135deg, #0693e3 0%, #0570b0 100%) !important;
+    background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%) !important;
 }
 
 .badge.bg-success {
@@ -422,7 +422,7 @@ body {
 }
 
 .modal-header {
-    border-bottom: 2px solid rgba(6, 147, 227, 0.1);
+    border-bottom: 2px solid rgba(207, 46, 46, 0.1);
     padding: 24px;
     background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
 }
@@ -437,7 +437,7 @@ body {
 }
 
 .modal-footer {
-    border-top: 2px solid rgba(6, 147, 227, 0.1);
+    border-top: 2px solid rgba(207, 46, 46, 0.1);
     padding: 24px;
     background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
 }
@@ -455,7 +455,7 @@ body {
 .form-control:focus,
 .form-select:focus {
     border-color: var(--accent-color);
-    box-shadow: 0 0 0 3px rgba(6, 147, 227, 0.15);
+    box-shadow: 0 0 0 3px rgba(207, 46, 46, 0.15);
 }
 
 .form-label {
@@ -473,7 +473,7 @@ body {
 }
 
 .list-group-item:hover {
-    background-color: rgba(6, 147, 227, 0.04);
+    background-color: rgba(207, 46, 46, 0.04);
     border-left: 3px solid var(--accent-color);
     padding-left: 13px;
 }
@@ -491,8 +491,8 @@ header {
 
 .brand-logo-circle:hover {
     transform: scale(1.05);
-    border-color: rgba(6, 147, 227, 0.4);
-    box-shadow: 0 4px 12px rgba(6, 147, 227, 0.2);
+    border-color: rgba(207, 46, 46, 0.4);
+    box-shadow: 0 4px 12px rgba(207, 46, 46, 0.2);
 }
 
 .brand-logo {
@@ -620,14 +620,14 @@ header {
 }
 
 .alert-info {
-    background: linear-gradient(135deg, rgba(6, 147, 227, 0.15) 0%, rgba(5, 112, 176, 0.1) 100%);
-    color: #0570b0;
+    background: linear-gradient(135deg, rgba(207, 46, 46, 0.15) 0%, rgba(168, 36, 36, 0.1) 100%);
+    color: #a82424;
     border-left: 4px solid var(--info-color);
 }
 
 /* Gradient Text */
 .gradient-text {
-    background: linear-gradient(135deg, #0693e3 0%, #00d084 100%);
+    background: linear-gradient(135deg, #cf2e2e 0%, #ff6900 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -646,7 +646,7 @@ header {
 }
 
 .table-container {
-    border: 1px solid rgba(6, 147, 227, 0.15);
+    border: 1px solid rgba(207, 46, 46, 0.15);
     border-radius: 0.5rem;
     overflow: hidden;
 }
@@ -685,7 +685,7 @@ canvas {
 }
 
 .bg-bahra-accent {
-    background: linear-gradient(135deg, #0693e3 0%, #0570b0 100%) !important;
+    background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%) !important;
     color: white !important;
 }
 
@@ -712,7 +712,7 @@ canvas {
 
 /* Progress Bar - Brand Color */
 .progress-bar.bg-primary {
-    background: linear-gradient(90deg, #0693e3 0%, #00d084 100%) !important;
+    background: linear-gradient(90deg, #cf2e2e 0%, #ff6900 100%) !important;
 }
 
 /* Link Colors */
@@ -743,7 +743,7 @@ button.runbtn_disable {
 
 /* Nav tabs styling */
 .nav-tabs {
-    border-bottom: 2px solid rgba(6, 147, 227, 0.15);
+    border-bottom: 2px solid rgba(207, 46, 46, 0.15);
 }
 
 .nav-tabs .nav-link {
@@ -757,7 +757,7 @@ button.runbtn_disable {
 
 .nav-tabs .nav-link:hover {
     color: var(--accent-color);
-    background: rgba(6, 147, 227, 0.05);
+    background: rgba(207, 46, 46, 0.05);
 }
 
 .nav-tabs .nav-link.active {
@@ -781,7 +781,7 @@ button.runbtn_disable {
 }
 
 .dropdown-item:hover {
-    background: rgba(6, 147, 227, 0.1);
+    background: rgba(207, 46, 46, 0.1);
     color: var(--accent-color);
 }
 
@@ -803,11 +803,11 @@ button.runbtn_disable {
 }
 
 .pagination .page-link:hover {
-    background: rgba(6, 147, 227, 0.1);
+    background: rgba(207, 46, 46, 0.1);
     color: var(--accent-color);
 }
 
 .pagination .page-item.active .page-link {
-    background: linear-gradient(135deg, #0693e3 0%, #0570b0 100%);
+    background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%);
     color: white;
 }

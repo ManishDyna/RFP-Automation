@@ -204,7 +204,7 @@ export default function RfpInsightsPage() {
       <Card className="mb-6 border-slate-200 shadow-sm">
         <CardHeader className="pb-4">
           <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
-            <Filter className="h-4 w-4 text-indigo-500" />
+            <Filter className="h-4 w-4 text-red-500" />
             Filters
           </CardTitle>
         </CardHeader>
@@ -302,7 +302,7 @@ export default function RfpInsightsPage() {
                 </div>
                 <Button
                   onClick={handleApplyFilters}
-                  className="bg-indigo-600 hover:bg-indigo-700 shadow-sm"
+                  className="bg-red-600 hover:bg-red-700 shadow-sm"
                 >
                   <Filter className="h-4 w-4 mr-2" />
                   Apply
@@ -380,7 +380,7 @@ export default function RfpInsightsPage() {
                             href={rfp.Link}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-indigo-600 hover:text-indigo-700 hover:underline inline-flex items-center gap-1.5 font-semibold"
+                            className="text-red-600 hover:text-red-700 hover:underline inline-flex items-center gap-1.5 font-semibold"
                           >
                             {rfp.RFP_ID}
                             <ExternalLink className="h-3.5 w-3.5" />
@@ -405,7 +405,7 @@ export default function RfpInsightsPage() {
                               size="sm"
                               variant="outline"
                               asChild
-                              className="h-8 border-slate-200 hover:bg-slate-50 hover:border-indigo-200 hover:text-indigo-600"
+                              className="h-8 border-slate-200 hover:bg-slate-50 hover:border-red-200 hover:text-red-600"
                             >
                               <a href={rfp.Link} target="_blank" rel="noopener noreferrer">
                                 <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
@@ -415,7 +415,7 @@ export default function RfpInsightsPage() {
                           )}
                           <Button
                             size="sm"
-                            className="h-8 bg-emerald-600 hover:bg-emerald-700 shadow-sm"
+                            className="h-8 bg-red-600 hover:bg-red-700 shadow-sm"
                           >
                             <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />
                             Excel

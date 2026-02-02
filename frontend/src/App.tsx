@@ -28,10 +28,10 @@ function LoadingScreen() {
     <div className="flex h-screen items-center justify-center bg-slate-50">
       <div className="text-center">
         <div className="relative">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-xl shadow-indigo-500/30 mx-auto mb-6">
-            <span className="text-white font-bold text-2xl">R</span>
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-red-600 to-red-700 flex items-center justify-center shadow-xl shadow-red-500/30 mx-auto mb-6">
+            <img src="/bahra-logo.svg" alt="Bahra Electric" className="h-10 w-auto" />
           </div>
-          <div className="absolute -inset-2 rounded-2xl bg-indigo-500/20 animate-ping" />
+          <div className="absolute -inset-2 rounded-2xl bg-red-500/20 animate-ping" />
         </div>
         <h2 className="text-lg font-semibold text-slate-800 mb-1">RFP Portal</h2>
         <p className="text-sm text-slate-500">Loading your workspace...</p>

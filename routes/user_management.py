@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
-from Dashboard.backend.user_management import list_users, get_user, create_user, update_user, delete_user
-from Dashboard.backend.role_management import has_access_to_feature
+from services.user_service import list_users, get_user, create_user, update_user, delete_user
+from services.role_service import has_access_to_feature
 from fastapi.responses import HTMLResponse
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
@@ -9,7 +9,7 @@ from config.config import COMPANY_OPTIONS
 
 router = APIRouter(prefix="/users", tags=["Users"])
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up
-TEMPLATES_DIR = os.path.join(BASE_DIR, "Dashboard", "templates")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 templates.env.globals["COMPANY_OPTIONS"] = COMPANY_OPTIONS

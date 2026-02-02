@@ -17,9 +17,9 @@ import os
 
 app = FastAPI(title="Bahra Dashboard")
 
-# Static assets for templates
+# Static assets for templates (legacy UI)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "Dashboard", "static")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # Sessions (dashboard only)

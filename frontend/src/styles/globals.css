@@ -15,18 +15,18 @@
     --popover: 0 0% 100%;
     --popover-foreground: 210 24% 16%;
 
-    /* Primary - Industrial Dark Gray */
-    --primary: 210 10% 23%;
+    /* Primary - Bahra Electric Red */
+    --primary: 4 78% 50%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 199 89% 48%;
+    --secondary: 4 78% 50%;
     --secondary-foreground: 0 0% 100%;
 
     --muted: 210 16% 82%;
     --muted-foreground: 210 10% 40%;
 
-    /* Accent - Vivid Cyan Blue */
-    --accent: 199 89% 48%;
+    /* Accent - Bahra Electric Red */
+    --accent: 4 78% 50%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 4 78% 50%;
@@ -34,23 +34,25 @@
 
     --border: 210 16% 88%;
     --input: 210 16% 88%;
-    --ring: 199 89% 48%;
+    --ring: 4 78% 50%;
 
     --radius: 0.625rem;
 
-    /* Sidebar - Industrial Dark */
+    /* Sidebar - Industrial Dark with Red Accent */
     --sidebar-background: 210 24% 16%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 199 89% 48%;
+    --sidebar-primary: 4 78% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 210 18% 22%;
     --sidebar-accent-foreground: 210 40% 98%;
     --sidebar-border: 210 18% 22%;
-    --sidebar-ring: 199 89% 48%;
+    --sidebar-ring: 4 78% 50%;
 
-    /* Bahra Electric Brand Colors */
+    /* Bahra Electric Brand Colors - Red Accent Theme */
     --bahra-dark-gray: #32373c;
-    --bahra-cyan-blue: #0693e3;
+    --bahra-accent: #cf2e2e;
+    --bahra-accent-dark: #a82424;
+    --bahra-accent-light: #e85555;
     --bahra-green-cyan: #00d084;
     --bahra-red: #cf2e2e;
     --bahra-orange: #ff6900;
@@ -69,7 +71,7 @@
     --popover: 210 24% 12%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 199 89% 48%;
+    --primary: 4 78% 50%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 210 18% 22%;
@@ -78,24 +80,24 @@
     --muted: 210 18% 22%;
     --muted-foreground: 210 20% 65%;
 
-    --accent: 199 70% 35%;
-    --accent-foreground: 199 89% 80%;
+    --accent: 4 65% 40%;
+    --accent-foreground: 4 78% 85%;
 
     --destructive: 4 62% 50%;
     --destructive-foreground: 0 0% 100%;
 
     --border: 210 18% 22%;
     --input: 210 18% 22%;
-    --ring: 199 89% 48%;
+    --ring: 4 78% 50%;
 
     --sidebar-background: 210 24% 7%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 199 89% 48%;
+    --sidebar-primary: 4 78% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 210 18% 15%;
     --sidebar-accent-foreground: 210 40% 98%;
     --sidebar-border: 210 18% 15%;
-    --sidebar-ring: 199 89% 48%;
+    --sidebar-ring: 4 78% 50%;
   }
 }
 
@@ -127,7 +129,7 @@
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--bahra-cyan-blue);
+  background: var(--bahra-accent);
 }
 
 /* Page transition animations */
@@ -152,9 +154,9 @@
   @apply absolute inset-0 rounded-full bg-current animate-pulse-ring;
 }
 
-/* Gradient text - Bahra Industrial Cyan */
+/* Gradient text - Bahra Electric Red */
 .gradient-text {
-  background: linear-gradient(135deg, #0693e3 0%, #00d084 100%);
+  background: linear-gradient(135deg, #cf2e2e 0%, #ff6900 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -163,7 +165,7 @@
 /* Glass morphism effect */
 .glass {
   @apply bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl;
-  border: 1px solid rgba(6, 147, 227, 0.15);
+  border: 1px solid rgba(207, 46, 46, 0.15);
 }
 
 /* Sidebar gradient background - Industrial Dark */
@@ -173,7 +175,7 @@
 
 /* Soft background for main content */
 .bg-soft-gradient {
-  background: linear-gradient(135deg, #f8fafc 0%, #e8f4fc 50%, #f1f5f9 100%);
+  background: linear-gradient(135deg, #f8fafc 0%, #fcf0f0 50%, #f1f5f9 100%);
 }
 
 /* Card hover effect */
@@ -183,7 +185,7 @@
 }
 
 .card-hover:hover {
-  box-shadow: 0 8px 30px rgba(6, 147, 227, 0.15);
+  box-shadow: 0 8px 30px rgba(207, 46, 46, 0.15);
 }
 
 /* Button shine effect */
@@ -210,13 +212,13 @@
 /* Table styles */
 .table-container {
   @apply rounded-xl border overflow-hidden;
-  border-color: rgba(6, 147, 227, 0.2);
+  border-color: rgba(207, 46, 46, 0.2);
 }
 
 /* Form focus ring with brand color */
 .focus-ring-primary {
   @apply focus:ring-2 focus:border-transparent;
-  --tw-ring-color: rgba(6, 147, 227, 0.3);
+  --tw-ring-color: rgba(207, 46, 46, 0.3);
 }
 
 /* Modern input styling */
@@ -228,8 +230,8 @@
 }
 
 .input-modern:focus {
-  border-color: var(--bahra-cyan-blue);
-  box-shadow: 0 0 0 3px rgba(6, 147, 227, 0.15);
+  border-color: var(--bahra-accent);
+  box-shadow: 0 0 0 3px rgba(207, 46, 46, 0.15);
 }
 
 /* Stats card gradient backgrounds - Bahra colors */
@@ -251,13 +253,13 @@
 
 /* Login page specific - Industrial gradient */
 .login-illustration {
-  background: linear-gradient(135deg, #1a1f24 0%, #32373c 50%, #0a3d62 100%);
+  background: linear-gradient(135deg, #1a1f24 0%, #32373c 50%, #3d1a1a 100%);
 }
 
 .login-pattern {
   background-image:
-    radial-gradient(circle at 25% 25%, rgba(6, 147, 227, 0.2) 0%, transparent 50%),
-    radial-gradient(circle at 75% 75%, rgba(0, 208, 132, 0.15) 0%, transparent 50%);
+    radial-gradient(circle at 25% 25%, rgba(207, 46, 46, 0.2) 0%, transparent 50%),
+    radial-gradient(circle at 75% 75%, rgba(255, 105, 0, 0.15) 0%, transparent 50%);
 }
 
 /* Bahra Electric specific utility classes */
@@ -266,7 +268,7 @@
 }
 
 .bg-bahra-accent {
-  background-color: var(--bahra-cyan-blue);
+  background-color: var(--bahra-accent);
 }
 
 .bg-bahra-success {
@@ -286,7 +288,7 @@
 }
 
 .text-bahra-accent {
-  color: var(--bahra-cyan-blue);
+  color: var(--bahra-accent);
 }
 
 .text-bahra-success {
@@ -309,26 +311,39 @@
 }
 
 .btn-industrial:hover {
-  background: linear-gradient(135deg, #0693e3 0%, #0570b0 100%);
+  background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(6, 147, 227, 0.3);
+  box-shadow: 0 6px 20px rgba(207, 46, 46, 0.3);
 }
 
+.btn-red {
+  background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%);
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.btn-red:hover {
+  background: linear-gradient(135deg, #e85555 0%, #cf2e2e 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(207, 46, 46, 0.4);
+}
+
+/* Legacy cyan button - now uses red */
 .btn-cyan {
-  background: linear-gradient(135deg, #0693e3 0%, #0570b0 100%);
+  background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%);
   color: white;
   transition: all 0.3s ease;
 }
 
 .btn-cyan:hover {
-  background: linear-gradient(135deg, #00d084 0%, #00a868 100%);
+  background: linear-gradient(135deg, #e85555 0%, #cf2e2e 100%);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 208, 132, 0.3);
+  box-shadow: 0 6px 20px rgba(207, 46, 46, 0.3);
 }
 
 /* Header accent line */
 .header-accent {
-  border-bottom: 3px solid var(--bahra-cyan-blue);
+  border-bottom: 3px solid var(--bahra-accent);
 }
 
 /* Industrial card style */
@@ -341,13 +356,13 @@
 }
 
 .card-industrial:hover {
-  border-color: rgba(6, 147, 227, 0.3);
-  box-shadow: 0 8px 30px rgba(6, 147, 227, 0.1);
+  border-color: rgba(207, 46, 46, 0.3);
+  box-shadow: 0 8px 30px rgba(207, 46, 46, 0.1);
 }
 
 /* Progress bar styles */
 .progress-industrial {
-  background: linear-gradient(90deg, #0693e3 0%, #00d084 100%);
+  background: linear-gradient(90deg, #cf2e2e 0%, #ff6900 100%);
 }
 
 /* Badge styles */
@@ -356,8 +371,14 @@
   color: white;
 }
 
+.badge-red {
+  background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%);
+  color: white;
+}
+
+/* Legacy cyan badge - now uses red */
 .badge-cyan {
-  background: linear-gradient(135deg, #0693e3 0%, #0570b0 100%);
+  background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%);
   color: white;
 }
 

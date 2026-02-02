@@ -16,20 +16,23 @@ export default {
     extend: {
       colors: {
         // Bahra Electric Industrial Color Palette
-        // Based on bahra-electric.com website
+        // Based on bahra-electric.com website - Red accent theme
         brand: {
           primary: "#32373c",
           "primary-dark": "#1a1f24",
           "primary-light": "#474d52",
-          accent: "#0693e3",
-          "accent-dark": "#0570b0",
-          "accent-light": "#4ab3f0",
+          accent: "#cf2e2e",
+          "accent-dark": "#a82424",
+          "accent-light": "#e85555",
           success: "#00d084",
           warning: "#fcb900",
           orange: "#ff6900",
           danger: "#cf2e2e",
           purple: "#9b51e0",
           muted: "#abb8c3",
+          red: "#cf2e2e",
+          "red-dark": "#a82424",
+          "red-light": "#e85555",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -73,7 +76,7 @@ export default {
           foreground: "#1a1f24",
         },
         info: {
-          DEFAULT: "#0693e3",
+          DEFAULT: "#cf2e2e",
           foreground: "#ffffff",
         },
         sidebar: {
@@ -123,13 +126,14 @@ export default {
       },
       boxShadow: {
         "industrial": "0 4px 20px rgba(50, 55, 60, 0.08)",
-        "industrial-hover": "0 8px 30px rgba(6, 147, 227, 0.15)",
-        "cyan-glow": "0 0 20px rgba(6, 147, 227, 0.3)",
+        "industrial-hover": "0 8px 30px rgba(207, 46, 46, 0.15)",
+        "red-glow": "0 0 20px rgba(207, 46, 46, 0.3)",
         "success-glow": "0 0 20px rgba(0, 208, 132, 0.3)",
       },
       backgroundImage: {
         "industrial-gradient": "linear-gradient(135deg, #1a1f24 0%, #32373c 100%)",
-        "cyan-gradient": "linear-gradient(135deg, #0693e3 0%, #0570b0 100%)",
+        "red-gradient": "linear-gradient(135deg, #cf2e2e 0%, #a82424 100%)",
+        "accent-gradient": "linear-gradient(135deg, #cf2e2e 0%, #a82424 100%)",
         "success-gradient": "linear-gradient(135deg, #00d084 0%, #00a868 100%)",
         "warning-gradient": "linear-gradient(135deg, #fcb900 0%, #ff6900 100%)",
         "danger-gradient": "linear-gradient(135deg, #cf2e2e 0%, #a82424 100%)",

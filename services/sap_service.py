@@ -1,3 +1,8 @@
+"""
+SAP service - SAP password management operations.
+Moved from Dashboard/backend/sap_password.py
+"""
+
 from datetime import datetime
 from typing import Dict, List
 
@@ -6,10 +11,7 @@ from config.config import SAP_PASSWORD_TABLE_API, SAP_PASSWORD_TABLE_LOGICAL, SA
 
 
 def create_sap_password_record(password: str, user_email: str, username: str | None = None) -> bool:
-    """
-    Insert a new SAP password row into Dataverse using display names.
-    Columns (display): id (auto), password, created, updated, created_by, updated_by, username
-    """
+    """Insert a new SAP password row into Dataverse using display names."""
     now_iso = datetime.utcnow().isoformat()
     data: Dict[str, str] = {
         "password": str(password),
@@ -26,9 +28,11 @@ def create_sap_password_record(password: str, user_email: str, username: str | N
         use_display_names=True,
     )
 
+
 # ===== Short-lived cache for SAP password logs =====
 _SAP_LOGS_CACHE = {"data": None, "ts": 0, "top": None}
 _SAP_LOGS_TTL_SECONDS = SAP_LOGS_TTL_SECONDS
+
 
 def invalidate_sap_password_cache():
     _SAP_LOGS_CACHE["data"] = None
@@ -37,9 +41,7 @@ def invalidate_sap_password_cache():
 
 
 def list_sap_password_records(top: int = 200) -> List[Dict]:
-    """
-    Fetch recent SAP password records using display names.
-    """
+    """Fetch recent SAP password records using display names."""
     try:
         rows = DATAVERSE.get_rows_from_dataverse(
             table_api_name=SAP_PASSWORD_TABLE_API,
@@ -51,6 +53,7 @@ def list_sap_password_records(top: int = 200) -> List[Dict]:
         return rows or []
     except Exception:
         return []
+
 
 def list_sap_password_records_cached(force_refresh: bool = False, top: int = 200) -> List[Dict]:
     from time import time as _now

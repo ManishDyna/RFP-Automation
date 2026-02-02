@@ -188,7 +188,7 @@ function RfpTable({ rfps, showActions = false, onSubmit }: RfpTableProps) {
                   href={rfp.Link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 font-medium text-sm"
+                  className="inline-flex items-center gap-1.5 text-red-600 hover:text-red-700 font-medium text-sm"
                 >
                   {rfp.RFP_ID}
                   <ExternalLink className="h-3.5 w-3.5" />
@@ -203,7 +203,7 @@ function RfpTable({ rfps, showActions = false, onSubmit }: RfpTableProps) {
             {showActions && (
               <TableCell>
                 {rfp.match_percentage && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-50 text-red-700">
                     {rfp.match_percentage}
                   </span>
                 )}
@@ -217,7 +217,7 @@ function RfpTable({ rfps, showActions = false, onSubmit }: RfpTableProps) {
                 <Button
                   size="sm"
                   onClick={() => onSubmit?.(rfp.RFP_ID)}
-                  className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="h-8 bg-red-600 hover:bg-red-700 text-white opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <Send className="h-3.5 w-3.5 mr-1.5" />
                   Submit
@@ -325,8 +325,8 @@ export default function DashboardPage() {
         <CardHeader className="border-b border-slate-100 bg-slate-50/50">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-indigo-50">
-                <Building2 className="h-5 w-5 text-indigo-600" />
+              <div className="p-2 rounded-lg bg-red-50">
+                <Building2 className="h-5 w-5 text-red-600" />
               </div>
               <div>
                 <CardTitle className="text-base font-semibold text-slate-800">
@@ -341,7 +341,7 @@ export default function DashboardPage() {
               size="sm"
               onClick={handleSyncPortal}
               disabled={isRefetching}
-              className="bg-indigo-600 hover:bg-indigo-700 h-9"
+              className="bg-red-600 hover:bg-red-700 h-9"
             >
               <RefreshCw className={cn('h-4 w-4 mr-2', isRefetching && 'animate-spin')} />
               Sync Portal
@@ -384,9 +384,9 @@ export default function DashboardPage() {
                         value={company}
                         className={cn(
                           'relative px-4 py-3 text-sm font-medium text-slate-500',
-                          'data-[state=active]:text-indigo-600 data-[state=active]:bg-transparent',
+                          'data-[state=active]:text-red-600 data-[state=active]:bg-transparent',
                           'data-[state=active]:shadow-none rounded-none border-b-2 border-transparent',
-                          'data-[state=active]:border-indigo-600 transition-all'
+                          'data-[state=active]:border-red-600 transition-all'
                         )}
                       >
                         <Building2 className="h-4 w-4 mr-2 inline" />

@@ -76,15 +76,11 @@ export function Sidebar({
             style={{ borderBottom: '1px solid rgba(6, 147, 227, 0.2)' }}
           >
             <div className={cn('flex items-center gap-3', collapsed && 'justify-center w-full')}>
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center shadow-lg shrink-0"
-                style={{
-                  background: 'linear-gradient(135deg, #0693e3 0%, #00d084 100%)',
-                  boxShadow: '0 4px 15px rgba(6, 147, 227, 0.3)'
-                }}
-              >
-                <span className="text-white font-bold text-sm">R</span>
-              </div>
+              <img
+                src="/bahra-logo.svg"
+                alt="Bahra Electric"
+                className="h-8 w-auto shrink-0"
+              />
               {!collapsed && (
                 <span className="text-lg font-semibold text-white">RFP Portal</span>
               )}
