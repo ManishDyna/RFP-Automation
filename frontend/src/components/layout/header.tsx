@@ -71,11 +71,13 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
         {/* Left - Logo (hidden on desktop since sidebar has it) */}
         <div className="flex items-center gap-4 lg:hidden">
           <Link to="/dashboard" className="flex items-center gap-2">
-            <img
-              src="/bahra-logo.svg"
-              alt="Bahra Electric"
-              className="h-8 w-auto"
-            />
+            <div className="bg-white rounded-xl p-2 shadow-sm border border-slate-100">
+              <img
+                src="/bahra-logo.svg"
+                alt="Bahra Electric"
+                className="h-8 w-auto"
+              />
+            </div>
           </Link>
         </div>
 
@@ -87,7 +89,7 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
               placeholder="Search RFPs, companies, logs..."
               className={cn(
                 'pl-9 pr-20 h-9 bg-slate-50 border-slate-200',
-                'focus:bg-white focus:border-red-300 focus:ring-2 focus:ring-red-100',
+                'focus:bg-white focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100',
                 'placeholder:text-slate-400 text-sm transition-all',
                 searchFocused && 'w-full'
               )}
@@ -126,7 +128,7 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
           <Button
             size="sm"
             onClick={onDownloadAll}
-            className="h-9 bg-red-600 hover:bg-red-700 text-white shadow-sm hidden sm:flex"
+            className="h-9 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm hidden sm:flex"
           >
             <Download className="h-4 w-4 mr-2" />
             Download RFPs
@@ -138,7 +140,7 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
               <Button
                 size="icon"
                 onClick={onDownloadAll}
-                className="h-9 w-9 bg-red-600 hover:bg-red-700 text-white sm:hidden"
+                className="h-9 w-9 bg-indigo-600 hover:bg-indigo-700 text-white sm:hidden"
               >
                 <Download className="h-4 w-4" />
               </Button>
@@ -187,7 +189,7 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
                 className="h-9 flex items-center gap-2 px-2 hover:bg-slate-100"
               >
                 <Avatar className="h-7 w-7">
-                  <AvatarFallback className="bg-gradient-to-br from-red-600 to-red-700 text-white text-xs font-medium">
+                  <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-violet-600 text-white text-xs font-medium">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
@@ -204,7 +206,7 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium text-slate-900">{user?.name}</p>
                   <p className="text-xs text-slate-500">{user?.email}</p>
-                  <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-700/10 w-fit mt-1">
+                  <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10 w-fit mt-1">
                     {user?.role || 'User'}
                   </span>
                 </div>

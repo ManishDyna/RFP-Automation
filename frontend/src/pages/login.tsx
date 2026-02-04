@@ -100,14 +100,16 @@ export default function LoginPage() {
       {/* Left Side - Illustration & Features */}
       <div className="hidden lg:flex lg:w-[55%] login-illustration login-pattern relative overflow-hidden">
         {/* Decorative Elements */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-red-500/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 left-0 w-80 h-80 bg-red-600/10 rounded-full blur-3xl" />
+        <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-0 w-80 h-80 bg-violet-500/10 rounded-full blur-3xl" />
 
         <div className="relative z-10 flex flex-col justify-center px-16 py-12 w-full">
           {/* Logo & Brand */}
           <div className="mb-12">
-            <div className="flex items-center gap-3 mb-6">
-              <img src="/bahra-logo.svg" alt="Bahra Electric" className="h-12 w-auto" />
+            <div className="flex items-center gap-4 mb-6">
+              <div className="bg-white rounded-xl p-3 shadow-lg shadow-white/20">
+                <img src="/bahra-logo.svg" alt="Bahra Electric" className="h-12 w-auto" />
+              </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">RFP Portal</h1>
                 <p className="text-slate-400 text-sm">Management System</p>
@@ -115,7 +117,7 @@ export default function LoginPage() {
             </div>
             <h2 className="text-4xl font-bold text-white leading-tight mb-4">
               Streamline Your<br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-red-500">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400">
                 RFP Workflow
               </span>
             </h2>
@@ -131,8 +133,8 @@ export default function LoginPage() {
                 key={index}
                 className="flex items-start gap-4 p-4 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 hover:bg-white/10 transition-colors"
               >
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-red-500/20 to-red-600/20 flex items-center justify-center shrink-0">
-                  <feature.icon className="w-5 h-5 text-red-400" />
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500/20 to-violet-500/20 flex items-center justify-center shrink-0">
+                  <feature.icon className="w-5 h-5 text-indigo-400" />
                 </div>
                 <div>
                   <h3 className="text-white font-semibold mb-1">{feature.title}</h3>
@@ -161,12 +163,14 @@ export default function LoginPage() {
       </div>
 
       {/* Right Side - Login Form */}
-      <div className="flex-1 flex items-center justify-center p-6 sm:p-8 bg-gradient-to-br from-slate-50 via-red-50/30 to-slate-100">
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-8 bg-gradient-to-br from-slate-50 via-indigo-50/30 to-slate-100">
         <div className="w-full max-w-[420px]">
           {/* Mobile Logo */}
           <div className="lg:hidden mb-8 text-center">
             <div className="inline-flex items-center gap-3 mb-2">
-              <img src="/bahra-logo.svg" alt="Bahra Electric" className="h-10 w-auto" />
+              <div className="bg-white rounded-xl p-3 shadow-md border border-slate-100">
+                <img src="/bahra-logo.svg" alt="Bahra Electric" className="h-10 w-auto" />
+              </div>
               <span className="text-xl font-bold text-slate-800">RFP Portal</span>
             </div>
           </div>
@@ -188,7 +192,7 @@ export default function LoginPage() {
                       id="email"
                       type="email"
                       placeholder="you@company.com"
-                      className="pl-11 h-11 bg-slate-50 border-slate-200 focus:bg-white focus:border-red-500 transition-all"
+                      className="pl-11 h-11 bg-slate-50 border-slate-200 focus:bg-white focus:border-indigo-500 transition-all"
                       {...register('email')}
                     />
                   </div>
@@ -205,7 +209,7 @@ export default function LoginPage() {
                       id="password"
                       type="password"
                       placeholder="Enter your password"
-                      className="pl-11 h-11 bg-slate-50 border-slate-200 focus:bg-white focus:border-red-500 transition-all"
+                      className="pl-11 h-11 bg-slate-50 border-slate-200 focus:bg-white focus:border-indigo-500 transition-all"
                       {...register('password')}
                     />
                   </div>
@@ -216,7 +220,7 @@ export default function LoginPage() {
 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="remember" className="border-slate-300 data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600" />
+                    <Checkbox id="remember" className="border-slate-300 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600" />
                     <label
                       htmlFor="remember"
                       className="text-sm text-slate-600 leading-none cursor-pointer"
@@ -227,7 +231,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => setForgotPasswordOpen(true)}
-                    className="text-sm text-red-600 hover:text-red-700 font-medium hover:underline"
+                    className="text-sm text-indigo-600 hover:text-indigo-700 font-medium hover:underline"
                   >
                     Forgot password?
                   </button>
@@ -235,7 +239,7 @@ export default function LoginPage() {
 
                 <Button
                   type="submit"
-                  className="w-full h-11 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-medium shadow-lg shadow-red-500/25 transition-all"
+                  className="w-full h-11 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-medium shadow-lg shadow-indigo-500/25 transition-all"
                   size="lg"
                   loading={isLoading}
                 >
@@ -276,7 +280,7 @@ export default function LoginPage() {
                 placeholder="you@company.com"
                 value={forgotEmail}
                 onChange={(e) => setForgotEmail(e.target.value)}
-                className="h-11 bg-slate-50 border-slate-200 focus:bg-white focus:border-red-500"
+                className="h-11 bg-slate-50 border-slate-200 focus:bg-white focus:border-indigo-500"
               />
             </div>
           </div>
@@ -287,7 +291,7 @@ export default function LoginPage() {
             <Button
               onClick={handleForgotPassword}
               loading={sendingReset}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-indigo-600 hover:bg-indigo-700"
             >
               Send Reset Link
             </Button>

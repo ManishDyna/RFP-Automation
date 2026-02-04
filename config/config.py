@@ -18,24 +18,11 @@ COMPANY_OPTIONS = [
     "HADEED - RAJHI STEEL",
 ]
 
-# Mapping from frontend short names to full portal names
-COMPANY_NAME_MAP = {
-    "SEC": "Saudi Electricity Company",
-    "Aramco": "Aramco e-Marketplace",
-    "HADEED": "HADEED - RAJHI STEEL",
-    "SABIC": "SABIC - Saudi Basic Industries Corp.",
-    # Add more mappings as needed
-}
-
-def resolve_company_name(short_name: str) -> str:
-    """Resolve frontend short name to full portal name"""
-    if not short_name:
+def resolve_company_name(name: str) -> str:
+    """Resolve company name, defaulting to COMPANY_NAME if empty"""
+    if not name:
         return COMPANY_NAME
-    # Check if it's already a full name
-    if short_name in COMPANY_OPTIONS:
-        return short_name
-    # Try to map from short name
-    return COMPANY_NAME_MAP.get(short_name, short_name)
+    return name
 
 # ===== SharePoint / Graph API Config =====
 CLIENT_ID = "ab1ad5df-98f4-4fdf-8a9d-072ffebfec4a"

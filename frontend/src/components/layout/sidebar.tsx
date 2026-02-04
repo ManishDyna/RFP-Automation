@@ -72,32 +72,35 @@ export function Sidebar({
         <div className="flex h-full flex-col relative z-10">
           {/* Header */}
           <div
-            className="flex h-16 items-center justify-between px-4"
+            className={cn('relative flex flex-col items-center px-3 pt-2 pb-3', collapsed && 'py-3')}
             style={{ borderBottom: '1px solid rgba(6, 147, 227, 0.2)' }}
           >
-            <div className={cn('flex items-center gap-3', collapsed && 'justify-center w-full')}>
-              <img
-                src="/bahra-logo.svg"
-                alt="Bahra Electric"
-                className="h-8 w-auto shrink-0"
-              />
-              {!collapsed && (
-                <span className="text-lg font-semibold text-white">RFP Portal</span>
-              )}
-            </div>
+            {/* Toggle button - top right corner */}
             {!collapsed && (
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setCollapsed(true)}
-                className="h-8 w-8 text-slate-400 hover:text-white"
-                style={{ backgroundColor: 'transparent' }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(6, 147, 227, 0.2)'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                className="h-6 w-6 text-slate-400 hover:text-white absolute right-2 top-2 z-50 bg-slate-700 hover:bg-slate-600 rounded-full shadow-md"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="h-3.5 w-3.5" />
               </Button>
             )}
+            <div className={cn('w-full flex flex-col items-center', collapsed && 'px-1')}>
+              <div className={cn(
+                'bg-white rounded-xl shadow-lg shadow-white/10 flex items-center justify-center',
+                collapsed ? 'p-1.5 w-12 h-12' : 'p-[6px] w-full mt-4'
+              )}>
+                <img
+                  src="/bahra-logo.svg"
+                  alt="Bahra Electric"
+                  className={cn('w-auto', collapsed ? 'h-8' : 'h-12 max-w-full')}
+                />
+              </div>
+              {!collapsed && (
+                <span className="text-base font-semibold text-white mt-2 text-center">RFP Portal</span>
+              )}
+            </div>
           </div>
 
           {/* Collapsed expand button */}

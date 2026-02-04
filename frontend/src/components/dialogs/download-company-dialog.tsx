@@ -22,7 +22,13 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { api } from '@/lib/api'
 
-const COMPANY_OPTIONS = ['all', 'SEC', 'SABIC', 'Aramco', 'HADEED']
+const COMPANY_OPTIONS = [
+  'all',
+  'Saudi Electricity Company',
+  'SABIC - Saudi Basic Industries Corp.',
+  'Aramco e-Marketplace',
+  'HADEED - RAJHI STEEL',
+]
 
 interface DownloadCompanyDialogProps {
   open: boolean
