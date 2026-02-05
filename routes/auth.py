@@ -1,32 +1,10 @@
 from fastapi import APIRouter, Request, HTTPException, Depends
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
 from services.user_service import authenticate_user, list_users, update_user, get_user_by_email
-from config.config import FORGOT_PASSWORD_FLOW_URL, COMPANY_OPTIONS
+from config.config import FORGOT_PASSWORD_FLOW_URL
 import hmac, hashlib, base64, time, json
-import os
 
 router = APIRouter(tags=["Auth"])
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
-templates = Jinja2Templates(directory=TEMPLATES_DIR)
-templates.env.globals["COMPANY_OPTIONS"] = COMPANY_OPTIONS
-
-
-@router.get("/", response_class=HTMLResponse)
-def root(request: Request):
-    # If logged in, go to dashboard; else show login
-    if request.session.get("user"):
-        return RedirectResponse(url="/dashboard", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request})
-
-
-@router.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
-    if request.session.get("user"):
-        return RedirectResponse(url="/dashboard", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request})
 
 
 @router.post("/login")
@@ -153,11 +131,6 @@ async def forgot(request: Request):
     if not (200 <= resp.status_code < 300):
         raise HTTPException(status_code=502, detail=f"Flow error: {resp.status_code} {resp.text}")
     return JSONResponse({"ok": True})
-
-
-@router.get("/reset-password", response_class=HTMLResponse)
-async def reset_password_page(request: Request):
-    return templates.TemplateResponse("reset-password.html", {"request": request})
 
 
 def _verify_token(secret: str, token: str) -> dict:

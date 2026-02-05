@@ -77,19 +77,21 @@ async def sanitize_filename(name: str) -> str:
 async def wait_for_page_ready(page, context=None):
     """Wait for page to be fully ready"""
     target = context if context else page
-    
+
     try:
         await page.wait_for_load_state("networkidle", timeout=60000)
-    except:
-        pass
-    
+    except Exception as e:
+        # Network idle timeout is non-critical, page may still be usable
+        print(f"⚠️ Network idle wait timeout (non-critical): {type(e).__name__}")
+
     try:
         await target.wait_for_selector(
             '.loading, .spinner, [aria-busy="true"], .w-loading',
             state='hidden',
             timeout=5000
         )
-    except:
+    except Exception:
+        # Loading indicators may not exist on page, this is expected
         pass
 
 
@@ -396,12 +398,12 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
     # try:
     master_csv_local = os.path.join(OUTPUT_DIR, "master_material.csv")
     matched_df, matched_csv_path, not_mateched_files = process_folder(
-        graph_client, OUTPUT_DIR, master_csv_local
+        graph_client, OUTPUT_DIR, master_csv_local, company_name=company_name
     )
     print(f"✅ Matched materials processed: {matched_csv_path}")
 
     trigger_email_rfps = trigger_email(
-        csv_file=matched_csv_path, graph_client=graph_client,not_mateched_files=not_mateched_files
+        csv_file=matched_csv_path, graph_client=graph_client, not_mateched_files=not_mateched_files, company_name=company_name
     )
     log_event(
         "EMAIL",
@@ -579,9 +581,10 @@ async def run_automation_submit(rfp_id: str, company: str | None = None):
         finally:
             try:
                 await browser.close()
-            except Exception:
-                pass
+            except Exception as close_err:
+                print(f"⚠️ Browser close warning (non-critical): {close_err}")
             log_event("SYSTEM", "EndRun", "Success", f"Submit {rfp_id} Finished")
+
 
 async def run_automation_decline(rfp_id: str, company: str | None = None):
     start_new_run()  # Generate new unique RUN_ID for this automation run
@@ -646,9 +649,10 @@ async def run_automation_decline(rfp_id: str, company: str | None = None):
         finally:
             try:
                 await browser.close()
-            except Exception:
-                pass
+            except Exception as close_err:
+                print(f"⚠️ Browser close warning (non-critical): {close_err}")
             log_event("SYSTEM", "EndRun", "Success", f"Decline {rfp_id} Finished")
+
 
 async def run_automation_reminder():
     return send_rfp_deadline_reminders()
@@ -963,8 +967,8 @@ async def run_automation_sync_portal():
                 try:
                     await browser.close()
                     log_event("SYNC", "Cleanup", "Step", "Browser closed")
-                except Exception:
-                    pass
+                except Exception as close_err:
+                    print(f"⚠️ Browser close warning (non-critical): {close_err}")
             log_event("SYSTEM", "EndRun", "Success", "Sync portal automation finished")
 
 

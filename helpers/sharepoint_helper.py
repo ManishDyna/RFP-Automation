@@ -190,7 +190,99 @@ class GraphClient:
 
         print(f"☑️ Downloaded {sp_path} → {local_path}")
         return local_path
-    
+
+    def list_files_in_directory(self, sp_directory_path: str, file_extensions: list = None) -> list:
+        """
+        List all files in a SharePoint directory.
+
+        Args:
+            sp_directory_path: SharePoint directory path (e.g., 'RFP-logs/ALLRFPs/CompanyName')
+            file_extensions: Optional list of file extensions to filter (e.g., ['.xls', '.xlsx'])
+
+        Returns:
+            List of file info dicts with 'name' and 'path' keys
+        """
+        url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{sp_directory_path}:/children"
+        response = requests.get(url, headers=self.headers)
+
+        if response.status_code != 200:
+            print(f"⚠️ Could not list directory {sp_directory_path}: {response.status_code}")
+            return []
+
+        files = []
+        items = response.json().get('value', [])
+
+        for item in items:
+            name = item.get('name', '')
+            is_folder = 'folder' in item
+
+            if is_folder:
+                # Recursively list files in subfolders
+                subfolder_path = f"{sp_directory_path}/{name}"
+                files.extend(self.list_files_in_directory(subfolder_path, file_extensions))
+            else:
+                # Check file extension if filter is provided
+                if file_extensions:
+                    if any(name.lower().endswith(ext.lower()) for ext in file_extensions):
+                        files.append({
+                            'name': name,
+                            'path': f"{sp_directory_path}/{name}"
+                        })
+                else:
+                    files.append({
+                        'name': name,
+                        'path': f"{sp_directory_path}/{name}"
+                    })
+
+        return files
+
+    def download_rfp_files_from_sharepoint(self, company_name: str, local_output_dir: str, sp_base_folder: str) -> list:
+        """
+        Download all RFP Excel files from SharePoint for a given company.
+
+        Args:
+            company_name: Company name to fetch RFPs for
+            local_output_dir: Local directory to save files (e.g., OUTPUT_DIR)
+            sp_base_folder: SharePoint base folder (e.g., 'RFP-logs')
+
+        Returns:
+            List of downloaded file paths
+        """
+        import re
+        safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip()
+        sp_company_path = f"{sp_base_folder}/ALLRFPs/{safe_company_name}"
+
+        print(f"🔄 Fetching RFP files from SharePoint: {sp_company_path}")
+
+        # List all Excel files in the company's folder
+        excel_files = self.list_files_in_directory(sp_company_path, ['.xls', '.xlsx'])
+
+        if not excel_files:
+            print(f"⚠️ No Excel files found in SharePoint: {sp_company_path}")
+            return []
+
+        downloaded_files = []
+        for file_info in excel_files:
+            sp_path = file_info['path']
+            file_name = file_info['name']
+
+            # Determine local path based on SharePoint structure
+            # SP: RFP-logs/ALLRFPs/CompanyName/RFP_title/downloaded-rfp/file.xls
+            # Local: OUTPUT_DIR/CompanyName/RFP_title/downloaded-rfp/file.xls
+            relative_path = sp_path.replace(f"{sp_base_folder}/ALLRFPs/", "")
+            local_path = os.path.join(local_output_dir, relative_path)
+
+            try:
+                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                self.download_file_from_sharepoint(sp_path, local_path)
+                downloaded_files.append(local_path)
+                print(f"✅ Downloaded: {file_name}")
+            except Exception as e:
+                print(f"⚠️ Failed to download {file_name}: {e}")
+
+        print(f"📥 Downloaded {len(downloaded_files)} RFP files from SharePoint")
+        return downloaded_files
+
     def get_file_content_from_sharepoint(self, sp_path: str):
         """Fetch a file from SharePoint with fuzzy path matching."""
         

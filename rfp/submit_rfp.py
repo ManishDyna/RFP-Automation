@@ -572,10 +572,16 @@ async def submit_rfp(page, data: List[Dict[str, str]], rfp_id: str, graph_client
             if await flow_of_process_according_to_step(new_page, current_position, graph_client=graph_client, title=title, company_name=company_name):
                 
                 print(f"✅ RFP '{title}' processed successfully.")
-                # Update participation status to "Submitted"
-                from helpers.core_helper import update_rfp_participation_status
-                # Use title here because RFP_ID in Dataverse is stored as full title
-                update_rfp_participation_status(rfp_id, "saved_draft")
+                # Update participation status to "saved_draft"
+                try:
+                    from helpers.core_helper import update_rfp_participation_status
+                    # Use title here because RFP_ID in Dataverse is stored as full title
+                    status_updated = update_rfp_participation_status(rfp_id, "saved_draft")
+                    if not status_updated:
+                        print(f"⚠️ Could not update participation status for RFP: {rfp_id}")
+                except Exception as status_err:
+                    print(f"⚠️ Error updating participation status: {status_err}")
+                    # Don't fail the submission if status update fails
                 return True
             else:
                 print(f"⚠ Failed to process RFP: {title}")

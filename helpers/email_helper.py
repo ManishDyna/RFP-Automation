@@ -1,35 +1,40 @@
 from core.common_imports import *
 
-def create_file_names_and_source_files(rfp_titles: list) -> dict:
+def create_file_names_and_source_files(rfp_titles: list, company_name: str = None) -> dict:
     """
     Create FileNames and SourceFiles lists from a list of RFP titles.
-    
+
     Args:
         rfp_titles: List of RFP titles like ['SEC RFP-c001983', 'SEC RFP-c89722']
-    
+        company_name: Company name for SharePoint path (e.g., 'SABIC')
+
     Returns:
         dict with keys:
             - "FileNames": List of filenames like ["SEC RFP-c001983.xls", "SEC RFP-c89722.xls"]
-            - "SourceFiles": List of SharePoint paths like ["/Shared Documents/RFP-logs/ALLRFPs/SEC RFP-c001983/downloaded-rfp/SEC RFP-c001983.xls", ...]
+            - "SourceFiles": List of SharePoint paths like ["/Shared Documents/RFP-logs/ALLRFPs/CompanyName/SEC RFP-c001983/downloaded-rfp/SEC RFP-c001983.xls", ...]
     """
     from helpers.core_helper import clean_rfp_title, get_sharepoint_rfp_material_path
-    
+    from config.config import COMPANY_NAME
+
+    # Use provided company_name or fallback to default
+    target_company = company_name or COMPANY_NAME
+
     file_names = []
     source_files = []
-    
+
     for rfp_title in rfp_titles:
         # Clean the title to match folder naming
         clean_title = clean_rfp_title(rfp_title)
-        
+
         # Create filename (add .xls extension)
         filename = f"{clean_title}.xls"
         file_names.append(filename)
-        
-        # Create SharePoint path: /Shared Documents/RFP-logs/ALLRFPs/{RFP_title}/downloaded-rfp/{filename}
-        sp_path = get_sharepoint_rfp_material_path(rfp_title, filename)
+
+        # Create SharePoint path: /Shared Documents/RFP-logs/ALLRFPs/{CompanyName}/{RFP_title}/downloaded-rfp/{filename}
+        sp_path = get_sharepoint_rfp_material_path(rfp_title, target_company, filename)
         full_sp_path = f"/Shared Documents/{sp_path}"
         source_files.append(full_sp_path)
-    
+
     return {
         "FileNames": file_names,
         "SourceFiles": source_files
@@ -46,6 +51,7 @@ def trigger_email(
     email_flag=None,
     rfp_link=None,
     attachments=None,
+    company_name=None,
 ):
     """
     Send email via Power Automate (Flow). Supports:
@@ -109,7 +115,7 @@ def trigger_email(
             subject = f"Automation Successfully Run on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
         # Final payload
-        file_data = create_file_names_and_source_files(rfp_titles)
+        file_data = create_file_names_and_source_files(rfp_titles, company_name)
         file_names = file_data["FileNames"]
         source_files = file_data["SourceFiles"]
         if unique_emails:
@@ -133,7 +139,7 @@ def trigger_email(
             <p>No action required. The system will continue monitoring and notify you of updates.</p>
             <p>Best Regards,<br>Automation System</p>
             """
-        file_data = create_file_names_and_source_files(rfp_titles)
+        file_data = create_file_names_and_source_files(rfp_titles, company_name)
         file_names = file_data["FileNames"]
         source_files = file_data["SourceFiles"]
         email_to = EMAIL_TO_NO_MATCHED_DATA

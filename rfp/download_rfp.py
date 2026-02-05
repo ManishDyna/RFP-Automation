@@ -180,16 +180,38 @@ async def extract_rfp_details_inner_text(page):
         return {'owner': None, 'publish_time': None}
 
 
-def process_folder(graph_client, folder, master_csv):
+def process_folder(graph_client, folder, master_csv, company_name: str = None):
     """
     Process downloaded RFP Excel files, match materials with master CSV,
     and generate/upload a matched materials CSV.
-    Optionally fetch the RFP activity log from Dataverse instead of CSV.dc
+    Optionally fetch the RFP activity log from Dataverse instead of CSV.
+    If no local Excel files found, fetches from SharePoint.
     """
     log_event("RFP", "Process Folder", "Start", f"Processing folder: {folder}")
     excel_files = get_all_excel_files(folder)
+
+    # If no local Excel files found, try to fetch from SharePoint
+    if not excel_files and company_name:
+        print(f"⚠️ No local Excel files found, fetching from SharePoint...")
+        log_event("RFP", "Process Folder", "Downloading", "Fetching RFP files from SharePoint")
+        try:
+            downloaded_files = graph_client.download_rfp_files_from_sharepoint(
+                company_name=company_name,
+                local_output_dir=folder,
+                sp_base_folder=SP_BASE_FOLDER
+            )
+            if downloaded_files:
+                excel_files = downloaded_files
+                log_event("RFP", "Process Folder", "Success", f"Downloaded {len(downloaded_files)} RFP files from SharePoint")
+            else:
+                log_event("RFP", "Process Folder", "Warning", "No RFP files found in SharePoint")
+        except Exception as e:
+            error_msg = f"Could not fetch RFP files from SharePoint: {e}"
+            print(f"⚠️ {error_msg}")
+            log_event("RFP", "Process Folder", "Fail", error_msg)
+
     if not excel_files:
-        error_msg = "No Excel files found in folder"
+        error_msg = "No Excel files found in folder or SharePoint"
         log_event("RFP", "Process Folder", "Fail", error_msg, "")
         raise FileNotFoundError(f"❌ {error_msg}")
 

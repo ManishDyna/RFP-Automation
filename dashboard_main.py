@@ -5,7 +5,7 @@ import asyncio
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -15,36 +15,46 @@ from config.config import SESSION_TIMEOUT_SECONDS
 import os
 
 
-app = FastAPI(title="Bahra Dashboard")
+app = FastAPI(title="Bahra Dashboard API")
 
-# Static assets for templates (legacy UI)
+# Static assets (for serving any static files if needed)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+if os.path.exists(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# Sessions (dashboard only)
+# Session middleware for authentication
 app.add_middleware(SessionMiddleware, secret_key="change-me-please", max_age=SESSION_TIMEOUT_SECONDS)
 
-# CORS - include React dev server
+# CORS - allow React frontend (dev server on port 3000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", "http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",  # Vite default port
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# API router for React frontend (with /api prefix)
+# Main API router for React frontend (prefixed with /api)
 app.include_router(api_routes.router)
 
-# Automation router (with /api prefix for frontend compatibility)
+# Automation API router (prefixed with /api)
 app.include_router(automation.router, prefix="/api")
 
-# Dashboard router for template-based views and Excel/Material endpoints
+# Dashboard API router for Excel/Material/RFP endpoints (prefixed with /dashboard)
 app.include_router(dashboard.router)
 
-# Legacy routers for old template-based UI (keeping for backward compatibility)
+# Auth API router (login, logout, session management)
 app.include_router(auth.router)
+
+# User management API router
 app.include_router(user_management.router)
 
 if __name__ == "__main__":

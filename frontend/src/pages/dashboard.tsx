@@ -16,6 +16,7 @@ import {
   FileText,
   TrendingUp,
   Inbox,
+  ArrowRightLeft,
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -150,10 +151,12 @@ function StatusBadge({ status }: { status: string }) {
 interface RfpTableProps {
   rfps: any[]
   showActions?: boolean
+  tableType?: 'open' | 'draft'
   onSubmit?: (rfpId: string) => void
+  onChangeStatus?: (rfpId: string, newStatus: string) => void
 }
 
-function RfpTable({ rfps, showActions = false, onSubmit }: RfpTableProps) {
+function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onChangeStatus }: RfpTableProps) {
   if (!rfps || rfps.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -214,14 +217,25 @@ function RfpTable({ rfps, showActions = false, onSubmit }: RfpTableProps) {
             </TableCell>
             {showActions && (
               <TableCell className="text-right">
-                <Button
-                  size="sm"
-                  onClick={() => onSubmit?.(rfp.RFP_ID)}
-                  className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <Send className="h-3.5 w-3.5 mr-1.5" />
-                  Submit
-                </Button>
+                {tableType === 'draft' ? (
+                  <Button
+                    size="sm"
+                    onClick={() => onChangeStatus?.(rfp.RFP_ID, 'submitted')}
+                    className="h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
+                  >
+                    <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
+                    Mark Submitted
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => onSubmit?.(rfp.RFP_ID)}
+                    className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    <Send className="h-3.5 w-3.5 mr-1.5" />
+                    Submit
+                  </Button>
+                )}
               </TableCell>
             )}
           </TableRow>
@@ -251,6 +265,16 @@ export default function DashboardPage() {
 
   const handleSubmitRfp = (rfpId: string) => {
     openSubmitRfpDialog(rfpId)
+  }
+
+  const handleChangeStatus = async (rfpId: string, newStatus: string) => {
+    try {
+      await api.updateRfpStatus(rfpId, newStatus)
+      toast.success(`RFP ${rfpId} status changed to ${newStatus}`)
+      refetch()
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update RFP status')
+    }
   }
 
   const stats = data?.rfp || {}
@@ -458,6 +482,7 @@ export default function DashboardPage() {
                             <RfpTable
                               rfps={companyRfps.open || []}
                               showActions
+                              tableType="open"
                               onSubmit={handleSubmitRfp}
                             />
                           </TabsContent>
@@ -468,7 +493,8 @@ export default function DashboardPage() {
                             <RfpTable
                               rfps={companyRfps.saved_draft || []}
                               showActions
-                              onSubmit={handleSubmitRfp}
+                              tableType="draft"
+                              onChangeStatus={handleChangeStatus}
                             />
                           </TabsContent>
                           <TabsContent value="declined" className="mt-0">

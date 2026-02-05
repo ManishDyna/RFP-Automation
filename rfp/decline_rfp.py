@@ -261,14 +261,21 @@ async def decline_rfps(page, data, company_name: str, rfp_id=""):
 
             if await flow_of_process_according_to_step(new_page, current_position, title=title):
                 print(f"✅ RFP '{title}' declined successfully.")
-                # Update participation status to "Declined"
-                from helpers.core_helper import update_rfp_participation_status
-                update_rfp_participation_status(rfp_id, "declined")
+                # Update participation status to "declined"
+                try:
+                    from helpers.core_helper import update_rfp_participation_status
+                    status_updated = update_rfp_participation_status(rfp_id, "declined")
+                    if not status_updated:
+                        print(f"⚠️ Could not update participation status for RFP: {rfp_id}")
+                except Exception as status_err:
+                    print(f"⚠️ Error updating participation status: {status_err}")
+                    # Don't fail the decline if status update fails
+
                 try:
                     from core.log_events import log_event
                     log_event("RFP", "Decline", "Success", "Participation status set to Declined", title)
-                except Exception:
-                    pass
+                except Exception as log_err:
+                    print(f"⚠️ Error logging decline event: {log_err}")
                 await new_page.wait_for_timeout(10000)
                 await new_page.close()
                 return True
@@ -277,8 +284,8 @@ async def decline_rfps(page, data, company_name: str, rfp_id=""):
                 try:
                     from core.log_events import log_event
                     log_event("RFP", "Decline", "Fail", "Decline flow failed", title)
-                except Exception:
-                    pass
+                except Exception as log_err:
+                    print(f"⚠️ Error logging decline failure: {log_err}")
                 await new_page.close()
                 return False
                 

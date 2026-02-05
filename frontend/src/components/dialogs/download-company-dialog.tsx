@@ -22,11 +22,12 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { api } from '@/lib/api'
 
+// Company options - should match config.py COMPANY_OPTIONS
 const COMPANY_OPTIONS = [
   'all',
   'Saudi Electricity Company',
-  'SABIC - Saudi Basic Industries Corp.',
   'Aramco e-Marketplace',
+  'SABIC - Saudi Basic Industries Corp.',
   'HADEED - RAJHI STEEL',
 ]
 

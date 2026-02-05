@@ -9,9 +9,7 @@ from services.dashboard_service import (
 )
 from services.user_service import get_user, update_user, authenticate_user, get_user_by_email
 from services.sap_service import create_sap_password_record, list_sap_password_records, list_sap_password_records_cached, invalidate_sap_password_cache
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse, FileResponse
 import os
 import re
 from hashlib import md5
@@ -61,13 +59,6 @@ import glob
 import base64
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
-
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up
-TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
-
-templates = Jinja2Templates(directory=TEMPLATES_DIR)
-templates.env.globals["COMPANY_OPTIONS"] = COMPANY_OPTIONS
 
 # ===== RFP details helpers =====
 _RFP_STATUS_META = {
@@ -196,201 +187,6 @@ def _get_frequency_maps():
             _FREQ_CACHE["value_to_label"] = {v: k for k, v in _FREQ_CACHE["label_to_value"].items()}
     return _FREQ_CACHE
 
-@router.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request, refresh: int = Query(0)):
-    # Simple session check
-    if not request.session.get("user"):
-        return HTMLResponse(status_code=302, headers={"Location": "/login"})
-    # Use cached data unless refresh=1
-    data = get_dashboard_data_cached(force_refresh=bool(refresh))
-    headers = {
-        "Cache-Control": f"private, max-age={DASHBOARD_HTTP_MAX_AGE}",
-        "ETag": _make_etag(data)
-    }
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {"request": request, "data": data, "user": request.session.get("user")},
-        headers=headers
-    )
-
-
-@router.get("/rfp-details", response_class=HTMLResponse)
-async def rfp_details(
-    request: Request,
-    status: str = Query("downloaded"),
-    search: str = Query(""),
-    start_date: str = Query(""),
-    end_date: str = Query(""),
-    company: str = Query(""),
-    refresh: int = Query(0),
-):
-    if not request.session.get("user"):
-        return HTMLResponse(status_code=302, headers={"Location": "/login"})
-
-    selected_filter = (status or "downloaded").lower()
-    valid_filters = {"downloaded"} | {opt["value"] for opt in _RFP_FILTER_OPTIONS if opt["value"]}
-    if selected_filter not in valid_filters:
-        selected_filter = "downloaded"
-
-    raw_search = (search or "").strip()
-    raw_start = (start_date or "").strip()
-    raw_end = (end_date or "").strip()
-    selected_company = (company or "").strip()
-
-    start_dt_filter = _parse_date_filter(raw_start)
-    end_dt_filter = _parse_date_filter(raw_end)
-    if end_dt_filter and start_dt_filter and end_dt_filter < start_dt_filter:
-        # Swap to avoid empty results when user selects reversed range
-        start_dt_filter, end_dt_filter = end_dt_filter, start_dt_filter
-
-    # Use get_all_rfp_data_cached() to get all RFPs including past dates
-    all_rfp_data = get_all_rfp_data_cached(force_refresh=bool(refresh))
-    downloaded_rows = all_rfp_data.get("downloaded_rfps") or []
-
-    detailed_rows = []
-    for row in downloaded_rows:
-        status_key = _normalize_participation(row.get("participated"))
-        status_meta = _RFP_STATUS_META.get(status_key, _RFP_STATUS_META["other"])
-        row_end_dt = _parse_end_datetime(row.get("RFP_End_Date"))
-        detailed_rows.append(
-            {
-                **row,
-                "status_key": status_key,
-                "status_label": status_meta["label"],
-                "status_badge": status_meta["badge"],
-                "_end_dt": row_end_dt,
-            }
-        )
-
-    # Extract unique companies for the filter dropdown
-    unique_companies = sorted(set(
-        (row.get("Company_Name") or "Saudi Electricity Company")
-        for row in detailed_rows
-        if row.get("Company_Name")
-    ))
-    # Add default if not in list
-    if "Saudi Electricity Company" not in unique_companies:
-        unique_companies.insert(0, "Saudi Electricity Company")
-
-    status_counts = Counter(r["status_key"] for r in detailed_rows)
-    for key in _RFP_STATUS_META.keys():
-        status_counts.setdefault(key, 0)
-    status_counts["downloaded"] = len(detailed_rows)
-
-    filtered_rows = detailed_rows
-    if selected_filter != "downloaded":
-        filtered_rows = [row for row in filtered_rows if row["status_key"] == selected_filter]
-
-    # Apply company filter
-    if selected_company:
-        filtered_rows = [
-            row for row in filtered_rows
-            if (row.get("Company_Name") or "Saudi Electricity Company") == selected_company
-        ]
-
-    if raw_search:
-        query = raw_search.lower()
-        filtered_rows = [
-            row
-            for row in filtered_rows
-            if query in (row.get("RFP_ID") or "").lower()
-            or query in (row.get("Company_Name") or "").lower()
-            or query in (row.get("Owner_Name") or "").lower()
-        ]
-
-    if start_dt_filter or end_dt_filter:
-        def within_range(row):
-            parsed = row.get("_end_dt")
-            if not parsed:
-                return False
-            if start_dt_filter and parsed.date() < start_dt_filter.date():
-                return False
-            if end_dt_filter and parsed.date() > end_dt_filter.date():
-                return False
-            return True
-
-        filtered_rows = [row for row in filtered_rows if within_range(row)]
-
-    headers = {"Cache-Control": f"private, max-age={DASHBOARD_HTTP_MAX_AGE}"}
-    return templates.TemplateResponse(
-        "rfp-details.html",
-        {
-            "request": request,
-            "user": request.session.get("user"),
-            "rfps": filtered_rows,
-            "status_counts": status_counts,
-            "filter_options": _RFP_FILTER_OPTIONS,
-            "selected_status": selected_filter,
-            "search_term": raw_search,
-            "start_date": start_dt_filter.strftime("%Y-%m-%d") if start_dt_filter else "",
-            "end_date": end_dt_filter.strftime("%Y-%m-%d") if end_dt_filter else "",
-            "unique_companies": unique_companies,
-            "selected_company": selected_company,
-            "total_rows": len(detailed_rows),
-            "shown_rows": len(filtered_rows),
-        },
-        headers=headers,
-    )
-
-@router.get("/view-logs", response_class=HTMLResponse)
-async def view_logs(
-    request: Request,
-    refresh: int = Query(0),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=MIN_PAGE_SIZE, le=MAX_PAGE_SIZE)
-):
-    # Fetch a larger window once (e.g., up to 2000) and page in-memory for speed
-    top_fetch = min(LOGS_FETCH_TOP_MAX, page_size * LOGS_FETCH_AHEAD_FACTOR)  # fetch ahead to reduce refetching
-    logs = get_logs_data_cached(force_refresh=bool(refresh), top=top_fetch)
-
-    total = len(logs)
-    start = (page - 1) * page_size
-    end = start + page_size
-    page_rows = logs[start:end]
-    total_pages = (total + page_size - 1) // page_size if page_size > 0 else 1
-    shown_from = start + 1 if total > 0 and start < total else 0
-    shown_to = min(end, total) if total > 0 else 0
-
-    headers = {"Cache-Control": f"private, max-age={DASHBOARD_HTTP_MAX_AGE}"}
-    return templates.TemplateResponse(
-        "view-logs.html",
-        {
-            "request": request,
-            "data": page_rows,
-            "page": page,
-            "page_size": page_size,
-            "total": total,
-            "total_pages": total_pages,
-            "shown_from": shown_from,
-            "shown_to": shown_to,
-            "has_prev": page > 1,
-            "has_next": end < total,
-            "user": request.session.get("user")
-        },
-        headers=headers
-    )
-
-@router.get("/analytics", response_class=HTMLResponse)
-async def analytics(request: Request, refresh: int = Query(0)):
-    # Simple session check
-    if not request.session.get("user"):
-        return HTMLResponse(status_code=302, headers={"Location": "/login"})
-    # Role-based access check
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "analytics"):
-        return HTMLResponse(status_code=403, content="Access denied. Admin access required.")
-    from services.dashboard_service import get_dashboard_data_cached
-    data = get_dashboard_data_cached(force_refresh=bool(refresh))
-    headers = {
-        "Cache-Control": f"private, max-age={DASHBOARD_HTTP_MAX_AGE}",
-        "ETag": _make_etag(data)
-    }
-    return templates.TemplateResponse(
-        "charts.html",
-        {"request": request, "data": data, "user": user},
-        headers=headers
-    )
-
 # ===== RFP status update =====
 @router.post("/rfp/status")
 async def update_rfp_status(payload: dict = Body(...)):
@@ -400,10 +196,22 @@ async def update_rfp_status(payload: dict = Body(...)):
         if not rfp_id or not status:
             raise HTTPException(status_code=400, detail="rfp_id and status are required")
 
-        ok = update_rfp_participation_status(rfp_id, status)
+        # Normalize status to lowercase for consistent database storage
+        # Frontend may send "Submitted" but database expects "submitted"
+        status_normalized = status.lower()
+
+        # Validate status against allowed values
+        from config.config import VALID_RFP_STATUSES
+        if status_normalized not in [s.lower() for s in VALID_RFP_STATUSES]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status: '{status}'. Valid values are: {', '.join(VALID_RFP_STATUSES)}"
+            )
+
+        ok = update_rfp_participation_status(rfp_id, status_normalized)
         if not ok:
             raise HTTPException(status_code=404, detail="RFP not found to update")
-        return JSONResponse({"ok": True, "message": f"Status updated to {status}"})
+        return JSONResponse({"ok": True, "message": f"Status updated to {status_normalized}"})
     except HTTPException:
         raise
     except Exception as e:
@@ -417,26 +225,6 @@ async def rfp_submit_status(rfp_id: str):
         "rfp_id": rfp_id,
         "is_submitting": _is_rfp_submitting(rfp_id)
     })
-
-@router.get("/settings", response_class=HTMLResponse)
-async def settings(request: Request):
-    if not request.session.get("user"):
-        return HTMLResponse(status_code=302, headers={"Location": "/login"})
-    user = request.session.get("user")
-    return templates.TemplateResponse("settings.html", {"request": request, "user": user})
-
-@router.get("/profile", response_class=HTMLResponse)
-async def profile(request: Request):
-    # Simple session check
-    if not request.session.get("user"):
-        return HTMLResponse(status_code=302, headers={"Location": "/login"})
-    
-    # Get current user data from session
-    user = request.session.get("user")
-    return templates.TemplateResponse(
-        "profile.html",
-        {"request": request, "user": user}
-    )
 
 @router.post("/download-all-rfps")
 async def download_all_rfps(request: Request):
@@ -574,22 +362,6 @@ async def update_sap_password(request: Request):
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
-@router.get("/sap-password-logs", response_class=HTMLResponse)
-async def sap_password_logs(request: Request, refresh: int = Query(0), top: int = Query(200)):
-    if not request.session.get("user"):
-        return HTMLResponse(status_code=302, headers={"Location": "/login"})
-    # Role-based access check
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "sap_password_logs"):
-        return HTMLResponse(status_code=403, content="Access denied. Admin access required.")
-    rows = list_sap_password_records_cached(force_refresh=bool(refresh), top=top)
-    headers = {"Cache-Control": "private, max-age=30"}
-    return templates.TemplateResponse(
-        "sap-password-logs.html",
-        {"request": request, "rows": rows, "user": user},
-        headers=headers
-    )
-
 # ================= Automation Schedule APIs =================
 
 def _safe_use_display_names() -> bool:
@@ -683,10 +455,10 @@ async def save_schedule(request: Request, payload: dict = Body(...)):
 # ================= RFP Excel Viewing =================
 
 @router.get("/view-excel/{rfp_id}")
-async def view_rfp_excel(request: Request, rfp_id: str):
+async def view_rfp_excel(request: Request, rfp_id: str, company: str = None):
     """
     View and edit RFP Excel file (unprotected version).
-    
+
     This endpoint:
     1. Finds the Excel file for the given RFP ID in ALLRFPs folder
     2. Unprotects it (removes password and sheet protection)
@@ -694,10 +466,20 @@ async def view_rfp_excel(request: Request, rfp_id: str):
     """
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
     try:
-        # Use new folder structure: ALLRFPs/RFP_title/downloaded-rfp/RFP_title.xls
-        found_file = get_rfp_excel_file_path(rfp_id)
+        # Resolve company - either from query param or by searching
+        selected_company = (company or "").strip()
+        if not selected_company:
+            # Try to find company from database or file system
+            found_path, found_company = find_rfp_file_across_companies(rfp_id)
+            if found_company:
+                selected_company = found_company
+            else:
+                selected_company = COMPANY_NAME
+
+        # Use new folder structure: ALLRFPs/Company/RFP_title/downloaded-rfp/RFP_title.xls
+        found_file = get_rfp_excel_file_path(rfp_id, selected_company)
         
         # If not found in new structure, try old structure (backward compatibility)
         if not os.path.exists(found_file):
@@ -780,10 +562,10 @@ async def view_rfp_excel(request: Request, rfp_id: str):
 
 
 @router.post("/save-excel/{rfp_id}")
-async def save_rfp_excel(request: Request, rfp_id: str, file: UploadFile = File(...)):
+async def save_rfp_excel(request: Request, rfp_id: str, file: UploadFile = File(...), company: str = None):
     """
     Save edited Excel file back to disk.
-    
+
     This endpoint:
     1. Receives the edited Excel file from the frontend
     2. Saves it back to the unprotected version in ALLRFPs folder
@@ -791,10 +573,20 @@ async def save_rfp_excel(request: Request, rfp_id: str, file: UploadFile = File(
     """
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
     try:
-        # Use new folder structure: ALLRFPs/RFP_title/downloaded-rfp/RFP_title.xls
-        found_file = get_rfp_excel_file_path(rfp_id)
+        # Resolve company - either from query param or by searching
+        selected_company = (company or "").strip()
+        if not selected_company:
+            # Try to find company from database or file system
+            found_path, found_company = find_rfp_file_across_companies(rfp_id)
+            if found_company:
+                selected_company = found_company
+            else:
+                selected_company = COMPANY_NAME
+
+        # Use new folder structure: ALLRFPs/Company/RFP_title/downloaded-rfp/RFP_title.xls
+        found_file = get_rfp_excel_file_path(rfp_id, selected_company)
         
         # If not found in new structure, try old structure (backward compatibility)
         if not os.path.exists(found_file):
@@ -936,10 +728,17 @@ def get_cached_keywords(graph_client, keywords_csv_local):
     
     return keywords_list
 
-def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list):
+def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list, company: str = None):
     """Calculate match percentage for a single RFP (optimized with caching)"""
-    excel_path = get_rfp_excel_file_path(rfp_id)
-    
+    # Resolve company if not provided
+    if company:
+        excel_path = get_rfp_excel_file_path(rfp_id, company)
+    else:
+        # Try to find file across all company folders
+        excel_path, found_company = find_rfp_file_across_companies(rfp_id)
+        if not excel_path:
+            excel_path = get_rfp_excel_file_path(rfp_id, COMPANY_NAME)
+
     if not os.path.exists(excel_path):
         return {"match_percentage": 0, "total_materials": 0, "matched_count": 0, "file_mtime": None}
     
@@ -2224,14 +2023,14 @@ def parse_excel_for_dynamic_form(excel_path):
     return form_structure
 
 @router.get("/rfp/{rfp_id}/materials")
-async def get_rfp_materials(request: Request, rfp_id: str):
+async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
     """
     Extract materials from RFP Excel file and match with master file.
     Returns materials with match status for display in modal.
     """
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
     try:
         # Initialize GraphClient for master file download
         graph_client = GraphClient(
@@ -2240,14 +2039,25 @@ async def get_rfp_materials(request: Request, rfp_id: str):
         )
         graph_client.auth()
         graph_client.resolve_site_and_drive()
-        
-        # Find Excel file for this RFP
-        excel_path = get_rfp_excel_file_path(rfp_id)
-        
+
+        # Resolve company - either from query param or by searching
+        selected_company = (company or "").strip()
+        if not selected_company:
+            # Try to find company from database or file system
+            excel_path, found_company = find_rfp_file_across_companies(rfp_id)
+            if found_company:
+                selected_company = found_company
+            else:
+                selected_company = COMPANY_NAME
+                print(f"⚠️ Company not found for RFP {rfp_id}, using default: {selected_company}")
+
+        # Find Excel file for this RFP with company
+        excel_path = get_rfp_excel_file_path(rfp_id, selected_company)
+
         if not os.path.exists(excel_path):
             raise HTTPException(
                 status_code=404,
-                detail=f"Excel file not found for RFP: {rfp_id}. Please ensure the file exists in ALLRFPs/{rfp_id}/downloaded-rfp/"
+                detail=f"Excel file not found for RFP: {rfp_id}. Please ensure the file exists in ALLRFPs/{selected_company}/{rfp_id}/downloaded-rfp/"
             )
         
         # Extract materials with Name and Description from Excel
@@ -2364,20 +2174,31 @@ async def get_rfp_materials(request: Request, rfp_id: str):
         raise HTTPException(status_code=500, detail=f"Error processing materials: {str(e)}")
 
 @router.get("/rfp/{rfp_id}/dynamic-form-structure")
-async def get_dynamic_form_structure(request: Request, rfp_id: str):
+async def get_dynamic_form_structure(request: Request, rfp_id: str, company: str = None):
     """
     Parse ORIGINAL Excel file and return dynamic form structure based on yellow cells.
     This generates the form fields that users need to fill.
     """
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
     try:
         print(f"\n🔍 Generating dynamic form for RFP: {rfp_id}")
-        
-        # Get ORIGINAL Excel file path (not unprotected)
-        excel_path = get_rfp_excel_file_path(rfp_id)
-        
+
+        # Resolve company - either from query param or by searching
+        selected_company = (company or "").strip()
+        if not selected_company:
+            # Try to find company from database or file system
+            _, found_company = find_rfp_file_across_companies(rfp_id)
+            if found_company:
+                selected_company = found_company
+            else:
+                selected_company = COMPANY_NAME
+                print(f"⚠️ Company not found for RFP {rfp_id}, using default: {selected_company}")
+
+        # Get ORIGINAL Excel file path (not unprotected) with company
+        excel_path = get_rfp_excel_file_path(rfp_id, selected_company)
+
         if not os.path.exists(excel_path):
             raise HTTPException(
                 status_code=404,
@@ -2540,18 +2361,54 @@ async def submit_rfp_final(request: Request):
     try:
         # Parse FormData
         form = await request.form()
-        
+
         rfp_id = form.get("rfp_id")
         materials_data = form.get("materials_data")
         dynamic_fields_str = form.get("dynamic_fields")
-        
-        # Parse materials data from JSON string
-        materials = json.loads(materials_data) if materials_data else []
-        
-        # Parse dynamic form fields from JSON string
-        dynamic_fields = json.loads(dynamic_fields_str) if dynamic_fields_str else {}
-        
-        # Collect all TDS files 
+
+        # Validate rfp_id
+        if not rfp_id or not rfp_id.strip():
+            raise HTTPException(status_code=400, detail="rfp_id is required")
+        rfp_id = rfp_id.strip()
+
+        # Validate rfp_id doesn't contain path traversal characters
+        if ".." in rfp_id or "/" in rfp_id or "\\" in rfp_id:
+            raise HTTPException(status_code=400, detail="Invalid rfp_id format")
+
+        # Get company parameter - required for file path operations
+        company = form.get("company", "").strip() if form.get("company") else ""
+
+        # If company not provided, try to find it from database or file system
+        if not company:
+            from helpers.core_helper import find_rfp_file_across_companies, get_rfp_company_name
+            # First try database lookup
+            company = get_rfp_company_name(rfp_id)
+            if not company:
+                # Fall back to file system search
+                _, found_company = find_rfp_file_across_companies(rfp_id)
+                company = found_company
+
+        if not company:
+            # Default to COMPANY_NAME if still not found
+            from config.config import COMPANY_NAME
+            company = COMPANY_NAME
+            print(f"   ⚠️ Company not provided, using default: {company}")
+
+        print(f"   📍 Company: {company}")
+
+        # Parse materials data from JSON string with error handling
+        try:
+            materials = json.loads(materials_data) if materials_data else []
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON in materials_data: {str(e)}")
+
+        # Parse dynamic form fields from JSON string with error handling
+        try:
+            dynamic_fields = json.loads(dynamic_fields_str) if dynamic_fields_str else {}
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON in dynamic_fields: {str(e)}")
+
+        # Collect all TDS files
         # Files come with keys like: tds_file_0, tds_file_1, OR material_0_file_0, material_1_file_0 (from material listing)
         tds_files = []
         tds_file_keys = []
@@ -2559,19 +2416,20 @@ async def submit_rfp_final(request: Request):
             if key.startswith("tds_file_") or (key.startswith("material_") and "_file_" in key):
                 tds_files.append(value)
                 tds_file_keys.append(key)
-        
+
         print(f"📝 Final RFP Submission Received:")
         print(f"   RFP ID: {rfp_id}")
+        print(f"   Company: {company}")
         print(f"   Dynamic Fields: {len(dynamic_fields)} fields")
         print(f"   Materials: {len(materials)} items")
         print(f"   TDS Files: {len(tds_files)} files")
         if tds_files:
             print(f"   📎 TDS File keys found: {tds_file_keys}")
-        
-        # Get folders
-        tds_folder = get_rfp_tds_folder_path(rfp_id)
-        saved_excel_path = get_rfp_saved_excel_file_path(rfp_id)
-        original_excel_path = get_rfp_excel_file_path(rfp_id)
+
+        # Get folders - now with company parameter
+        tds_folder = get_rfp_tds_folder_path(rfp_id, company)
+        saved_excel_path = get_rfp_saved_excel_file_path(rfp_id, company)
+        original_excel_path = get_rfp_excel_file_path(rfp_id, company)
         
         if not os.path.exists(original_excel_path):
             raise HTTPException(status_code=404, detail=f"Original Excel file not found for RFP: {rfp_id}")
@@ -2581,13 +2439,19 @@ async def submit_rfp_final(request: Request):
         for upload_file in tds_files:
             # Read file content
             file_content = await upload_file.read()
-            
+
+            # Sanitize filename to prevent directory traversal
+            safe_filename = os.path.basename(upload_file.filename)
+            if not safe_filename or ".." in safe_filename:
+                print(f"   ⚠️ Skipping invalid filename: {upload_file.filename}")
+                continue
+
             # Save to TDS-files folder
-            file_path = os.path.join(tds_folder, upload_file.filename)
+            file_path = os.path.join(tds_folder, safe_filename)
             with open(file_path, 'wb') as f:
                 f.write(file_content)
-            
-            print(f"   ✅ Saved: {upload_file.filename}")
+
+            print(f"   ✅ Saved: {safe_filename}")
         
         # 2. Get the unprotected Excel file (not the original protected one)
         print(f"📖 Looking for unprotected Excel file...")
@@ -2858,6 +2722,10 @@ async def submit_rfp_final(request: Request):
                 traceback.print_exc()
                 print(f"   File was copied to: {saved_excel_path}")
         
+        # Initialize status tracking
+        sharepoint_status = "pending"
+        auto_submit_status = "pending"
+
         # 4. Upload to SharePoint
         print(f"\n📤 Uploading files to SharePoint...")
         try:
@@ -2871,7 +2739,7 @@ async def submit_rfp_final(request: Request):
             
             # Upload saved Excel file to SharePoint rfp-upload-file folder
             if os.path.exists(saved_excel_path):
-                sp_savedrfp_path = get_sharepoint_rfp_savedrfp_path(rfp_id)
+                sp_savedrfp_path = get_sharepoint_rfp_savedrfp_path(rfp_id, company)
                 saved_excel_filename = os.path.basename(saved_excel_path)
                 print(f"☁️ Uploading Excel file to SharePoint: {sp_savedrfp_path}/{saved_excel_filename}")
                 graph_client.upload_file_as(
@@ -2880,10 +2748,10 @@ async def submit_rfp_final(request: Request):
                     saved_excel_filename
                 )
                 print(f"✅ Excel file uploaded to SharePoint successfully")
-            
+
             # Upload TDS files to SharePoint TDS-files folder
             if os.path.exists(tds_folder):
-                sp_tds_path = get_sharepoint_rfp_tds_path(rfp_id)
+                sp_tds_path = get_sharepoint_rfp_tds_path(rfp_id, company)
                 tds_file_list = os.listdir(tds_folder)
                 if tds_file_list:
                     print(f"☁️ Uploading {len(tds_file_list)} TDS files to SharePoint...")
@@ -2901,12 +2769,14 @@ async def submit_rfp_final(request: Request):
                     print(f"ℹ️ No TDS files to upload")
             
             print(f"✅ SharePoint upload completed successfully")
+            sharepoint_status = "success"
         except Exception as e:
             print(f"⚠️ SharePoint upload error: {e}")
             import traceback
             traceback.print_exc()
-            # Don't fail the request if SharePoint upload fails
-        
+            sharepoint_status = f"failed: {str(e)}"
+            # Continue with the request but track the failure
+
         # 6. Trigger automatic RFP submission
         print(f"\n🚀 Triggering automatic RFP submission...")
         try:
@@ -2923,7 +2793,7 @@ async def submit_rfp_final(request: Request):
                 # Trigger submission automation in background with state management
                 async def _submit_task():
                     try:
-                        await run_automation_submit(rfp_id)
+                        await run_automation_submit(rfp_id, company)
                         print(f"✅ Automatic RFP submission completed for: {rfp_id}")
                     except Exception as e:
                         print(f"❌ Automatic submission failed for {rfp_id}: {e}")
@@ -2940,21 +2810,31 @@ async def submit_rfp_final(request: Request):
                     # If task creation fails, remove from submitting set
                     _remove_submitting_rfp(rfp_id)
                     raise task_error
+            auto_submit_status = "started"
         except Exception as e:
             print(f"⚠️ Failed to trigger automatic submission: {e}")
             import traceback
             traceback.print_exc()
-            # Don't fail the request if automation trigger fails
-        
+            auto_submit_status = f"failed: {str(e)}"
+            # Continue but track the failure
+
+        # Build response with warnings if any operations failed
+        warnings = []
+        if "failed" in sharepoint_status:
+            warnings.append(f"SharePoint upload {sharepoint_status}")
+        if "failed" in auto_submit_status:
+            warnings.append(f"Auto-submit {auto_submit_status}")
+
         return JSONResponse({
             "ok": True,
-            "message": "RFP data saved successfully! Uploading to SharePoint and submitting automatically...",
+            "message": "RFP data saved successfully!" + (" (with warnings)" if warnings else ""),
             "rfp_id": rfp_id,
             "materials_count": len(materials),
             "tds_files_count": len(tds_files),
             "saved_excel_path": saved_excel_path,
-            "sharepoint_upload": "started",
-            "auto_submit": "started"
+            "sharepoint_upload": sharepoint_status,
+            "auto_submit": auto_submit_status,
+            "warnings": warnings if warnings else None
         })
         
     except HTTPException:

@@ -14,7 +14,10 @@
       "Bash(env\\\\Scripts\\\\python.exe -m pytest:*)",
       "WebFetch(domain:bahra-electric.com)",
       "Bash(xcopy:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(grep:*)",
+      "Bash(python3:*)",
+      "Bash(find:*)"
     ]
   }
 }

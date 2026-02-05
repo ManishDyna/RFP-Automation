@@ -25,7 +25,13 @@ import {
 } from '@/components/ui/select'
 import { api } from '@/lib/api'
 
-const COMPANY_OPTIONS = ['SEC', 'SABIC', 'Aramco', 'HADEED']
+// Company options - should match config.py COMPANY_OPTIONS
+const COMPANY_OPTIONS = [
+  'Saudi Electricity Company',
+  'Aramco e-Marketplace',
+  'SABIC - Saudi Basic Industries Corp.',
+  'HADEED - RAJHI STEEL',
+]
 
 const submitRfpSchema = z.object({
   rfp_id: z.string().min(1, 'RFP ID is required'),

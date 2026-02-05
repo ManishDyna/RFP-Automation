@@ -2,6 +2,19 @@ from core.common_imports import *
 from helpers.dataverse_helper import DataverseClient
 from config.config import *
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def sanitize_filter_value(value: str) -> str:
+    """
+    Sanitize a value for use in OData filter expressions to prevent injection.
+    Escapes single quotes by doubling them.
+    """
+    if value is None:
+        return ""
+    return str(value).replace("'", "''")
 # ==== CONFIGURE DATAVERSE ====
 DATAVERSE = DataverseClient(
     tenant_id=TENANT_ID,
@@ -108,6 +121,9 @@ def get_rfp_saved_excel_file_path(rfp_title: str, company_name: str) -> str:
 
 def get_rfp_company_name(rfp_id: str) -> str | None:
     """Get company name for an RFP from database. Returns None if not found."""
+    if not rfp_id:
+        return None
+
     try:
         rfp_rows = get_rfp_activity_data_from_db()
         for row in rfp_rows:
@@ -115,8 +131,8 @@ def get_rfp_company_name(rfp_id: str) -> str | None:
                 company = row.get("Company_Name")
                 if company:
                     return company
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Could not get company name for RFP {rfp_id}: {e}")
     return None
 
 def find_rfp_file_across_companies(rfp_id: str) -> tuple[str | None, str | None]:
@@ -413,17 +429,43 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
 def update_rfp_participation_status(rfp_id: str, status: str, category: str = None):
     """
     Update participation status for a specific RFP in the rfp_activity_log table and log the change.
-    
+
     Args:
         rfp_id: The RFP identifier
         status: New status to set
         category: Optional category for the status change log. If not provided, will be auto-determined.
+
+    Returns:
+        bool: True if update was successful, False otherwise
+
+    Raises:
+        ValueError: If rfp_id or status is empty/invalid
     """
+    # Validate inputs
+    if not rfp_id or not rfp_id.strip():
+        logger.error("update_rfp_participation_status: rfp_id is required")
+        raise ValueError("rfp_id is required")
+
+    if not status or not status.strip():
+        logger.error("update_rfp_participation_status: status is required")
+        raise ValueError("status is required")
+
+    rfp_id = rfp_id.strip()
+    status = status.strip()
+
+    # Validate status against allowed values
+    from config.config import validate_rfp_status
+    if not validate_rfp_status(status):
+        logger.warning(f"Status '{status}' is not in VALID_RFP_STATUSES, but proceeding anyway")
+
     try:
+        # Sanitize rfp_id to prevent injection
+        safe_rfp_id = sanitize_filter_value(rfp_id)
+
         # Check for existing record
         existing_result = DATAVERSE.query_rows(
             RFP_ACTIVITY_LOG_TABLE_API,
-            filter_expr=f"RFP_ID eq '{rfp_id}'",
+            filter_expr=f"RFP_ID eq '{safe_rfp_id}'",
             top=1,
             table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
             use_display_names=True
@@ -454,14 +496,23 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
                 "participated": status
             }
 
-            # Perform update
-            DATAVERSE.update_row(
-                RFP_ACTIVITY_LOG_TABLE_API,
-                record_id,
-                update_data,
-                table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
-            )
+            # Perform update with error handling
+            try:
+                update_success = DATAVERSE.update_row(
+                    RFP_ACTIVITY_LOG_TABLE_API,
+                    record_id,
+                    update_data,
+                    table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
+                )
+                if not update_success:
+                    logger.error(f"Failed to update RFP {rfp_id} participation status")
+                    return False
+            except Exception as update_error:
+                logger.error(f"Database error updating RFP {rfp_id}: {update_error}")
+                raise
+
             print(f"✅ Updated RFP {rfp_id} participation status to: {status}")
+            logger.info(f"Updated RFP {rfp_id} participation status to: {status}")
             
             # Log status change if status actually changed
             if old_status.lower() != status.lower():
@@ -481,7 +532,11 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
                 log_rfp_status_change(rfp_id, "", status, initial_category)
             return False
 
+    except ValueError:
+        # Re-raise validation errors
+        raise
     except Exception as e:
+        logger.error(f"Error updating RFP participation status for {rfp_id}: {e}")
         print(f"❌ Error updating RFP participation status: {e}")
         return False
 
