@@ -43,9 +43,9 @@ def send_rfp_deadline_reminders():
     # 🔹 Sort: closest deadline first
     reminder_df = reminder_df.sort_values(by="Time_Left")
 
-    # 🔹 Build Stylish Table
+    # 🔹 Build Stylish Table (use to_dict for better performance)
     table_rows = ""
-    for _, row in reminder_df.iterrows():
+    for row in reminder_df.to_dict('records'):
         rfp_id = row.get("RFP_ID", "Unknown RFP")
         end_date = row["RFP_End_Date"].strftime("%Y-%m-%d %H:%M")
         hours_left = row["Hours_Left"]

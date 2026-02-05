@@ -22,7 +22,7 @@ from collections import Counter
 from typing import Optional
 
 # Import run state management from automation routes
-from routes.automation import _RUN_STATE, _set_state, _add_submitting_rfp, _remove_submitting_rfp, _is_rfp_submitting
+from routes.automation import _RUN_STATE, _set_state, _add_submitting_rfp, _remove_submitting_rfp, _is_rfp_submitting, _run_async_in_thread
 from config.config import (
     DASHBOARD_HTTP_MAX_AGE,
     LOGS_FETCH_TOP_MAX,
@@ -228,29 +228,37 @@ async def rfp_submit_status(rfp_id: str):
 
 @router.post("/download-all-rfps")
 async def download_all_rfps(request: Request):
-    """API endpoint to trigger download all RFPs automation"""
+    """API endpoint to trigger download all RFPs automation (non-blocking background task)"""
     # Simple session check
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
+    # Check if download is already running
+    if _RUN_STATE.get("download"):
+        return JSONResponse({"ok": False, "message": "Download already running"}, status_code=409)
+
     try:
         # Get request body
         body = await request.json()
         selected_company = body.get("company", "").strip()
-        
-        # Run the automation in background with company filter
-        result = await run_automation_download_all_rfps(selected_company=selected_company)
-        
-        if result.get("status") == "error":
-            raise HTTPException(status_code=500, detail=result.get("message", "Unknown error"))
-        
+
+        # Define the background task
+        async def _download_task():
+            try:
+                _set_state("download", True)
+                await run_automation_download_all_rfps(selected_company=selected_company)
+            finally:
+                _set_state("download", False)
+
+        # Run in separate thread with ProactorEventLoop for Windows Playwright compatibility
+        # This returns immediately, allowing concurrent operations
+        _run_async_in_thread(_download_task)
+
         return JSONResponse({
             "ok": True,
-            "message": result.get("message", "Download all RFPs started"),
-            "summary": result.get("summary", {})
-        })
-    except HTTPException:
-        raise
+            "started": True,
+            "message": "Download all RFPs started in background"
+        }, status_code=202)
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -709,8 +717,9 @@ def get_cached_keywords(graph_client, keywords_csv_local):
         keywords_df = pd.read_csv(keywords_csv_path)
         keywords_col = find_column_name(keywords_df.columns, "keywords") or find_column_name(keywords_df.columns, "keyword")
         if keywords_col:
-            for _, row in keywords_df.iterrows():
-                keyword_value = str(row[keywords_col]).strip()
+            # Use to_dict('records') for better performance (faster than iterrows)
+            for row in keywords_df.to_dict('records'):
+                keyword_value = str(row.get(keywords_col, "")).strip()
                 if keyword_value and keyword_value.lower() != 'nan':
                     for kw in keyword_value.split(','):
                         kw_clean = kw.strip().upper()

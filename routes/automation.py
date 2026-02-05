@@ -1,8 +1,15 @@
 from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Form, Query
 from automation_logic import run_automation_download, run_automation_submit, run_automation_decline, run_automation_reminder, run_automation_sync_portal
 
+# Import shared progress helper
+from helpers.progress_helper import update_progress as _update_progress, get_progress as _get_progress, reset_progress as _reset_progress
+
 # Export helper functions for use in other routes
-__all__ = ['_RUN_STATE', '_set_state', '_add_submitting_rfp', '_remove_submitting_rfp', '_is_rfp_submitting']
+__all__ = [
+    '_RUN_STATE', '_STATE_LOCK', '_set_state', '_try_start_operation', '_finish_operation',
+    '_add_submitting_rfp', '_remove_submitting_rfp', '_is_rfp_submitting', '_get_state_snapshot',
+    '_run_async_in_thread', '_update_progress', '_get_progress'
+]
 from config.config import (
     SP_BASE_FOLDER_RFP_UPLOAD_FILES,
     CLIENT_ID,
@@ -56,7 +63,10 @@ def _run_async_in_thread(coro_func, *args, **kwargs):
     thread = threading.Thread(target=_thread_target, daemon=True)
     thread.start()
 
-router = APIRouter( tags=["Automation"]) 
+router = APIRouter( tags=["Automation"])
+
+# Thread-safe lock for concurrent operation protection
+_STATE_LOCK = threading.Lock()
 
 # In-memory run-state flags for UI reflection
 _RUN_STATE = {
@@ -69,57 +79,118 @@ _RUN_STATE = {
 }
 
 def _set_state(key: str, value: bool):
-    _RUN_STATE[key] = value
-    if value:
+    """Thread-safe state setter"""
+    with _STATE_LOCK:
+        _RUN_STATE[key] = value
+        if value:
+            _RUN_STATE["last"] = key
+        else:
+            # Reset progress when operation completes
+            _reset_progress(key)
+
+def _try_start_operation(key: str) -> bool:
+    """
+    Thread-safe atomic check-and-set for starting an operation.
+    Returns True if operation can start (was not already running).
+    Returns False if operation is already running.
+    """
+    with _STATE_LOCK:
+        if _RUN_STATE.get(key):
+            return False  # Already running
+        _RUN_STATE[key] = True
         _RUN_STATE["last"] = key
+        return True
+
+def _finish_operation(key: str):
+    """Thread-safe operation completion handler"""
+    with _STATE_LOCK:
+        _RUN_STATE[key] = False
+        _reset_progress(key)
 
 def _add_submitting_rfp(rfp_id: str):
-    """Add RFP ID to submitting set"""
-    _RUN_STATE["submitting_rfps"].add(rfp_id)
+    """Thread-safe: Add RFP ID to submitting set"""
+    with _STATE_LOCK:
+        _RUN_STATE["submitting_rfps"].add(rfp_id)
 
 def _remove_submitting_rfp(rfp_id: str):
-    """Remove RFP ID from submitting set"""
-    _RUN_STATE["submitting_rfps"].discard(rfp_id)
+    """Thread-safe: Remove RFP ID from submitting set"""
+    with _STATE_LOCK:
+        _RUN_STATE["submitting_rfps"].discard(rfp_id)
 
 def _is_rfp_submitting(rfp_id: str) -> bool:
-    """Check if specific RFP is being submitted"""
-    return rfp_id in _RUN_STATE["submitting_rfps"]
+    """Thread-safe: Check if specific RFP is being submitted"""
+    with _STATE_LOCK:
+        return rfp_id in _RUN_STATE["submitting_rfps"]
+
+def _get_state_snapshot() -> dict:
+    """Thread-safe: Get a copy of current state for reading"""
+    with _STATE_LOCK:
+        return {
+            "download": _RUN_STATE.get("download", False),
+            "submit": _RUN_STATE.get("submit", False),
+            "decline": _RUN_STATE.get("decline", False),
+            "sync": _RUN_STATE.get("sync", False),
+            "last": _RUN_STATE.get("last"),
+            "submitting_rfps": list(_RUN_STATE.get("submitting_rfps", set())),
+        }
 
 @router.get("/automation/status")
 async def automation_status():
+    # Get thread-safe snapshot of current state
+    state = _get_state_snapshot()
+
     # Determine overall status for frontend
     is_running = (
-        _RUN_STATE.get("download") or
-        _RUN_STATE.get("submit") or
-        _RUN_STATE.get("decline") or
-        _RUN_STATE.get("sync")
+        state["download"] or
+        state["submit"] or
+        state["decline"] or
+        state["sync"]
     )
     status = "Running" if is_running else "Ready"
+
+    # Calculate overall progress based on running operation
+    overall_progress = 0
+    if state["download"]:
+        overall_progress = _get_progress("download")["percentage"]
+    elif state["submit"]:
+        overall_progress = _get_progress("submit")["percentage"]
+    elif state["decline"]:
+        overall_progress = _get_progress("decline")["percentage"]
+    elif state["sync"]:
+        overall_progress = _get_progress("sync")["percentage"]
 
     return {
         "ok": True,
         "status": status,
-        "progress": 50 if is_running else 0,  # Simplified progress indicator
-        "download_running": bool(_RUN_STATE.get("download")),
-        "submit_running": bool(_RUN_STATE.get("submit")),
-        "decline_running": bool(_RUN_STATE.get("decline")),
-        "sync_running": bool(_RUN_STATE.get("sync")),
-        "last": _RUN_STATE.get("last"),
-        "submitting_rfps": list(_RUN_STATE.get("submitting_rfps", set())),
+        "progress": overall_progress,
+        "download_running": state["download"],
+        "submit_running": state["submit"],
+        "decline_running": state["decline"],
+        "sync_running": state["sync"],
+        "last": state["last"],
+        "submitting_rfps": state["submitting_rfps"],
+        # Detailed progress for each operation
+        "progress_details": {
+            "download": _get_progress("download") if state["download"] else None,
+            "submit": _get_progress("submit") if state["submit"] else None,
+            "decline": _get_progress("decline") if state["decline"] else None,
+            "sync": _get_progress("sync") if state["sync"] else None,
+        }
     }
 
 @router.get("/download-rfp")
 async def download_rfp_endpoint(company: str = Query("", alias="company")):
     selected_company = (company or "").strip()
-    if _RUN_STATE.get("download"):
+
+    # Thread-safe atomic check-and-set
+    if not _try_start_operation("download"):
         return JSONResponse({"ok": False, "message": "Download already running"}, status_code=409)
 
     async def _task():
         try:
-            _set_state("download", True)
             await run_automation_download(selected_company or None)
         finally:
-            _set_state("download", False)
+            _finish_operation("download")
 
     # Run in separate thread with ProactorEventLoop for Windows Playwright compatibility
     _run_async_in_thread(_task)
@@ -241,15 +312,15 @@ async def dashboard_submit_rfp_endpoint(
             print(f"⚠️ Technical PDFs upload/save error: {e}")
         
         # Now trigger the automation in background
-        if _RUN_STATE.get("submit"):
+        # Thread-safe atomic check-and-set
+        if not _try_start_operation("submit"):
             return JSONResponse({"ok": False, "message": "Submit already running"}, status_code=409)
 
         async def _task():
             try:
-                _set_state("submit", True)
                 await run_automation_submit(rfp_id, selected_company or None)
             finally:
-                _set_state("submit", False)
+                _finish_operation("submit")
 
         # Run in separate thread with ProactorEventLoop for Windows Playwright compatibility
         _run_async_in_thread(_task)
@@ -287,29 +358,32 @@ async def submit_rfp_endpoint(payload: dict = Body(...)):
     print("rfp_id:-",rfp_id)
     if not rfp_id:
         raise HTTPException(status_code=400, detail="rfp_id is required")
-    if _RUN_STATE.get("submit"):
+
+    # Thread-safe atomic check-and-set
+    if not _try_start_operation("submit"):
         return JSONResponse({"ok": False, "message": "Submit already running"}, status_code=409)
+
     async def _task():
         try:
-            _set_state("submit", True)
             await run_automation_submit(rfp_id, selected_company or None)
         finally:
-            _set_state("submit", False)
+            _finish_operation("submit")
+
     # Run in separate thread with ProactorEventLoop for Windows Playwright compatibility
     _run_async_in_thread(_task)
     return JSONResponse({"ok": True, "started": True}, status_code=202)
 
 @router.get("/sync_portal_data")
 async def dashboard_sync_portal_data():
-    if _RUN_STATE.get("sync"):
+    # Thread-safe atomic check-and-set
+    if not _try_start_operation("sync"):
         return JSONResponse({"ok": False, "message": "Sync already running"}, status_code=409)
 
     async def _task():
         try:
-            _set_state("sync", True)
             await run_automation_sync_portal()
         finally:
-            _set_state("sync", False)
+            _finish_operation("sync")
 
     # Run in separate thread with ProactorEventLoop for Windows Playwright compatibility
     _run_async_in_thread(_task)
@@ -322,14 +396,16 @@ async def decline_rfp_endpoint(payload: dict = Body(...)):
     selected_company = (payload.get("company") or "").strip()
     if not rfp_id:
         raise HTTPException(status_code=400, detail="rfp_id or rfp_title is required")
-    if _RUN_STATE.get("decline"):
+
+    # Thread-safe atomic check-and-set
+    if not _try_start_operation("decline"):
         return JSONResponse({"ok": False, "message": "Decline already running"}, status_code=409)
+
     async def _task():
         try:
-            _set_state("decline", True)
             await run_automation_decline(rfp_id, selected_company or None)
         finally:
-            _set_state("decline", False)
+            _finish_operation("decline")
     # Run in separate thread with ProactorEventLoop for Windows Playwright compatibility
     _run_async_in_thread(_task)
     return JSONResponse({"ok": True, "started": True}, status_code=202)

@@ -20,6 +20,7 @@ from bs4 import BeautifulSoup
 import tempfile, shutil, uuid
 from pathlib import Path
 from helpers.failure_logger import record_failure_log
+from helpers.progress_helper import update_progress
 
 
 def _resolve_company(company: str | None) -> str:
@@ -1384,6 +1385,9 @@ async def run_automation_download_all_rfps(selected_company: str = ""):
                     return {"status": "error", "message": f"Company '{company_filter}' not found in portal"}
                 companies = filtered_companies
                 log_event("ALL_RFPS", "FilterCompany", "Success", f"Filtered to company: {company_filter}")
+
+            # Initialize progress tracking
+            update_progress("download", current=0, total=len(companies), message="Starting download...")
             
             summary = {
                 "total_companies": len(companies),
@@ -1399,6 +1403,9 @@ async def run_automation_download_all_rfps(selected_company: str = ""):
             
             # Process each company
             for idx, company in enumerate(companies, 1):
+                # Update progress for UI
+                update_progress("download", current=idx, total=len(companies), current_item=company, message=f"Processing {company}")
+
                 company_summary = {
                     "company": company,
                     "status": "processing",
@@ -1409,7 +1416,7 @@ async def run_automation_download_all_rfps(selected_company: str = ""):
                     "rfps_skipped": 0,
                     "errors": []
                 }
-                
+
                 print(f"\n{'='*70}")
                 print(f"Processing {idx}/{len(companies)}: {company}")
                 print(f"{'='*70}")

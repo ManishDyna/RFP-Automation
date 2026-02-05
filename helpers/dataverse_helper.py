@@ -12,6 +12,9 @@ class DataverseClient:
         self.api_url = f"{self.resource_url}/api/data/v9.2/"
         self.token: str | None = None
         self.token_expiry: datetime | None = None
+        # Cache for column mappings (table_logical_name -> {display_name: logical_name})
+        # Column mappings rarely change, so we cache them for the lifetime of the client
+        self._column_mapping_cache: Dict[str, dict] = {}
         self._refresh_token()
 
     def _get_access_token(self) -> tuple[str, datetime]:
@@ -59,12 +62,23 @@ class DataverseClient:
         filter_by: dict = None,          # e.g., {"RFP_ID": "12345"}
         select_columns: List[str] = None, # e.g., ["RunID", "RFP_ID"]
         top: int = 10,
+        skip: int = 0,                   # For pagination: skip first N rows
         order_by: str | None = None,     # e.g., "created_at desc"
         table_logical_name: str = None,
         use_display_names: bool = True
         ) -> List[dict]:
         """
-        Retrieve rows from a Dataverse table with optional filtering and column selection.
+        Retrieve rows from a Dataverse table with optional filtering, column selection, and pagination.
+
+        Args:
+            table_api_name: API name of the table
+            filter_by: Dict of column->value filters
+            select_columns: List of column names to retrieve
+            top: Maximum rows to return (default 10)
+            skip: Number of rows to skip for pagination (default 0)
+            order_by: Sort order (e.g., "created_at desc")
+            table_logical_name: Logical name for display name mapping
+            use_display_names: Whether to use display names
         """
         filter_expr = None
         select_expr = None
@@ -90,6 +104,7 @@ class DataverseClient:
             filter_expr=filter_expr,
             select=select_expr,
             top=top,
+            skip=skip,
             order_by=order_by,
             table_logical_name=table_logical_name,
             use_display_names=use_display_names
@@ -117,10 +132,13 @@ class DataverseClient:
         return rows
 
     # Query rows from a Dataverse table
-    def query_rows(self, table_api_name: str, filter_expr: str = None, select: str = None, top: int = 1, order_by: str | None = None, table_logical_name: str = None, use_display_names: bool = True):
+    def query_rows(self, table_api_name: str, filter_expr: str = None, select: str = None, top: int = 1, skip: int = 0, order_by: str | None = None, table_logical_name: str = None, use_display_names: bool = True):
         """
-        Query rows from Dataverse table.
+        Query rows from Dataverse table with pagination support.
         If use_display_names=True, filter_expr and select can use display names.
+
+        Args:
+            skip: Number of rows to skip (for pagination via OData $skip)
         """
         url = f"{self.api_url}{table_api_name}"
         params = {}
@@ -152,6 +170,8 @@ class DataverseClient:
             params["$select"] = select
         if top:
             params["$top"] = str(top)
+        if skip and skip > 0:
+            params["$skip"] = str(skip)
         if order_by:
             params["$orderby"] = order_by
 
@@ -162,8 +182,17 @@ class DataverseClient:
         return resp.json()
 
 
-    # Get display name → logical name mapping for a table
-    def get_column_mapping(self, table_logical_name: str) -> dict:
+    # Get display name → logical name mapping for a table (cached)
+    def get_column_mapping(self, table_logical_name: str, force_refresh: bool = False) -> dict:
+        """
+        Get column mapping from display names to logical names.
+        Results are cached to avoid repeated API calls - column metadata rarely changes.
+        Use force_refresh=True to bypass cache if needed.
+        """
+        # Return cached mapping if available
+        if not force_refresh and table_logical_name in self._column_mapping_cache:
+            return self._column_mapping_cache[table_logical_name]
+
         url = f"{self.api_url}EntityDefinitions(LogicalName='{table_logical_name}')/Attributes?$select=LogicalName,DisplayName"
         response = requests.get(url, headers=self._headers())
         if response.status_code != 200:
@@ -175,7 +204,17 @@ class DataverseClient:
             display_labels = attr.get("DisplayName", {}).get("LocalizedLabels", [])
             if display_labels:
                 mapping[display_labels[0]["Label"]] = attr.get("LogicalName")
+
+        # Cache the result
+        self._column_mapping_cache[table_logical_name] = mapping
         return mapping
+
+    def clear_column_mapping_cache(self, table_logical_name: str = None):
+        """Clear column mapping cache. If table_logical_name is provided, only clear that table's cache."""
+        if table_logical_name:
+            self._column_mapping_cache.pop(table_logical_name, None)
+        else:
+            self._column_mapping_cache.clear()
 
     def get_choice_options(self, table_logical_name: str, attribute_logical_name: str) -> dict:
         """

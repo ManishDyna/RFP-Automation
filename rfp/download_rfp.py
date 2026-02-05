@@ -251,8 +251,9 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
         keywords_df = pd.read_csv(keywords_csv_path)
         keywords_col = find_column_name(keywords_df.columns, "keywords") or find_column_name(keywords_df.columns, "keyword")
         if keywords_col:
-            for _, row in keywords_df.iterrows():
-                keyword_value = str(row[keywords_col]).strip()
+            # Use to_dict('records') for better performance (faster than iterrows)
+            for row in keywords_df.to_dict('records'):
+                keyword_value = str(row.get(keywords_col, "")).strip()
                 if keyword_value and keyword_value.lower() != 'nan':
                     for kw in keyword_value.split(','):
                         kw_clean = kw.strip().upper()
@@ -398,11 +399,9 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
                         if not keyword_matched_rows.empty:
                             matched_rows = keyword_matched_rows.head(1)  # Use first matching row
                     
-                    # Create records from matched rows
+                    # Create records from matched rows (use to_dict for better performance)
                     if not matched_rows.empty:
-                        for _, row in matched_rows.iterrows():
-                            record = row.to_dict()
-                            
+                        for record in matched_rows.to_dict('records'):
                             # Update with extra info
                             record.update({
                                 "SourceFile": file_name,

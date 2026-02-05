@@ -220,17 +220,27 @@ def get_latest_file(download_dir, title):
     except Exception:
         return None
 
-def get_rfp_activity_data_from_db():
+def get_rfp_activity_data_from_db(top: int = 5000, skip: int = 0):
+    """
+    Get RFP activity data from Dataverse with optional pagination.
+
+    Args:
+        top: Maximum number of rows to fetch (default 5000 for fetching all records)
+        skip: Number of rows to skip for pagination (default 0)
+
+    Returns:
+        List of dicts with display names as keys
+    """
     # Step 1: Fetch rows from Dataverse (logical names in response)
     rows = DATAVERSE.get_rows_from_dataverse(
         table_api_name=RFP_ACTIVITY_LOG_TABLE_API,
         select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link"],  # display names
-        top=5000,
+        top=top,
         table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
         use_display_names=True
     )
 
-    # Step 2: Get mapping display name -> logical name
+    # Step 2: Get mapping display name -> logical name (now cached)
     column_map = DATAVERSE.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)
 
     # Reverse the mapping: logical name -> display name
@@ -672,11 +682,12 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False)
         desc_col = find_column_name(df.columns, "description")
         materials_data = []
         seen_codes = set()
-        
-        for idx, row in filtered.iterrows():
-            name_value = str(row[name_col]) if not pd.isna(row[name_col]) else ""
-            desc_value = str(row[desc_col]) if desc_col and not pd.isna(row[desc_col]) else ""
-            
+
+        # Use to_dict('records') for better performance (faster than iterrows, safer with column names)
+        for row in filtered.to_dict('records'):
+            name_value = str(row.get(name_col, "")) if not pd.isna(row.get(name_col)) else ""
+            desc_value = str(row.get(desc_col, "")) if desc_col and not pd.isna(row.get(desc_col)) else ""
+
             # Extract 9-digit material codes
             for mat_code in re.findall(r"\d{9}", name_value):
                 if mat_code not in seen_codes:
@@ -686,7 +697,7 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False)
                         "name": name_value,
                         "description": desc_value
                     })
-        
+
         print(f"🧾 Materials extracted with details: {len(materials_data)}")
         return materials_data
     else:

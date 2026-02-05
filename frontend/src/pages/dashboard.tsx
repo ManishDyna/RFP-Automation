@@ -1,7 +1,9 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
 import { useDialogs } from '@/contexts/dialog-context'
+import { useRef } from 'react'
 import {
   Download,
   CheckCircle2,
@@ -29,6 +31,9 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
+
+// Threshold for enabling virtualization (only virtualize when > this many rows)
+const VIRTUALIZATION_THRESHOLD = 50
 
 // Metric Card Component
 interface MetricCardProps {
@@ -147,7 +152,77 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-// RFP Table Component
+// RFP Table Row Component (extracted for virtualization)
+interface RfpTableRowProps {
+  rfp: any
+  index: number
+  showActions: boolean
+  tableType: 'open' | 'draft'
+  onSubmit?: (rfpId: string) => void
+  onChangeStatus?: (rfpId: string, newStatus: string) => void
+}
+
+function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeStatus }: RfpTableRowProps) {
+  return (
+    <TableRow key={rfp.RFP_ID || index} className="group">
+      <TableCell>
+        {rfp.Link ? (
+          <a
+            href={rfp.Link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 font-medium text-sm"
+          >
+            {rfp.RFP_ID}
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        ) : (
+          <span className="font-medium text-slate-700 text-sm">{rfp.RFP_ID}</span>
+        )}
+      </TableCell>
+      <TableCell className="text-slate-600 text-sm">{rfp.Owner_Name || '-'}</TableCell>
+      <TableCell className="text-slate-500 text-sm">{rfp.Publish_Time || '-'}</TableCell>
+      <TableCell className="text-slate-500 text-sm">{rfp.RFP_End_Date || '-'}</TableCell>
+      {showActions && (
+        <TableCell>
+          {rfp.match_percentage && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
+              {rfp.match_percentage}
+            </span>
+          )}
+        </TableCell>
+      )}
+      <TableCell>
+        <StatusBadge status={rfp.status || 'open'} />
+      </TableCell>
+      {showActions && (
+        <TableCell className="text-right">
+          {tableType === 'draft' ? (
+            <Button
+              size="sm"
+              onClick={() => onChangeStatus?.(rfp.RFP_ID, 'submitted')}
+              className="h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
+              <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
+              Mark Submitted
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              onClick={() => onSubmit?.(rfp.RFP_ID)}
+              className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <Send className="h-3.5 w-3.5 mr-1.5" />
+              Submit
+            </Button>
+          )}
+        </TableCell>
+      )}
+    </TableRow>
+  )
+}
+
+// RFP Table Component with virtualization for large datasets
 interface RfpTableProps {
   rfps: any[]
   showActions?: boolean
@@ -157,6 +232,19 @@ interface RfpTableProps {
 }
 
 function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onChangeStatus }: RfpTableProps) {
+  const parentRef = useRef<HTMLDivElement>(null)
+
+  // Use virtualization only for large datasets
+  const useVirtual = rfps && rfps.length > VIRTUALIZATION_THRESHOLD
+
+  const rowVirtualizer = useVirtualizer({
+    count: rfps?.length || 0,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 52, // Estimated row height in pixels
+    overscan: 10, // Render extra rows above/below visible area for smooth scrolling
+    enabled: useVirtual,
+  })
+
   if (!rfps || rfps.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -169,88 +257,216 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
     )
   }
 
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow className="hover:bg-transparent">
-          <TableHead className="text-slate-500 font-medium">RFP ID</TableHead>
-          <TableHead className="text-slate-500 font-medium">Owner</TableHead>
-          <TableHead className="text-slate-500 font-medium">Published</TableHead>
-          <TableHead className="text-slate-500 font-medium">Deadline</TableHead>
-          {showActions && <TableHead className="text-slate-500 font-medium">Match</TableHead>}
-          <TableHead className="text-slate-500 font-medium">Status</TableHead>
-          {showActions && <TableHead className="text-slate-500 font-medium text-right">Actions</TableHead>}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rfps.map((rfp, index) => (
-          <TableRow key={rfp.RFP_ID || index} className="group">
-            <TableCell>
-              {rfp.Link ? (
-                <a
-                  href={rfp.Link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 font-medium text-sm"
-                >
-                  {rfp.RFP_ID}
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              ) : (
-                <span className="font-medium text-slate-700 text-sm">{rfp.RFP_ID}</span>
-              )}
-            </TableCell>
-            <TableCell className="text-slate-600 text-sm">{rfp.Owner_Name || '-'}</TableCell>
-            <TableCell className="text-slate-500 text-sm">{rfp.Publish_Time || '-'}</TableCell>
-            <TableCell className="text-slate-500 text-sm">{rfp.RFP_End_Date || '-'}</TableCell>
-            {showActions && (
-              <TableCell>
-                {rfp.match_percentage && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
-                    {rfp.match_percentage}
-                  </span>
-                )}
-              </TableCell>
-            )}
-            <TableCell>
-              <StatusBadge status={rfp.status || 'open'} />
-            </TableCell>
-            {showActions && (
-              <TableCell className="text-right">
-                {tableType === 'draft' ? (
-                  <Button
-                    size="sm"
-                    onClick={() => onChangeStatus?.(rfp.RFP_ID, 'submitted')}
-                    className="h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
-                  >
-                    <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
-                    Mark Submitted
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => onSubmit?.(rfp.RFP_ID)}
-                    className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
-                  >
-                    <Send className="h-3.5 w-3.5 mr-1.5" />
-                    Submit
-                  </Button>
-                )}
-              </TableCell>
-            )}
+  // Regular table for small datasets (no virtualization overhead)
+  if (!useVirtual) {
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="text-slate-500 font-medium">RFP ID</TableHead>
+            <TableHead className="text-slate-500 font-medium">Owner</TableHead>
+            <TableHead className="text-slate-500 font-medium">Published</TableHead>
+            <TableHead className="text-slate-500 font-medium">Deadline</TableHead>
+            {showActions && <TableHead className="text-slate-500 font-medium">Match</TableHead>}
+            <TableHead className="text-slate-500 font-medium">Status</TableHead>
+            {showActions && <TableHead className="text-slate-500 font-medium text-right">Actions</TableHead>}
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {rfps.map((rfp, index) => (
+            <RfpTableRow
+              key={rfp.RFP_ID || index}
+              rfp={rfp}
+              index={index}
+              showActions={showActions}
+              tableType={tableType}
+              onSubmit={onSubmit}
+              onChangeStatus={onChangeStatus}
+            />
+          ))}
+        </TableBody>
+      </Table>
+    )
+  }
+
+  // Virtualized table for large datasets (50+ rows)
+  return (
+    <div>
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="text-slate-500 font-medium">RFP ID</TableHead>
+            <TableHead className="text-slate-500 font-medium">Owner</TableHead>
+            <TableHead className="text-slate-500 font-medium">Published</TableHead>
+            <TableHead className="text-slate-500 font-medium">Deadline</TableHead>
+            {showActions && <TableHead className="text-slate-500 font-medium">Match</TableHead>}
+            <TableHead className="text-slate-500 font-medium">Status</TableHead>
+            {showActions && <TableHead className="text-slate-500 font-medium text-right">Actions</TableHead>}
+          </TableRow>
+        </TableHeader>
+      </Table>
+      <div
+        ref={parentRef}
+        className="overflow-auto"
+        style={{ height: '400px' }} // Fixed height for virtualization
+      >
+        <div
+          style={{
+            height: `${rowVirtualizer.getTotalSize()}px`,
+            width: '100%',
+            position: 'relative',
+          }}
+        >
+          <Table>
+            <TableBody>
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const rfp = rfps[virtualRow.index]
+                return (
+                  <TableRow
+                    key={rfp.RFP_ID || virtualRow.index}
+                    className="group"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: `${virtualRow.size}px`,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <TableCell>
+                      {rfp.Link ? (
+                        <a
+                          href={rfp.Link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 font-medium text-sm"
+                        >
+                          {rfp.RFP_ID}
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      ) : (
+                        <span className="font-medium text-slate-700 text-sm">{rfp.RFP_ID}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-slate-600 text-sm">{rfp.Owner_Name || '-'}</TableCell>
+                    <TableCell className="text-slate-500 text-sm">{rfp.Publish_Time || '-'}</TableCell>
+                    <TableCell className="text-slate-500 text-sm">{rfp.RFP_End_Date || '-'}</TableCell>
+                    {showActions && (
+                      <TableCell>
+                        {rfp.match_percentage && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
+                            {rfp.match_percentage}
+                          </span>
+                        )}
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      <StatusBadge status={rfp.status || 'open'} />
+                    </TableCell>
+                    {showActions && (
+                      <TableCell className="text-right">
+                        {tableType === 'draft' ? (
+                          <Button
+                            size="sm"
+                            onClick={() => onChangeStatus?.(rfp.RFP_ID, 'submitted')}
+                            className="h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
+                          >
+                            <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
+                            Mark Submitted
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => onSubmit?.(rfp.RFP_ID)}
+                            className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                          >
+                            <Send className="h-3.5 w-3.5 mr-1.5" />
+                            Submit
+                          </Button>
+                        )}
+                      </TableCell>
+                    )}
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+      <div className="text-xs text-slate-400 mt-2 text-center">
+        Showing {rfps.length} rows (virtualized for performance)
+      </div>
+    </div>
   )
 }
 
 // Main Dashboard Component
 export default function DashboardPage() {
   const { openSubmitRfpDialog } = useDialogs()
+  const queryClient = useQueryClient()
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['dashboardData'],
     queryFn: api.getDashboardData,
+  })
+
+  // Optimistic mutation for instant status updates
+  const statusMutation = useMutation({
+    mutationFn: ({ rfpId, newStatus }: { rfpId: string; newStatus: string }) =>
+      api.updateRfpStatus(rfpId, newStatus),
+    onMutate: async ({ rfpId, newStatus }) => {
+      // Cancel any outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ['dashboardData'] })
+
+      // Snapshot the previous value
+      const previousData = queryClient.getQueryData(['dashboardData'])
+
+      // Optimistically update the cache
+      queryClient.setQueryData(['dashboardData'], (old: any) => {
+        if (!old?.companies_rfps) return old
+
+        const updated = { ...old, companies_rfps: { ...old.companies_rfps } }
+
+        // Find and move the RFP from its current status to the new status
+        for (const company in updated.companies_rfps) {
+          const companyData = { ...updated.companies_rfps[company] }
+          updated.companies_rfps[company] = companyData
+
+          // Check saved_draft (source for "Mark Submitted")
+          if (companyData.saved_draft) {
+            const rfpIndex = companyData.saved_draft.findIndex((r: any) => r.RFP_ID === rfpId)
+            if (rfpIndex !== -1) {
+              const [rfp] = companyData.saved_draft.splice(rfpIndex, 1)
+              companyData.saved_draft = [...companyData.saved_draft]
+              rfp.status = newStatus
+
+              // Add to new status array
+              if (!companyData[newStatus]) companyData[newStatus] = []
+              companyData[newStatus] = [...companyData[newStatus], rfp]
+              break
+            }
+          }
+        }
+
+        return updated
+      })
+
+      return { previousData }
+    },
+    onError: (err: any, variables, context) => {
+      // Rollback on error
+      if (context?.previousData) {
+        queryClient.setQueryData(['dashboardData'], context.previousData)
+      }
+      toast.error(err.message || 'Failed to update RFP status')
+    },
+    onSuccess: (_, { rfpId, newStatus }) => {
+      toast.success(`RFP ${rfpId} status changed to ${newStatus}`)
+    },
+    onSettled: () => {
+      // Refetch in background to ensure server consistency
+      queryClient.invalidateQueries({ queryKey: ['dashboardData'] })
+    },
   })
 
   const handleSyncPortal = async () => {
@@ -267,14 +483,8 @@ export default function DashboardPage() {
     openSubmitRfpDialog(rfpId)
   }
 
-  const handleChangeStatus = async (rfpId: string, newStatus: string) => {
-    try {
-      await api.updateRfpStatus(rfpId, newStatus)
-      toast.success(`RFP ${rfpId} status changed to ${newStatus}`)
-      refetch()
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to update RFP status')
-    }
+  const handleChangeStatus = (rfpId: string, newStatus: string) => {
+    statusMutation.mutate({ rfpId, newStatus })
   }
 
   const stats = data?.rfp || {}
@@ -314,7 +524,7 @@ export default function DashboardPage() {
         ) : (
           <>
             <MetricCard
-              title="Downloaded RFPs"
+              title="Total Downloaded RFPs"
               value={stats.downloaded_rfps || 0}
               icon={<Download className="h-5 w-5" />}
               variant="warning"
@@ -357,7 +567,7 @@ export default function DashboardPage() {
                   RFP Management
                 </CardTitle>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Only today's and upcoming RFPs are displayed
+                  RFPs with passed deadlines are hidden
                 </p>
               </div>
             </div>

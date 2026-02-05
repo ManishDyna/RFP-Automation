@@ -1,0 +1,9 @@
+# Ignore all test result files (can be large)
+*.json
+*.txt
+*.csv
+*.html
+
+# But keep the .gitkeep
+!.gitkeep
+!.gitignore

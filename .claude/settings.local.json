@@ -17,7 +17,12 @@
       "Bash(powershell:*)",
       "Bash(grep:*)",
       "Bash(python3:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npm install:*)",
+      "Bash(k6 version:*)",
+      "Bash(where k6:*)",
+      "Bash(\"tests\\\\performance\\\\k6-v0.49.0-windows-amd64\\\\k6.exe\" run tests/performance/scripts/smoke-test.js)",
+      "Bash(\"tests\\\\performance\\\\k6-v0.49.0-windows-amd64\\\\k6.exe\" run:*)"
     ]
   }
 }

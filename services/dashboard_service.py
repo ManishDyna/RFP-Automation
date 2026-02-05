@@ -17,8 +17,10 @@ from config.config import (
 )
 
 # ===== DASHBOARD DATA CACHE (TTL) =====
+import threading
 _DASHBOARD_CACHE = {"data": None, "ts": 0}
 _DASHBOARD_TTL_SECONDS = DASHBOARD_TTL_SECONDS
+_DASHBOARD_CACHE_LOCK = threading.Lock()
 
 
 def format_publish_time(publish_time_str):
@@ -47,15 +49,31 @@ def format_publish_time(publish_time_str):
 
 
 def get_dashboard_data_cached(force_refresh: bool = False):
+    """
+    Get dashboard data with caching and stampede prevention.
+    Uses double-checked locking to prevent multiple concurrent refreshes.
+    """
     from time import time as _now
     now = _now()
+
+    # Quick check without lock (fast path for cache hits)
     if not force_refresh:
         if _DASHBOARD_CACHE["data"] is not None and (now - _DASHBOARD_CACHE["ts"]) < _DASHBOARD_TTL_SECONDS:
             return _DASHBOARD_CACHE["data"]
-    data = get_dashboard_data()
-    _DASHBOARD_CACHE["data"] = data
-    _DASHBOARD_CACHE["ts"] = now
-    return data
+
+    # Acquire lock for refresh (prevents cache stampede)
+    with _DASHBOARD_CACHE_LOCK:
+        # Double-check after acquiring lock (another thread may have refreshed)
+        now = _now()
+        if not force_refresh:
+            if _DASHBOARD_CACHE["data"] is not None and (now - _DASHBOARD_CACHE["ts"]) < _DASHBOARD_TTL_SECONDS:
+                return _DASHBOARD_CACHE["data"]
+
+        # Only ONE thread refreshes the cache
+        data = get_dashboard_data()
+        _DASHBOARD_CACHE["data"] = data
+        _DASHBOARD_CACHE["ts"] = now
+        return data
 
 
 def _automation_fetch_from_dataverse(top=200):
@@ -143,32 +161,48 @@ def get_dashboard_data():
                 except Exception:
                     pass
 
-                for _, row in rfp_df.iterrows():
-                    company_name = row.get("Company_Name", "") if row.get("Company_Name", "") else "Saudi Electricity Company"
-                    unique_companies.add(company_name)
-                    if company_name not in companies_rfps:
-                        companies_rfps[company_name] = {
-                            "open": [],
-                            "submitted": [],
-                            "saved_draft": [],
-                            "declined": []
-                        }
+                # Vectorized: Get unique companies and initialize dict (faster than iterrows)
+                company_col = rfp_df["Company_Name"].fillna("Saudi Electricity Company").replace("", "Saudi Electricity Company")
+                unique_companies = set(company_col.unique())
+                for company_name in unique_companies:
+                    companies_rfps[company_name] = {
+                        "open": [],
+                        "submitted": [],
+                        "saved_draft": [],
+                        "declined": []
+                    }
 
-                for _, row in rfp_df.iterrows():
+                # Vectorized: Count submitted and declined (faster than iterrows)
+                participated_lower = rfp_df["participated"].fillna("").str.strip().str.lower()
+                total_submitted_rfps = int(((participated_lower == "submitted") | (participated_lower == "yes")).sum())
+                total_declined_rfps = int((participated_lower == "declined").sum())
+
+                # Use to_dict('records') for remaining logic (faster than iterrows, safer than itertuples)
+                # Use current datetime to hide RFPs where deadline has passed
+                now_dt = datetime.now()
+                future_count = 0
+                past_count = 0
+                invalid_date_count = 0
+
+                for row in rfp_df.to_dict('records'):
                     end_dt = row.get("_RFP_End_Date_dt")
                     end_str = end_dt.strftime("%Y-%m-%d %H:%M") if pd.notna(end_dt) else str(row.get("RFP_End_Date", ""))
 
-                    if row.get("participated", "").strip().lower() == "submitted" or row.get("participated", "").strip().lower() == "yes":
-                        total_submitted_rfps += 1
-                    if row.get("participated", "").strip().lower() == "declined":
-                        total_declined_rfps += 1
+                    # Debug: Track date distribution
+                    if pd.isna(end_dt):
+                        invalid_date_count += 1
+                    elif end_dt >= now_dt:
+                        future_count += 1
+                    else:
+                        past_count += 1
 
-                    if pd.notna(end_dt) and end_dt >= datetime.now():
+                    # Show only RFPs where deadline has not passed (end date >= current time)
+                    if pd.notna(end_dt) and end_dt >= now_dt:
                         rfp_link = row.get("Link", "") or row.get("link", "")
                         if not rfp_link:
                             rfp_link = URL
 
-                        company_name = row.get("Company_Name", "") if row.get("Company_Name", "") else "Saudi Electricity Company"
+                        company_name = row.get("Company_Name", "") or "Saudi Electricity Company"
 
                         rfp_data = {
                             "RFP_ID": row.get("RFP_ID", ""),
@@ -182,7 +216,7 @@ def get_dashboard_data():
 
                         downloaded_rfp_list.append(rfp_data)
 
-                        participation_status = (row.get("participated", "") or "").lower()
+                        participation_status = (row.get("participated", "") or "").lower().strip()
                         if participation_status == "no" or participation_status == "":
                             open_rfp_list.append(rfp_data)
                             companies_rfps[company_name]["open"].append(rfp_data)
@@ -195,6 +229,13 @@ def get_dashboard_data():
                         elif participation_status == "saved_draft":
                             saved_draft_rfp_list.append(rfp_data)
                             companies_rfps[company_name]["saved_draft"].append(rfp_data)
+
+                # Debug: Print date distribution
+                print(f"DEBUG: RFP Date Distribution - Future: {future_count}, Past: {past_count}, Invalid: {invalid_date_count}")
+                print(f"DEBUG: Current datetime: {now_dt}")
+                if not rfp_df.empty and "_RFP_End_Date_dt" in rfp_df.columns:
+                    sample_dates = rfp_df["_RFP_End_Date_dt"].head(3).tolist()
+                    print(f"DEBUG: Sample end dates: {sample_dates}")
 
         saved_rfps = int(len(rfp_df))
         prev_saved_rfps = 0
@@ -274,14 +315,15 @@ def get_all_rfp_data():
                 except Exception:
                     pass
 
-                for _, row in rfp_df.iterrows():
+                # Vectorized: Count submitted and declined (faster than iterrows)
+                participated_lower = rfp_df["participated"].fillna("").str.strip().str.lower()
+                total_submitted_rfps = int(((participated_lower == "submitted") | (participated_lower == "yes")).sum())
+                total_declined_rfps = int((participated_lower == "declined").sum())
+
+                # Use to_dict('records') for building list (faster than iterrows, safer than itertuples)
+                for row in rfp_df.to_dict('records'):
                     end_dt = row.get("_RFP_End_Date_dt")
                     end_str = end_dt.strftime("%Y-%m-%d %H:%M") if pd.notna(end_dt) else str(row.get("RFP_End_Date", ""))
-
-                    if row.get("participated", "").strip().lower() == "submitted" or row.get("participated", "").strip().lower() == "yes":
-                        total_submitted_rfps += 1
-                    if row.get("participated", "").strip().lower() == "declined":
-                        total_declined_rfps += 1
 
                     rfp_link = row.get("Link", "") or row.get("link", "")
                     if not rfp_link:
@@ -290,7 +332,7 @@ def get_all_rfp_data():
                     rfp_data = {
                         "RFP_ID": row.get("RFP_ID", ""),
                         "RFP_End_Date": end_str,
-                        "Company_Name": row.get("Company_Name", "") if row.get("Company_Name", "") else "Saudi Electricity Company",
+                        "Company_Name": row.get("Company_Name", "") or "Saudi Electricity Company",
                         "Owner_Name": row.get("owner_name", ""),
                         "Publish_Time": format_publish_time(row.get("publish_time", "")),
                         "participated": row.get("participated", ""),

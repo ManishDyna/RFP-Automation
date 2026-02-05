@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense, lazy } from 'react'
 import { Toaster } from 'sonner'
 import { useAuth } from '@/hooks/use-auth'
 import { Sidebar } from '@/components/layout/sidebar'
@@ -7,14 +7,14 @@ import { Header } from '@/components/layout/header'
 import { cn } from '@/lib/utils'
 import { DialogProvider, useDialogs } from '@/contexts/dialog-context'
 
-// Pages
-import LoginPage from '@/pages/login'
-import DashboardPage from '@/pages/dashboard'
-import RfpInsightsPage from '@/pages/rfp-insights'
-import LogsPage from '@/pages/logs'
-import ProfilePage from '@/pages/profile'
-import UserManagementPage from '@/pages/admin/users'
-import SapPasswordLogsPage from '@/pages/admin/sap-logs'
+// Lazy-loaded pages for code splitting (only load when route is accessed)
+const LoginPage = lazy(() => import('@/pages/login'))
+const DashboardPage = lazy(() => import('@/pages/dashboard'))
+const RfpInsightsPage = lazy(() => import('@/pages/rfp-insights'))
+const LogsPage = lazy(() => import('@/pages/logs'))
+const ProfilePage = lazy(() => import('@/pages/profile'))
+const UserManagementPage = lazy(() => import('@/pages/admin/users'))
+const SapPasswordLogsPage = lazy(() => import('@/pages/admin/sap-logs'))
 
 // Dialogs
 import { SubmitRfpDialog } from '@/components/dialogs/submit-rfp-dialog'
@@ -35,6 +35,18 @@ function LoadingScreen() {
         </div>
         <h2 className="text-lg font-semibold text-slate-800 mb-1">RFP Portal</h2>
         <p className="text-sm text-slate-500">Loading your workspace...</p>
+      </div>
+    </div>
+  )
+}
+
+// Lightweight page loader for route transitions (faster than full LoadingScreen)
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-3 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+        <p className="text-sm text-slate-500">Loading...</p>
       </div>
     </div>
   )
@@ -94,16 +106,18 @@ function ProtectedLayout() {
         />
 
         <main className="p-6 min-h-[calc(100vh-64px)]">
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/dashboard/rfp-insights" element={<RfpInsightsPage />} />
-            <Route path="/dashboard/logs" element={<LogsPage />} />
-            <Route path="/dashboard/profile" element={<ProfilePage />} />
-            <Route path="/dashboard/analytics" element={<div>Analytics Page (Coming Soon)</div>} />
-            <Route path="/admin/users" element={<UserManagementPage />} />
-            <Route path="/admin/sap-logs" element={<SapPasswordLogsPage />} />
-          </Routes>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/dashboard/rfp-insights" element={<RfpInsightsPage />} />
+              <Route path="/dashboard/logs" element={<LogsPage />} />
+              <Route path="/dashboard/profile" element={<ProfilePage />} />
+              <Route path="/dashboard/analytics" element={<div>Analytics Page (Coming Soon)</div>} />
+              <Route path="/admin/users" element={<UserManagementPage />} />
+              <Route path="/admin/sap-logs" element={<SapPasswordLogsPage />} />
+            </Routes>
+          </Suspense>
         </main>
       </div>
 
@@ -135,10 +149,12 @@ function App() {
           },
         }}
       />
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/*" element={<ProtectedLayout />} />
-      </Routes>
+      <Suspense fallback={<LoadingScreen />}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/*" element={<ProtectedLayout />} />
+        </Routes>
+      </Suspense>
     </DialogProvider>
   )
 }

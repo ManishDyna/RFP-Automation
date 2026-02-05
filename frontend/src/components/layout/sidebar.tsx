@@ -49,6 +49,11 @@ export function Sidebar({
   const isRunning = automationStatus?.status === 'Running'
   const progress = automationStatus?.progress || 0
 
+  // Individual operation states for granular control
+  const isDownloading = automationStatus?.download_running || false
+  const isSubmitting = automationStatus?.submit_running || false
+  const isDeclining = automationStatus?.decline_running || false
+
   return (
     <TooltipProvider delayDuration={0}>
       <aside
@@ -190,7 +195,7 @@ export function Sidebar({
                     label="Download RFPs"
                     onClick={onDownloadRfps}
                     collapsed={collapsed}
-                    disabled={isRunning}
+                    disabled={isDownloading}
                     variant="primary"
                   />
                   <QuickAction
@@ -198,7 +203,7 @@ export function Sidebar({
                     label="Submit RFP"
                     onClick={onSubmitRfp}
                     collapsed={collapsed}
-                    disabled={isRunning}
+                    disabled={isSubmitting}
                     variant="success"
                   />
                   <QuickAction
@@ -206,7 +211,7 @@ export function Sidebar({
                     label="Decline RFP"
                     onClick={onDeclineRfp}
                     collapsed={collapsed}
-                    disabled={isRunning}
+                    disabled={isDeclining}
                     variant="danger"
                   />
                 </div>
@@ -267,6 +272,34 @@ export function Sidebar({
                     <span className="text-xs" style={{ color: '#abb8c3' }}>{progress}%</span>
                   )}
                 </div>
+                {/* Detailed progress info */}
+                {isRunning && automationStatus?.progress_details && (
+                  <div className="space-y-1">
+                    {isDownloading && automationStatus.progress_details.download && (
+                      <div className="text-xs" style={{ color: '#abb8c3' }}>
+                        <span className="font-medium" style={{ color: '#0693e3' }}>Download:</span>{' '}
+                        {automationStatus.progress_details.download.current}/{automationStatus.progress_details.download.total}
+                        {automationStatus.progress_details.download.current_item && (
+                          <span className="block truncate max-w-[180px]" title={automationStatus.progress_details.download.current_item}>
+                            {automationStatus.progress_details.download.current_item}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {isSubmitting && automationStatus.progress_details.submit && (
+                      <div className="text-xs" style={{ color: '#abb8c3' }}>
+                        <span className="font-medium" style={{ color: '#00d084' }}>Submit:</span>{' '}
+                        {automationStatus.progress_details.submit.message || 'Processing...'}
+                      </div>
+                    )}
+                    {isDeclining && automationStatus.progress_details.decline && (
+                      <div className="text-xs" style={{ color: '#abb8c3' }}>
+                        <span className="font-medium" style={{ color: '#ff6b6b' }}>Decline:</span>{' '}
+                        {automationStatus.progress_details.decline.message || 'Processing...'}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {isRunning && (
                   <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#32373c' }}>
                     <div
@@ -291,6 +324,11 @@ export function Sidebar({
                 </TooltipTrigger>
                 <TooltipContent side="right">
                   <p>{automationStatus?.status || 'Ready'}</p>
+                  {isDownloading && automationStatus?.progress_details?.download && (
+                    <p className="text-xs">
+                      Download: {automationStatus.progress_details.download.current}/{automationStatus.progress_details.download.total}
+                    </p>
+                  )}
                 </TooltipContent>
               </Tooltip>
             )}

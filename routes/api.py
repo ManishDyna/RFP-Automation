@@ -19,24 +19,103 @@ import hmac
 import hashlib
 import base64
 import json
+from collections import defaultdict
+import threading
 
 router = APIRouter(prefix="/api", tags=["API"])
+
+
+# ==================== RATE LIMITING ====================
+# Simple in-memory rate limiter for login attempts
+_FAILED_ATTEMPTS = defaultdict(list)
+_RATE_LIMIT_LOCK = threading.Lock()
+LOCKOUT_THRESHOLD = 5  # Max failed attempts before lockout
+LOCKOUT_DURATION = 300  # Lockout duration in seconds (5 minutes)
+ATTEMPT_WINDOW = 300  # Time window to track attempts (5 minutes)
+
+
+def _get_client_ip(request: Request) -> str:
+    """Get client IP from request, handling proxies."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_rate_limit(identifier: str) -> tuple[bool, int]:
+    """
+    Check if identifier (email or IP) is rate limited.
+    Returns (is_locked, seconds_remaining).
+    """
+    now = time.time()
+    with _RATE_LIMIT_LOCK:
+        # Clean old attempts outside the window
+        _FAILED_ATTEMPTS[identifier] = [
+            t for t in _FAILED_ATTEMPTS[identifier]
+            if now - t < ATTEMPT_WINDOW
+        ]
+        attempts = _FAILED_ATTEMPTS[identifier]
+
+        if len(attempts) >= LOCKOUT_THRESHOLD:
+            # Check if still in lockout period
+            oldest_in_window = min(attempts) if attempts else now
+            lockout_end = oldest_in_window + LOCKOUT_DURATION
+            if now < lockout_end:
+                return True, int(lockout_end - now)
+
+        return False, 0
+
+
+def _record_failed_attempt(identifier: str):
+    """Record a failed login attempt."""
+    with _RATE_LIMIT_LOCK:
+        _FAILED_ATTEMPTS[identifier].append(time.time())
+
+
+def _clear_failed_attempts(identifier: str):
+    """Clear failed attempts after successful login."""
+    with _RATE_LIMIT_LOCK:
+        _FAILED_ATTEMPTS.pop(identifier, None)
 
 
 # ==================== AUTH ENDPOINTS ====================
 
 @router.post("/login")
 async def api_login(request: Request):
-    """Login endpoint for React frontend"""
+    """Login endpoint for React frontend with rate limiting protection."""
     data = await request.json()
-    email = (data.get("email") or "").strip()
+    email = (data.get("email") or "").strip().lower()
     password = (data.get("password") or "").strip()
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email and password are required")
 
+    # Check rate limiting by email
+    is_locked, seconds_remaining = _check_rate_limit(email)
+    if is_locked:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed attempts. Try again in {seconds_remaining} seconds."
+        )
+
+    # Also check by IP to prevent distributed attacks
+    client_ip = _get_client_ip(request)
+    ip_locked, ip_seconds = _check_rate_limit(f"ip:{client_ip}")
+    if ip_locked:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed attempts from this IP. Try again in {ip_seconds} seconds."
+        )
+
     user = authenticate_user(email=email, password=password)
     if not user:
+        # Record failed attempt for both email and IP
+        _record_failed_attempt(email)
+        _record_failed_attempt(f"ip:{client_ip}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Clear failed attempts on successful login
+    _clear_failed_attempts(email)
+    _clear_failed_attempts(f"ip:{client_ip}")
 
     request.session["user"] = user
     request.session["last_activity"] = int(time.time())
