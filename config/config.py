@@ -71,21 +71,23 @@ def validate_rfp_status(status: str) -> bool:
     return status.lower() in [s.lower() for s in VALID_RFP_STATUSES]
 
 # ===== SharePoint / Graph API Config =====
-CLIENT_ID = "ab1ad5df-98f4-4fdf-8a9d-072ffebfec4a"
-CLIENT_SECRET = "lu~8Q~yVL4us3qrdrmKtR6BUU7PGRkVYDN36Oc.o"
-TENANT_ID = "d39f97da-dbb2-40a0-9651-829e92444131"
-SHAREPOINT_HOSTNAME = "dynatechconsultancy.sharepoint.com"
-SITE_PATH = "/sites/Test-AI-ML"
+TENANT_ID = "46aa82d0-1a4b-4b08-b520-514ccbe1e7ca"
+CLIENT_ID = "97312492-991a-46be-91de-62430026f72d"
+CLIENT_SECRET = "pDN8Q~kLKXRoOmEB5PvLRDo-zVH2o91IjRtaJagr"
+
+
+
+SHAREPOINT_HOSTNAME = "bahracables.sharepoint.com"
+SITE_PATH = "/sites/LiveSite/RFPAutomation"
 DRIVE_NAME = "Documents"
 SP_BASE_FOLDER = "RFP-logs"
-TDS_FILE_PATH = "https://dynatechconsultancy.sharepoint.com/sites/Test-AI-ML/Shared%20Documents/RFP-logs/TDS-files/"
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPES = ["https://graph.microsoft.com/.default"]
-SP_BASE_FOLDER_RFP_UPLOAD_FILES = "RFP-logs/RFP-upload-files" # This is the folder where the RFP filled files are uploaded
+SP_BASE_FOLDER_RFP_UPLOAD_FILES = "RFP-logs/RFP-upload-files" # This is the folder where the RFP filled files are uploaded   ## Review
 
 
 # Dataverse Configurations
-RESOURCE_URL = "https://orga7d8c4fd.api.crm.dynamics.com/"
+RESOURCE_URL = "https://operations-bahrauat-1.crm11.dynamics.com"   # get this from the environment variable click details
 # Use the singular logical name for metadata
 AUTOMATION_LOG_TABLE_LOGICAL = "cr673_bahra_automation_log1"
 RFP_ACTIVITY_LOG_TABLE_LOGICAL = "cr673_requestforproposal"
@@ -97,6 +99,7 @@ RFP_ACTIVITY_LOG_TABLE_API = "cr673_requestforproposals"
 # ===== Users (Dataverse) =====
 USERS_TABLE_LOGICAL = "cr673_bahra_users"     # logical name of your table (example)
 USERS_TABLE_API = "cr673_bahra_userses"       # pluralized API path (example)
+TDS_FILE_PATH = "https://bahracables.sharepoint.com/sites/Test-AI-ML/Shared%20Documents/RFP-logs/TDS-files/"   ## Review
 
 # ===== SAP Password (Dataverse) =====
 # Update these if your table logical/API names differ

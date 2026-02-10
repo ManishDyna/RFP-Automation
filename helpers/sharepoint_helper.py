@@ -23,15 +23,28 @@ class GraphClient:
             client_credential=self.client_secret
         )
         result = app.acquire_token_for_client(SCOPES)
+
+        # Debug: Print full token result
+        print(f"🔑 Token Result Keys: {result.keys()}")
+        if "error" in result:
+            print(f"❌ Token Error: {result.get('error')}")
+            print(f"❌ Error Description: {result.get('error_description')}")
+
         if "access_token" not in result:
             raise RuntimeError(f"❌ Could not acquire token: {result}")
+
         self.token = result["access_token"]
         self.headers = {"Authorization": f"Bearer {self.token}"}
+        print(f"✅ Token acquired successfully (length: {len(self.token)})")
 
     def resolve_site_and_drive(self):
         # Resolve site ID
         site_url = f"https://graph.microsoft.com/v1.0/sites/{self.hostname}:{self.site_path}"
+        print(f"🔍 Requesting site URL: {site_url}")
+        print(f"🔍 Hostname: {self.hostname}")
+        print(f"🔍 Site Path: {self.site_path}")
         r = requests.get(site_url, headers=self.headers)
+        print(f"🔍 Response Status: {r.status_code}")
         if r.status_code != 200:
             raise RuntimeError(f"❌ Resolve site failed: {r.status_code} {r.text}")
         self.site_id = r.json().get("id")
