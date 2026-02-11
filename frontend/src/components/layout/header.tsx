@@ -3,15 +3,11 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   Download,
   RefreshCw,
-  Bell,
   User,
   LogOut,
-  Settings,
   ChevronDown,
   Search,
   Command,
-  HelpCircle,
-  Keyboard,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -151,36 +147,6 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
           {/* Divider */}
           <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block" />
 
-          {/* Notifications */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 text-slate-500 hover:text-slate-700 hover:bg-slate-100 relative"
-              >
-                <Bell className="h-4 w-4" />
-                {/* Notification badge - uncomment when needed */}
-                {/* <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white" /> */}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Notifications</TooltipContent>
-          </Tooltip>
-
-          {/* Help */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 text-slate-500 hover:text-slate-700 hover:bg-slate-100 hidden lg:flex"
-              >
-                <HelpCircle className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Help & Support</TooltipContent>
-          </Tooltip>
-
           {/* User Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -201,11 +167,11 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
                 <ChevronDown className="h-3.5 w-3.5 text-slate-400 hidden lg:block" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuContent align="end" className="w-72">
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium text-slate-900">{user?.name}</p>
-                  <p className="text-xs text-slate-500">{user?.email}</p>
+                  <p className="text-xs text-slate-500 break-all">{user?.email}</p>
                   <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10 w-fit mt-1">
                     {user?.role || 'User'}
                   </span>
@@ -218,18 +184,6 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
                   <span>Profile</span>
                   <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
                 </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link to="/dashboard/profile" className="flex items-center cursor-pointer">
-                  <Settings className="mr-2 h-4 w-4 text-slate-500" />
-                  <span>Settings</span>
-                  <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="hidden lg:flex cursor-pointer">
-                <Keyboard className="mr-2 h-4 w-4 text-slate-500" />
-                <span>Keyboard shortcuts</span>
-                <DropdownMenuShortcut>⌘K</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

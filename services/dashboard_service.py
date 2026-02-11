@@ -372,7 +372,7 @@ def get_all_rfp_data_cached(force_refresh: bool = False):
     return data
 
 
-def get_logs_data(top: int = 200):
+def get_logs_data(top: int = 5000):
     try:
         print(f"Starting logs data fetch at {datetime.now()}")
         start_time = time.time()
@@ -414,7 +414,7 @@ _LOGS_CACHE = {"data": None, "ts": 0, "top": None}
 _LOGS_TTL_SECONDS = LOGS_TTL_SECONDS
 
 
-def get_logs_data_cached(force_refresh: bool = False, top: int = 200):
+def get_logs_data_cached(force_refresh: bool = False, top: int = 5000):
     from time import time as _now
     now = _now()
     if not force_refresh and _LOGS_CACHE["data"] is not None and _LOGS_CACHE["top"] == top and (now - _LOGS_CACHE["ts"]) < _LOGS_TTL_SECONDS:
