@@ -286,7 +286,8 @@ def trigger_email(
                     Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     email_sent_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     email_to=";".join(unique_emails),
-                    email_status="Sent"
+                    email_status="Sent",
+                    company_name=company_name
                 )
     else:
         print(f"❌ Email sending failed: {response.status_code} - {response.text}")

@@ -161,9 +161,9 @@ def get_dashboard_data():
                 except Exception:
                     pass
 
-                # Vectorized: Get unique companies and initialize dict (faster than iterrows)
-                company_col = rfp_df["Company_Name"].fillna("Saudi Electricity Company").replace("", "Saudi Electricity Company")
-                unique_companies = set(company_col.unique())
+                # Vectorized: Normalize Company_Name in dataframe (fix empty/null values)
+                rfp_df["Company_Name"] = rfp_df["Company_Name"].fillna("Saudi Electricity Company").replace("", "Saudi Electricity Company")
+                unique_companies = set(rfp_df["Company_Name"].unique())
                 for company_name in unique_companies:
                     companies_rfps[company_name] = {
                         "open": [],
@@ -314,6 +314,9 @@ def get_all_rfp_data():
                     rfp_df = rfp_df.sort_values(["_RFP_End_Date_dt", "RFP_ID"], ascending=[True, True])
                 except Exception:
                     pass
+
+                # Normalize Company_Name in dataframe (fix empty/null values)
+                rfp_df["Company_Name"] = rfp_df["Company_Name"].fillna("Saudi Electricity Company").replace("", "Saudi Electricity Company")
 
                 # Vectorized: Count submitted and declined (faster than iterrows)
                 participated_lower = rfp_df["participated"].fillna("").str.strip().str.lower()

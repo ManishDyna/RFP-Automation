@@ -487,7 +487,8 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
                 log_rfp_activity(
                     rfp_id=rfp_id,
                     Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    Matched_Data=matches_in_file
+                    Matched_Data=matches_in_file,
+                    company_name=company_name
                 )
     else:
         print("not_mateched_files:-", not_mateched_files)
@@ -624,13 +625,14 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
         await download.save_as(final_path)
         log_event("RFP", "Download", "Success", f"Successfully downloaded on first attempt and files saved on this path {final_path}", title)
         log_rfp_activity(
-            rfp_id=title, 
-            Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+            rfp_id=title,
+            Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             RFP_End_Date=RFP_End_Date,
             owner_name=rfp_details['owner'] if rfp_details else None,
             publish_time=rfp_details['publish_time'] if rfp_details else None,
             participated=participated,
-            link=link
+            link=link,
+            company_name=company_name
         )
         success = True
 
@@ -672,13 +674,14 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                 log_event("RFP", "Download", "Success", f"Moved fallback file to {final_path}", title)
                 # Log RFP activity with extracted details (if available)
                 log_rfp_activity(
-                    rfp_id=title, 
-                    Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                    rfp_id=title,
+                    Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     RFP_End_Date=RFP_End_Date,
                     owner_name=rfp_details['owner'] if rfp_details else None,
                     publish_time=rfp_details['publish_time'] if rfp_details else None,
                     participated=participated,
-                    link=link
+                    link=link,
+                    company_name=company_name
                 )
                 if graph_client:
                     try:

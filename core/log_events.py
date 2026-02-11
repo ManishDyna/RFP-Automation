@@ -113,6 +113,7 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                      email_to=None, email_status=None,
                      owner_name=None, publish_time=None,
                      participated=None, link=None,
+                     company_name=None,
                      run_id=None, insert_to_dataverse=True):
 
     if isinstance(Matched_Data, pd.DataFrame) and not Matched_Data.empty:
@@ -151,6 +152,8 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
         row_data["publish_time"] = publish_time
     if link is not None and link.strip():
         row_data["Link"] = link.strip()
+    if company_name is not None and company_name.strip():
+        row_data["Company_Name"] = company_name.strip()
 
 
     print("Row Data:", row_data)
