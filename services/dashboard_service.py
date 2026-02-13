@@ -23,6 +23,14 @@ _DASHBOARD_TTL_SECONDS = DASHBOARD_TTL_SECONDS
 _DASHBOARD_CACHE_LOCK = threading.Lock()
 
 
+def invalidate_dashboard_caches():
+    """Invalidate all dashboard-related caches so next fetch gets fresh data."""
+    _DASHBOARD_CACHE["data"] = None
+    _DASHBOARD_CACHE["ts"] = 0
+    _ALL_RFP_CACHE["data"] = None
+    _ALL_RFP_CACHE["ts"] = 0
+
+
 def format_publish_time(publish_time_str):
     """Format publish time string for display"""
     if not publish_time_str or publish_time_str == "":
@@ -402,9 +410,20 @@ def get_logs_data(top: int = 5000):
                 log['_parsed_ts'] = None
 
         try:
-            logs.sort(key=lambda x: (x.get('_parsed_ts') is None, x.get('_parsed_ts')), reverse=True)
-        except Exception:
-            pass
+            # Sort logs by timestamp, newest first. None timestamps go to the end.
+            from datetime import datetime as dt_type
+            min_dt = dt_type.min.replace(tzinfo=None)
+            def sort_key(x):
+                ts = x.get('_parsed_ts')
+                if ts is None:
+                    return (0, min_dt)  # None timestamps sorted last
+                # Make datetime naive for comparison if it has timezone
+                if hasattr(ts, 'tzinfo') and ts.tzinfo is not None:
+                    ts = ts.replace(tzinfo=None)
+                return (1, ts)  # Valid timestamps sorted by date
+            logs.sort(key=sort_key, reverse=True)
+        except Exception as e:
+            print(f"Error sorting logs: {e}")
 
         return logs
     except Exception as e:

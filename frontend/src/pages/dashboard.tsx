@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
 import { useDialogs } from '@/contexts/dialog-context'
-import { useRef } from 'react'
+import { useRef, useState, useCallback } from 'react'
 import {
   Download,
   CheckCircle2,
@@ -16,6 +16,7 @@ import {
   ArrowUpRight,
   ArrowRight,
   FileText,
+  FileSpreadsheet,
   TrendingUp,
   Inbox,
   ArrowRightLeft,
@@ -160,9 +161,12 @@ interface RfpTableRowProps {
   tableType: 'open' | 'draft'
   onSubmit?: (rfpId: string) => void
   onChangeStatus?: (rfpId: string, newStatus: string) => void
+  onDownloadExcel?: (rfpId: string, company?: string) => void
+  downloadingRfpId?: string | null
 }
 
-function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeStatus }: RfpTableRowProps) {
+function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId }: RfpTableRowProps) {
+  const isDownloading = downloadingRfpId === rfp.RFP_ID
   return (
     <TableRow key={rfp.RFP_ID || index} className="group">
       <TableCell>
@@ -195,9 +199,18 @@ function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeSta
       <TableCell>
         <StatusBadge status={rfp.status || 'open'} />
       </TableCell>
-      {showActions && (
-        <TableCell className="text-right">
-          {tableType === 'draft' ? (
+      <TableCell className="text-right">
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            size="sm"
+            disabled={isDownloading}
+            onClick={() => onDownloadExcel?.(rfp.RFP_ID, rfp.Company_Name)}
+            className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            <FileSpreadsheet className={`h-3.5 w-3.5 mr-1.5 ${isDownloading ? 'animate-spin' : ''}`} />
+            {isDownloading ? '...' : 'Excel'}
+          </Button>
+          {showActions && tableType === 'draft' && (
             <Button
               size="sm"
               onClick={() => onChangeStatus?.(rfp.RFP_ID, 'submitted')}
@@ -206,18 +219,19 @@ function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeSta
               <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
               Mark Submitted
             </Button>
-          ) : (
+          )}
+          {showActions && tableType === 'open' && (
             <Button
               size="sm"
               onClick={() => onSubmit?.(rfp.RFP_ID)}
-              className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
             >
               <Send className="h-3.5 w-3.5 mr-1.5" />
               Submit
             </Button>
           )}
-        </TableCell>
-      )}
+        </div>
+      </TableCell>
     </TableRow>
   )
 }
@@ -229,9 +243,11 @@ interface RfpTableProps {
   tableType?: 'open' | 'draft'
   onSubmit?: (rfpId: string) => void
   onChangeStatus?: (rfpId: string, newStatus: string) => void
+  onDownloadExcel?: (rfpId: string, company?: string) => void
+  downloadingRfpId?: string | null
 }
 
-function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onChangeStatus }: RfpTableProps) {
+function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId }: RfpTableProps) {
   const parentRef = useRef<HTMLDivElement>(null)
 
   // Use virtualization only for large datasets
@@ -269,7 +285,7 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
             <TableHead className="text-slate-500 font-medium">Deadline</TableHead>
             {showActions && <TableHead className="text-slate-500 font-medium">Match</TableHead>}
             <TableHead className="text-slate-500 font-medium">Status</TableHead>
-            {showActions && <TableHead className="text-slate-500 font-medium text-right">Actions</TableHead>}
+            <TableHead className="text-slate-500 font-medium text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -282,6 +298,8 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
               tableType={tableType}
               onSubmit={onSubmit}
               onChangeStatus={onChangeStatus}
+              onDownloadExcel={onDownloadExcel}
+              downloadingRfpId={downloadingRfpId}
             />
           ))}
         </TableBody>
@@ -301,7 +319,7 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
             <TableHead className="text-slate-500 font-medium">Deadline</TableHead>
             {showActions && <TableHead className="text-slate-500 font-medium">Match</TableHead>}
             <TableHead className="text-slate-500 font-medium">Status</TableHead>
-            {showActions && <TableHead className="text-slate-500 font-medium text-right">Actions</TableHead>}
+            <TableHead className="text-slate-500 font-medium text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
       </Table>
@@ -321,6 +339,7 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
             <TableBody>
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                 const rfp = rfps[virtualRow.index]
+                const isDownloading = downloadingRfpId === rfp.RFP_ID
                 return (
                   <TableRow
                     key={rfp.RFP_ID || virtualRow.index}
@@ -364,9 +383,18 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
                     <TableCell>
                       <StatusBadge status={rfp.status || 'open'} />
                     </TableCell>
-                    {showActions && (
-                      <TableCell className="text-right">
-                        {tableType === 'draft' ? (
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          size="sm"
+                          disabled={isDownloading}
+                          onClick={() => onDownloadExcel?.(rfp.RFP_ID, rfp.Company_Name)}
+                          className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        >
+                          <FileSpreadsheet className={`h-3.5 w-3.5 mr-1.5 ${isDownloading ? 'animate-spin' : ''}`} />
+                          {isDownloading ? '...' : 'Excel'}
+                        </Button>
+                        {showActions && tableType === 'draft' && (
                           <Button
                             size="sm"
                             onClick={() => onChangeStatus?.(rfp.RFP_ID, 'submitted')}
@@ -375,18 +403,19 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
                             <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
                             Mark Submitted
                           </Button>
-                        ) : (
+                        )}
+                        {showActions && tableType === 'open' && (
                           <Button
                             size="sm"
                             onClick={() => onSubmit?.(rfp.RFP_ID)}
-                            className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                            className="h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
                           >
                             <Send className="h-3.5 w-3.5 mr-1.5" />
                             Submit
                           </Button>
                         )}
-                      </TableCell>
-                    )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 )
               })}
@@ -439,6 +468,7 @@ export default function DashboardPage() {
               const [rfp] = companyData.saved_draft.splice(rfpIndex, 1)
               companyData.saved_draft = [...companyData.saved_draft]
               rfp.status = newStatus
+              rfp.participated = newStatus
 
               // Add to new status array
               if (!companyData[newStatus]) companyData[newStatus] = []
@@ -468,6 +498,20 @@ export default function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ['dashboardData'] })
     },
   })
+
+  const [downloadingRfpId, setDownloadingRfpId] = useState<string | null>(null)
+
+  const handleDownloadExcel = useCallback(async (rfpId: string, company?: string) => {
+    setDownloadingRfpId(rfpId)
+    try {
+      await api.downloadExcel(rfpId, company)
+      toast.success(`Excel downloaded for ${rfpId}`)
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to download Excel file')
+    } finally {
+      setDownloadingRfpId(null)
+    }
+  }, [])
 
   const handleSyncPortal = async () => {
     try {
@@ -694,10 +738,16 @@ export default function DashboardPage() {
                               showActions
                               tableType="open"
                               onSubmit={handleSubmitRfp}
+                              onDownloadExcel={handleDownloadExcel}
+                              downloadingRfpId={downloadingRfpId}
                             />
                           </TabsContent>
                           <TabsContent value="submitted" className="mt-0">
-                            <RfpTable rfps={companyRfps.submitted || []} />
+                            <RfpTable
+                              rfps={companyRfps.submitted || []}
+                              onDownloadExcel={handleDownloadExcel}
+                              downloadingRfpId={downloadingRfpId}
+                            />
                           </TabsContent>
                           <TabsContent value="draft" className="mt-0">
                             <RfpTable
@@ -705,10 +755,16 @@ export default function DashboardPage() {
                               showActions
                               tableType="draft"
                               onChangeStatus={handleChangeStatus}
+                              onDownloadExcel={handleDownloadExcel}
+                              downloadingRfpId={downloadingRfpId}
                             />
                           </TabsContent>
                           <TabsContent value="declined" className="mt-0">
-                            <RfpTable rfps={companyRfps.declined || []} />
+                            <RfpTable
+                              rfps={companyRfps.declined || []}
+                              onDownloadExcel={handleDownloadExcel}
+                              downloadingRfpId={downloadingRfpId}
+                            />
                           </TabsContent>
                         </div>
                       </ScrollArea>

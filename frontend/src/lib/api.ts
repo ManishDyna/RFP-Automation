@@ -7,8 +7,16 @@ export interface ApiError {
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
+    let message = 'Something went wrong. Please try again.'
+    try {
+      const data = await response.json()
+      message = data.detail || data.message || message
+    } catch {
+      const text = await response.text().catch(() => '')
+      if (text) message = text
+    }
     const error: ApiError = {
-      message: await response.text(),
+      message,
       status: response.status,
     }
     throw error
@@ -109,13 +117,21 @@ export const api = {
   },
 
   downloadRfps: async (company?: string) => {
-    const url = company
-      ? `${ENDPOINTS.RFP.DOWNLOAD}?company=${encodeURIComponent(company)}`
-      : ENDPOINTS.RFP.DOWNLOAD
-    const response = await fetch(url, {
+    const response = await fetch(ENDPOINTS.AUTOMATION.DOWNLOAD_ALL_RFPS, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company: company || '' }),
       credentials: 'include',
     })
     return handleResponse(response)
+  },
+
+  validateRfp: async (rfpId: string) => {
+    const response = await fetch(
+      `${ENDPOINTS.DASHBOARD.VALIDATE_RFP}?rfp_id=${encodeURIComponent(rfpId)}`,
+      { credentials: 'include' }
+    )
+    return handleResponse<{ ok: boolean; rfp_id: string; company: string; status: string }>(response)
   },
 
   submitRfp: async (formData: FormData) => {
@@ -154,6 +170,36 @@ export const api = {
     return handleResponse(response)
   },
 
+  downloadExcel: async (rfpId: string, company?: string) => {
+    const url = company
+      ? `${ENDPOINTS.DASHBOARD.VIEW_EXCEL(rfpId)}?company=${encodeURIComponent(company)}`
+      : ENDPOINTS.DASHBOARD.VIEW_EXCEL(rfpId)
+    const response = await fetch(url, { credentials: 'include' })
+    if (!response.ok) {
+      let message = 'Failed to download Excel file'
+      try {
+        const data = await response.json()
+        message = data.detail || message
+      } catch {}
+      throw { message, status: response.status }
+    }
+    const blob = await response.blob()
+    const disposition = response.headers.get('Content-Disposition')
+    let filename = `${rfpId}.xls`
+    if (disposition) {
+      const match = disposition.match(/filename="?([^"]+)"?/)
+      if (match) filename = match[1]
+    }
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = downloadUrl
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(downloadUrl)
+  },
+
   // ==================== Logs ====================
   getAutomationLogs: async (page: number = 1, pageSize: number = 20) => {
     const response = await fetch(
@@ -161,6 +207,22 @@ export const api = {
       { credentials: 'include' }
     )
     return handleResponse<any>(response)
+  },
+
+  // ==================== Error Files ====================
+  getErrorFiles: async (rfpId?: string) => {
+    const params = rfpId ? `?rfp_id=${encodeURIComponent(rfpId)}` : ''
+    const response = await fetch(`${ENDPOINTS.ERROR_FILES.LIST}${params}`, {
+      credentials: 'include',
+    })
+    return handleResponse<{ files: Array<{ filename: string; size: number; modified: number; type: string }> }>(response)
+  },
+
+  getErrorFileContent: async (filename: string) => {
+    const response = await fetch(ENDPOINTS.ERROR_FILES.CONTENT(filename), {
+      credentials: 'include',
+    })
+    return handleResponse<{ filename: string; type: string; content: any }>(response)
   },
 
   // ==================== User Management ====================

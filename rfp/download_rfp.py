@@ -1,6 +1,7 @@
 from helpers.core_helper import *
 from core.common_imports import *
 import re
+import tempfile
 
 async def extract_rfp_details_inner_text(page):
     """Use inner_text() which is closer to what you see in browser"""
@@ -513,12 +514,35 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
         log_event("RFP", "Download", "Skip", "No link", title)
         return False
     
-    # Check if already exists in new folder structure
     clean_title = clean_rfp_title(title)
-    excel_file_path = get_rfp_excel_file_path(title, company_name)
-    if os.path.exists(excel_file_path):
-        print(f"✔ Already exists: {clean_title}")
-        return True
+
+    # 1. Check if already exists in SharePoint
+    if graph_client:
+        try:
+            sp_material_path = get_sharepoint_rfp_material_path(title, company_name)
+            sp_files = graph_client.list_files_in_directory(sp_material_path, ['.xls', '.xlsx'])
+            if sp_files and len(sp_files) > 0:
+                log_event("RFP", "Download", "Skip", f"Already exists in SharePoint: {sp_files[0]['name']}", title)
+                return True
+        except Exception as e:
+            log_event("RFP", "Download", "Warning", f"SharePoint check failed: {e}", title)
+
+    # 2. Check if already exists in Dataverse
+    try:
+        safe_rfp_id = sanitize_filter_value(title)
+        safe_company = sanitize_filter_value(company_name)
+        existing_result = DATAVERSE.query_rows(
+            RFP_ACTIVITY_LOG_TABLE_API,
+            filter_expr=f"RFP_ID eq '{safe_rfp_id}' and Company_Name eq '{safe_company}'",
+            top=1,
+            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            use_display_names=True
+        )
+        if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
+            log_event("RFP", "Download", "Skip", f"Already exists in Dataverse", title)
+            return True
+    except Exception as e:
+        log_event("RFP", "Download", "Warning", f"Dataverse check failed: {e}", title)
        
     success = False
     new_page = await page.context.new_page()
@@ -603,27 +627,38 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
             log_event("RFP", "Download", "Success", "Download button clicked successfully", title)
         download = await dl_info.value
 
-        # Use new folder structure: ALLRFPs/RFP_title/downloaded-rfp/RFP_title.xls
+        # Save to temp directory, upload to SharePoint, then cleanup
         clean_title = clean_rfp_title(title)
         final_filename = download.suggested_filename or f"{clean_title}.xls"
-        # Extract extension from suggested filename or use .xls
         if download.suggested_filename:
             _, ext = os.path.splitext(download.suggested_filename)
             if not ext:
                 ext = ".xls"
         else:
             ext = ".xls"
-        
-        # Save to new structure: ALLRFPs/CompanyName/RFP_title/downloaded-rfp/RFP_title.xls
-        material_folder = get_rfp_material_file_path(title, company_name)
-        final_path = os.path.join(material_folder, f"{clean_title}{ext}")
-        
-        print("Downloading:", final_filename)
-        print("File Path:-",final_path)
-        log_event("RFP", "Download", "Saving", f"Saving file: {final_filename} to {final_path}", title)
 
-        await download.save_as(final_path)
-        log_event("RFP", "Download", "Success", f"Successfully downloaded on first attempt and files saved on this path {final_path}", title)
+        # Save to temp directory (no local permanent storage)
+        temp_dir = tempfile.mkdtemp(prefix="rfp_download_")
+        temp_path = os.path.join(temp_dir, f"{clean_title}{ext}")
+
+        print("Downloading:", final_filename)
+        log_event("RFP", "Download", "Saving", f"Saving file: {final_filename} to temp", title)
+
+        await download.save_as(temp_path)
+        log_event("RFP", "Download", "Success", f"Successfully downloaded: {final_filename}", title)
+
+        # Upload to SharePoint
+        if graph_client:
+            try:
+                sp_material_path = get_sharepoint_rfp_material_path(title, company_name=company_name)
+                log_event("Sharepoint", "Upload", "Uploading", f"Uploading {final_filename} to SharePoint", title)
+                graph_client.upload_file_as(temp_path, sp_material_path, os.path.basename(temp_path))
+                log_event("Sharepoint", "Upload", "Success", f"Successfully uploaded {final_filename} to SharePoint", title)
+            except Exception as e:
+                error_msg = f"Failed to upload {final_filename} to SharePoint: {str(e)}"
+                log_event("Sharepoint", "Upload", "Fail", error_msg, title)
+
+        # Log RFP activity in Dataverse
         log_rfp_activity(
             rfp_id=title,
             Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -636,17 +671,11 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
         )
         success = True
 
-        # Upload to SharePoint using new folder structure
-        print("graph_client:-",graph_client)
-        if graph_client:
-            try:
-                sp_material_path = get_sharepoint_rfp_material_path(title, company_name=company_name)
-                log_event("Sharepoint", "Upload", "Uploading", f"Uploading {final_path} to SharePoint", title)
-                graph_client.upload_file_as(final_path, sp_material_path, os.path.basename(final_path))
-                log_event("Sharepoint", "Upload", "Success", f"Successfully uploaded {final_path} to SharePoint", title)
-            except Exception as e:
-                error_msg = f"Failed to upload {final_path} to SharePoint: {str(e)}"
-                log_event("Sharepoint", "Upload", "Fail", error_msg, title)
+        # Cleanup temp file
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass
 
     except Exception as e:
         error_msg = f"Download failed: {str(e)}"
@@ -662,17 +691,29 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                 break
             await asyncio.sleep(1)
         if latest_file:
-            # Use new folder structure for fallback file
             clean_title = clean_rfp_title(title)
             _, ext = os.path.splitext(latest_file)
             if not ext:
                 ext = ".xls"
-            material_folder = get_rfp_material_file_path(title, company_name)
-            final_path = os.path.join(material_folder, f"{clean_title}{ext}")
+            # Move fallback file to temp, upload to SharePoint, then cleanup
+            temp_dir = tempfile.mkdtemp(prefix="rfp_fallback_")
+            temp_path = os.path.join(temp_dir, f"{clean_title}{ext}")
             try:
-                shutil.move(latest_file, final_path)
-                log_event("RFP", "Download", "Success", f"Moved fallback file to {final_path}", title)
-                # Log RFP activity with extracted details (if available)
+                shutil.move(latest_file, temp_path)
+                log_event("RFP", "Download", "Success", f"Fallback file saved to temp", title)
+
+                # Upload to SharePoint
+                if graph_client:
+                    try:
+                        sp_material_path = get_sharepoint_rfp_material_path(title, company_name)
+                        log_event("Sharepoint", "Upload", "Uploading", f"Uploading fallback file to SharePoint", title)
+                        graph_client.upload_file_as(temp_path, sp_material_path, os.path.basename(temp_path))
+                        log_event("Sharepoint", "Upload", "Success", f"Successfully uploaded fallback file to SharePoint", title)
+                    except Exception as e:
+                        error_msg = f"Failed to upload fallback file to SharePoint: {str(e)}"
+                        log_event("Sharepoint", "Upload", "Fail", error_msg, title)
+
+                # Log RFP activity in Dataverse
                 log_rfp_activity(
                     rfp_id=title,
                     Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -683,18 +724,15 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                     link=link,
                     company_name=company_name
                 )
-                if graph_client:
-                    try:
-                        sp_material_path = get_sharepoint_rfp_material_path(title, company_name)
-                        log_event("Sharepoint", "Upload", "Uploading", f"Uploading fallback file {final_path} to SharePoint", title)
-                        graph_client.upload_file_as(final_path, sp_material_path, os.path.basename(final_path))
-                        log_event("Sharepoint", "Upload", "Success", f"Successfully uploaded fallback file {final_path} to SharePoint", title)
-                    except Exception as e:
-                        error_msg = f"Failed to upload fallback file to SharePoint: {str(e)}"
-                        log_event("Sharepoint", "Upload", "Fail", error_msg, title)
                 success = True
+
+                # Cleanup temp
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception:
+                    pass
             except Exception as e:
-                error_msg = f"Failed to move fallback file: {str(e)}"
+                error_msg = f"Failed to process fallback file: {str(e)}"
                 log_event("RFP", "Download", "Fail", error_msg, title)
         else:
             log_event("RFP", "Download", "Fail", "Fallback: No file found in Downloads folder after 30 attempts", title)

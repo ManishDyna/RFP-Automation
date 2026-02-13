@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Form, Query
-from automation_logic import run_automation_download, run_automation_submit, run_automation_decline, run_automation_reminder, run_automation_sync_portal
+from automation_logic import run_automation_download, run_automation_submit, run_automation_decline, run_automation_reminder, run_automation_sync_portal, run_sync_sharepoint_dataverse
 
 # Import shared progress helper
 from helpers.progress_helper import update_progress as _update_progress, get_progress as _get_progress, reset_progress as _reset_progress
@@ -36,7 +36,9 @@ from helpers.core_helper import (
     clean_rfp_title,
     get_sharepoint_rfp_material_path,
     get_sharepoint_rfp_tds_path,
-    get_rfp_tds_folder_path
+    get_sharepoint_rfp_savedrfp_path,
+    get_rfp_tds_folder_path,
+    get_rfp_savedrfp_folder_path
 )
 
 
@@ -74,6 +76,7 @@ _RUN_STATE = {
     "submit": False,
     "decline": False,
     "sync": False,
+    "sync_sp_dv": False,  # SharePoint-Dataverse sync
     "last": None,
     "submitting_rfps": set(),  # Track specific RFP IDs being submitted
 }
@@ -130,6 +133,7 @@ def _get_state_snapshot() -> dict:
             "submit": _RUN_STATE.get("submit", False),
             "decline": _RUN_STATE.get("decline", False),
             "sync": _RUN_STATE.get("sync", False),
+            "sync_sp_dv": _RUN_STATE.get("sync_sp_dv", False),
             "last": _RUN_STATE.get("last"),
             "submitting_rfps": list(_RUN_STATE.get("submitting_rfps", set())),
         }
@@ -144,7 +148,8 @@ async def automation_status():
         state["download"] or
         state["submit"] or
         state["decline"] or
-        state["sync"]
+        state["sync"] or
+        state["sync_sp_dv"]
     )
     status = "Running" if is_running else "Ready"
 
@@ -158,6 +163,8 @@ async def automation_status():
         overall_progress = _get_progress("decline")["percentage"]
     elif state["sync"]:
         overall_progress = _get_progress("sync")["percentage"]
+    elif state["sync_sp_dv"]:
+        overall_progress = _get_progress("sync_sp_dv")["percentage"]
 
     return {
         "ok": True,
@@ -167,6 +174,7 @@ async def automation_status():
         "submit_running": state["submit"],
         "decline_running": state["decline"],
         "sync_running": state["sync"],
+        "sync_sp_dv_running": state["sync_sp_dv"],
         "last": state["last"],
         "submitting_rfps": state["submitting_rfps"],
         # Detailed progress for each operation
@@ -175,6 +183,7 @@ async def automation_status():
             "submit": _get_progress("submit") if state["submit"] else None,
             "decline": _get_progress("decline") if state["decline"] else None,
             "sync": _get_progress("sync") if state["sync"] else None,
+            "sync_sp_dv": _get_progress("sync_sp_dv") if state["sync_sp_dv"] else None,
         }
     }
 
@@ -260,7 +269,29 @@ async def dashboard_submit_rfp_endpoint(
             f"{clean_title}{file_ext}"
         )
         
-        print(f"✅ File uploaded to SharePoint successfully")
+        print(f"✅ File uploaded to SharePoint (downloaded-rfp) successfully")
+
+        # ==== Also save the uploaded (filled) file to rfp-upload-file folder ====
+        # This is the folder the automation checks FIRST when importing the Excel file
+        try:
+            sp_savedrfp_path = get_sharepoint_rfp_savedrfp_path(rfp_id, target_company)
+            print(f"☁️ Uploading to SharePoint (rfp-upload-file): {sp_savedrfp_path}/{clean_title}{file_ext}")
+            graph_client.upload_file_as(
+                temp_file_path,
+                sp_savedrfp_path,
+                f"{clean_title}{file_ext}"
+            )
+            print(f"✅ File uploaded to SharePoint (rfp-upload-file) successfully")
+
+            # Also save locally to rfp-upload-file folder
+            local_savedrfp_folder = get_rfp_savedrfp_folder_path(rfp_id, target_company)
+            local_savedrfp_path = os.path.join(local_savedrfp_folder, f"{clean_title}{file_ext}")
+            with open(temp_file_path, "rb") as src:
+                with open(local_savedrfp_path, "wb") as dst:
+                    dst.write(src.read())
+            print(f"💾 Saved uploaded file locally: {local_savedrfp_path}")
+        except Exception as e:
+            print(f"⚠️ Could not save to rfp-upload-file folder: {e}")
 
         # ==== Upload technical PDF files (if provided) to new folder structure ====
         # New structure: RFP-logs/ALLRFPs/CompanyName/RFP_title/TDS-files/
@@ -388,6 +419,32 @@ async def dashboard_sync_portal_data():
     # Run in separate thread with ProactorEventLoop for Windows Playwright compatibility
     _run_async_in_thread(_task)
     return JSONResponse({"ok": True, "started": True}, status_code=202)
+
+
+@router.get("/sync-sharepoint-dataverse")
+async def sync_sharepoint_dataverse_endpoint(company: str = Query("", alias="company")):
+    """
+    Sync RFP files between SharePoint and Dataverse.
+
+    If Dataverse has an RFP entry but file is missing in SharePoint,
+    download from portal and upload to SharePoint, then update timestamp.
+    """
+    selected_company = (company or "").strip()
+
+    # Thread-safe atomic check-and-set
+    if not _try_start_operation("sync_sp_dv"):
+        return JSONResponse({"ok": False, "message": "SharePoint-Dataverse sync already running"}, status_code=409)
+
+    async def _task():
+        try:
+            await run_sync_sharepoint_dataverse(selected_company or None)
+        finally:
+            _finish_operation("sync_sp_dv")
+
+    # Run in separate thread with ProactorEventLoop for Windows Playwright compatibility
+    _run_async_in_thread(_task)
+    return JSONResponse({"ok": True, "started": True}, status_code=202)
+
 
 @router.post("/decline-rfp")
 async def decline_rfp_endpoint(payload: dict = Body(...)):

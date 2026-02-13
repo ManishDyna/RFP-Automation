@@ -69,7 +69,7 @@ class GraphClient:
 
     def ensure_folder_path(self, folder_path):
         """Ensure nested folder path exists (e.g., 'RFP-logs/ALLRFPs/2025')."""
-        segments = [seg for seg in folder_path.strip("/").split("/") if seg]
+        segments = [seg.rstrip('.') for seg in folder_path.strip("/").split("/") if seg]
         current_path = ""
         parent_id = None
 
@@ -249,6 +249,36 @@ class GraphClient:
 
         return files
 
+    def list_folders_in_directory(self, sp_directory_path: str) -> list:
+        """
+        List immediate subfolders in a SharePoint directory (non-recursive).
+
+        Args:
+            sp_directory_path: SharePoint directory path (e.g., 'RFP-logs/ALLRFPs')
+
+        Returns:
+            List of folder info dicts with 'name' and 'path' keys
+        """
+        url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{sp_directory_path}:/children"
+        response = requests.get(url, headers=self.headers)
+
+        if response.status_code != 200:
+            print(f"⚠️ Could not list directory {sp_directory_path}: {response.status_code}")
+            return []
+
+        folders = []
+        items = response.json().get('value', [])
+
+        for item in items:
+            if 'folder' in item:
+                name = item.get('name', '')
+                folders.append({
+                    'name': name,
+                    'path': f"{sp_directory_path}/{name}"
+                })
+
+        return folders
+
     def download_rfp_files_from_sharepoint(self, company_name: str, local_output_dir: str, sp_base_folder: str) -> list:
         """
         Download all RFP Excel files from SharePoint for a given company.
@@ -262,7 +292,7 @@ class GraphClient:
             List of downloaded file paths
         """
         import re
-        safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip()
+        safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip().rstrip('.')
         sp_company_path = f"{sp_base_folder}/ALLRFPs/{safe_company_name}"
 
         print(f"🔄 Fetching RFP files from SharePoint: {sp_company_path}")

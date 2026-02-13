@@ -84,7 +84,7 @@ def get_all_excel_files(folder):
 def get_rfp_folder_path(rfp_title: str, company_name: str) -> str:
     """Get the RFP folder path: ALLRFPs/CompanyName/RFP_title"""
     clean_title = clean_rfp_title(rfp_title)
-    safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip()
+    safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip().rstrip('.')
     return os.path.join(OUTPUT_DIR, safe_company_name, clean_title)
 
 def get_rfp_material_file_path(rfp_title: str, company_name: str, filename: str = None) -> str:
@@ -181,7 +181,7 @@ def get_rfp_excel_file_path(rfp_title: str, company_name: str) -> str:
 def get_sharepoint_rfp_path(rfp_title: str, company_name: str) -> str:
     """Get SharePoint base path for RFP: RFP-logs/ALLRFPs/CompanyName/RFP_title"""
     clean_title = clean_rfp_title(rfp_title)
-    safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip()
+    safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip().rstrip('.')
     return f"{SP_BASE_FOLDER}/ALLRFPs/{safe_company_name}/{clean_title}"
 
 def get_sharepoint_rfp_material_path(rfp_title: str, company_name: str, filename: str = None) -> str:
@@ -322,11 +322,11 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
                     if label_to_value:
                         # Use first available option as fallback
                         category_value = list(label_to_value.values())[0]
-                        print(f"⚠ Category '{category}' not found in choice options, using first option: {category_value}")
+                        logger.warning(f"Category '{category}' not found in choice options, using first option: {category_value}")
                     else:
-                        print(f"⚠ No choice options found for category field, will try without choice value")
+                        logger.warning("No choice options found for category field, will try without choice value")
         except Exception as e:
-            print(f"⚠ Could not get choice options for category field: {e}")
+            logger.warning(f"Could not get choice options for category field: {e}")
             # Continue without choice value - will try as string
         
         # Prepare data for status change log - only use columns that exist in the table
@@ -421,18 +421,15 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
             table_logical_name=RFP_STATUS_TABLE_LOGICAL,
             use_display_names=True
         )
-        print("status_data:", status_data)
         if success:
-            print(f"✅ Logged status change for RFP {rfp_id}: {from_status} → {to_status} ({category})")
+            logger.info(f"Logged status change for RFP {rfp_id}: {from_status} -> {to_status} ({category})")
         else:
-            print(f"⚠ Failed to log status change for RFP {rfp_id}")
+            logger.warning(f"Failed to log status change for RFP {rfp_id}")
         
         return success
         
     except Exception as e:
-        print(f"❌ Error logging RFP status change: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error logging RFP status change: {e}")
         return False
 
 # Check if RFP IDs match
@@ -480,8 +477,6 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
             table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
             use_display_names=True
         )
-        print("existing_result:", existing_result)
-        print("existing_result['value']:", existing_result["value"])
         old_status = ""
         if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
             # Existing record found
@@ -500,7 +495,6 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
                 or "participated"  # last resort
             )
             old_status = existing_row.get(participated_logical, "") or ""
-            print("old_status:", old_status)
             # Update only the participated field
             update_data = {
                 "participated": status
@@ -521,7 +515,6 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
                 logger.error(f"Database error updating RFP {rfp_id}: {update_error}")
                 raise
 
-            print(f"✅ Updated RFP {rfp_id} participation status to: {status}")
             logger.info(f"Updated RFP {rfp_id} participation status to: {status}")
             
             # Log status change if status actually changed
@@ -535,7 +528,7 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
             
             return True
         else:
-            print(f"⚠ No RFP record found with ID: {rfp_id}")
+            logger.warning(f"No RFP record found with ID: {rfp_id}")
             # Log initial status if this is a new record
             if status:
                 initial_category = category or "submit"
@@ -547,8 +540,73 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
         raise
     except Exception as e:
         logger.error(f"Error updating RFP participation status for {rfp_id}: {e}")
-        print(f"❌ Error updating RFP participation status: {e}")
         return False
+
+def update_sync_timestamp(rfp_id: str, company_name: str = None) -> bool:
+    """
+    Update the Downloaded_At timestamp in Dataverse for a synced RFP.
+
+    Args:
+        rfp_id: The RFP identifier
+        company_name: Optional company name for more precise matching
+
+    Returns:
+        bool: True if update successful, False otherwise
+    """
+    if not rfp_id or not rfp_id.strip():
+        logger.error("update_sync_timestamp: rfp_id is required")
+        return False
+
+    rfp_id = rfp_id.strip()
+
+    try:
+        # Sanitize values to prevent injection
+        safe_rfp_id = sanitize_filter_value(rfp_id)
+        filter_expr = f"RFP_ID eq '{safe_rfp_id}'"
+
+        if company_name:
+            safe_company = sanitize_filter_value(company_name.strip())
+            filter_expr += f" and Company_Name eq '{safe_company}'"
+
+        # Query for existing record
+        existing_result = DATAVERSE.query_rows(
+            RFP_ACTIVITY_LOG_TABLE_API,
+            filter_expr=filter_expr,
+            top=1,
+            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            use_display_names=True
+        )
+
+        if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
+            existing_row = existing_result["value"][0]
+            record_id = existing_row[f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"]
+
+            # Update Downloaded_At timestamp
+            update_data = {
+                "Downloaded_At": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+            update_success = DATAVERSE.update_row(
+                RFP_ACTIVITY_LOG_TABLE_API,
+                record_id,
+                update_data,
+                table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
+            )
+
+            if update_success:
+                logger.info(f"Updated sync timestamp for RFP {rfp_id}")
+                return True
+            else:
+                logger.error(f"Failed to update sync timestamp for RFP {rfp_id}")
+                return False
+        else:
+            logger.warning(f"No RFP record found with ID: {rfp_id}")
+            return False
+
+    except Exception as e:
+        logger.error(f"Error updating sync timestamp for RFP {rfp_id}: {e}")
+        return False
+
 
 def rfp_ids_match(search_id: str, title: str) -> bool:
     """
@@ -561,14 +619,8 @@ def rfp_ids_match(search_id: str, title: str) -> bool:
     normalized_search = normalize_filename(search_id)
     normalized_title = normalize_filename(title)
     
-    print(f"Comparing: '{search_id}' → '{normalized_search}' with '{title}' → '{normalized_title}'")
-    
     # Check if normalized search ID is contained in normalized title
-    match = normalized_search in normalized_title
-    if match:
-        print(f"RFP IDs match!")
-    
-    return match
+    return normalized_search in normalized_title
 
 def _find_other_content_sheet_name(excel_path: str):
     """

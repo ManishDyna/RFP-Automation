@@ -551,7 +551,8 @@ async def submit_rfp(page, data: List[Dict[str, str]], rfp_id: str, graph_client
 
     if not filtered_data:
         print(f"⚠ No RFP found with ID '{rfp_id}' in data.")
-        return []
+        # Return a failure indicator - NOT empty list (empty list = success)
+        return [{"Title": rfp_id, "error": "RFP not found in scraped portal data. The portal scraping may have failed or the RFP does not exist."}]
 
     async def attempt_submit_rfp(row: Dict[str, str], main_page) -> bool:
         title = (row.get("Title") or "").strip()

@@ -45,7 +45,7 @@ export function DownloadCompanyDialog({ open, onOpenChange }: DownloadCompanyDia
     try {
       // Pass undefined for 'all' to download from all companies
       await api.downloadRfps(company === 'all' ? undefined : company)
-      toast.success('RFP download started successfully')
+      toast.success('Historical data download started successfully')
       handleClose()
     } catch (error: any) {
       toast.error(error.message || 'Failed to start download')
@@ -65,10 +65,10 @@ export function DownloadCompanyDialog({ open, onOpenChange }: DownloadCompanyDia
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Download className="h-5 w-5" />
-            Download All RFPs
+            Download Historical Data
           </DialogTitle>
           <DialogDescription>
-            Select which company portal to download RFPs from.
+            Select which company portal to download historical RFP data from.
           </DialogDescription>
         </DialogHeader>
 
@@ -100,7 +100,7 @@ export function DownloadCompanyDialog({ open, onOpenChange }: DownloadCompanyDia
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Warning</AlertTitle>
             <AlertDescription>
-              This process will download all available RFPs from the selected company/companies.
+              This process will download all historical RFP data from the selected company/companies.
             </AlertDescription>
           </Alert>
 

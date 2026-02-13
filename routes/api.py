@@ -4,7 +4,7 @@ All routes are prefixed with /api
 """
 
 from fastapi import APIRouter, Request, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from services.user_service import (
     authenticate_user, list_users, get_user, create_user, update_user, delete_user, get_user_by_email
 )
@@ -19,8 +19,11 @@ import hmac
 import hashlib
 import base64
 import json
+import os
+import glob
 from collections import defaultdict
 import threading
+from config.config import FAILURE_LOGS_DIR
 
 router = APIRouter(prefix="/api", tags=["API"])
 
@@ -182,7 +185,68 @@ async def api_forgot(request: Request):
     payload = {
         "to": email,
         "subject": "Reset your password",
-        "body": f"Click here to reset your password: {reset_link}"
+        "isHtml": True,
+        "body": f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f4f6f9;">
+        <tr>
+            <td align="center" style="padding:40px 20px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;background-color:#ffffff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background-color:#4f46e5;padding:30px 40px;border-radius:12px 12px 0 0;text-align:center;">
+                            <h1 style="margin:0;font-size:24px;color:#ffffff;font-weight:600;">Bahra E-Bidding</h1>
+                        </td>
+                    </tr>
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding:40px;">
+                            <h2 style="margin:0 0 16px 0;font-size:22px;color:#1a1a2e;font-weight:600;">Reset Your Password</h2>
+                            <p style="margin:0 0 24px 0;font-size:15px;color:#555555;line-height:1.6;">
+                                We received a request to reset your password for your Bahra E-Bidding account. Click the button below to set a new password.
+                            </p>
+                            <!-- Button -->
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td align="center" style="padding:8px 0 32px 0;">
+                                        <a href="{reset_link}" target="_blank"
+                                           style="background-color:#4f46e5;color:#ffffff;text-decoration:none;padding:14px 36px;border-radius:8px;font-size:16px;font-weight:600;display:inline-block;letter-spacing:0.5px;">
+                                            Reset Password
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                            <!-- Link fallback -->
+                            <p style="margin:0 0 8px 0;font-size:13px;color:#888888;">If the button above doesn't work, copy and paste the link below into your browser:</p>
+                            <p style="margin:0 0 24px 0;word-break:break-all;font-size:13px;">
+                                <a href="{reset_link}" target="_blank" style="color:#4f46e5;text-decoration:underline;">{reset_link}</a>
+                            </p>
+                            <!-- Divider -->
+                            <hr style="border:none;border-top:1px solid #eeeeee;margin:24px 0;">
+                            <p style="margin:0 0 8px 0;font-size:13px;color:#999999;line-height:1.5;">
+                                This link will expire in <strong>30 minutes</strong>. If you didn't request a password reset, you can safely ignore this email.
+                            </p>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color:#f9fafb;padding:24px 40px;border-radius:0 0 12px 12px;text-align:center;">
+                            <p style="margin:0;font-size:13px;color:#888888;">
+                                Thanks,<br><strong>Bahra E-Bidding Automation Team</strong>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>"""
     }
     import requests
     resp = requests.post(FORGOT_PASSWORD_FLOW_URL, json=payload)
@@ -382,6 +446,121 @@ async def api_view_logs(request: Request, page: int = Query(1), page_size: int =
     })
 
 
+# ==================== ERROR FILE ENDPOINTS ====================
+
+@router.get("/error-files/list")
+async def api_list_error_files(request: Request, rfp_id: str = Query(None)):
+    """List error log files from the LOGS directory, optionally filtered by RFP ID.
+    Scans both top-level files and subdirectories (which may contain screenshot.png)."""
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    if not os.path.isdir(FAILURE_LOGS_DIR):
+        return JSONResponse({"files": []})
+
+    def _matches_rfp(name: str) -> bool:
+        if not rfp_id:
+            return True
+        safe_rfp = rfp_id.replace(" ", "_").replace("/", "_").replace("\\", "_")
+        return safe_rfp.lower() in name.lower() or rfp_id.lower() in name.lower()
+
+    files = []
+
+    for entry in os.listdir(FAILURE_LOGS_DIR):
+        entry_path = os.path.join(FAILURE_LOGS_DIR, entry)
+
+        if os.path.isfile(entry_path):
+            # Top-level files (json, txt, png)
+            if not entry.endswith((".json", ".txt", ".png")):
+                continue
+            if not _matches_rfp(entry):
+                continue
+            stat = os.stat(entry_path)
+            files.append({
+                "filename": entry,
+                "size": stat.st_size,
+                "modified": stat.st_mtime,
+                "type": "screenshot" if entry.endswith(".png") else
+                        "report" if entry.endswith(".txt") else "json",
+            })
+
+        elif os.path.isdir(entry_path):
+            # Subdirectories (contain json, txt, screenshot.png)
+            if not _matches_rfp(entry):
+                continue
+            for sub_file in os.listdir(entry_path):
+                sub_path = os.path.join(entry_path, sub_file)
+                if not os.path.isfile(sub_path):
+                    continue
+                if not sub_file.endswith((".json", ".txt", ".png")):
+                    continue
+                stat = os.stat(sub_path)
+                # Use folder/file as the path so we can serve it
+                relative_name = f"{entry}/{sub_file}"
+                files.append({
+                    "filename": relative_name,
+                    "size": stat.st_size,
+                    "modified": stat.st_mtime,
+                    "type": "screenshot" if sub_file.endswith(".png") else
+                            "report" if sub_file.endswith(".txt") else "json",
+                })
+
+    # Sort by modified time descending
+    files.sort(key=lambda f: f["modified"], reverse=True)
+    return JSONResponse({"files": files})
+
+
+def _resolve_log_file_path(filename: str) -> str | None:
+    """Resolve a filename (may include one subfolder) to an absolute path inside FAILURE_LOGS_DIR.
+    Returns None if the resolved path is outside FAILURE_LOGS_DIR (path traversal)."""
+    # Allow at most one subfolder: "subfolder/file.ext" or just "file.ext"
+    parts = filename.replace("\\", "/").split("/")
+    if len(parts) > 2:
+        return None
+    # Rebuild safely
+    safe_parts = [os.path.basename(p) for p in parts]
+    fpath = os.path.join(FAILURE_LOGS_DIR, *safe_parts)
+    # Verify it's inside FAILURE_LOGS_DIR
+    if not os.path.normpath(fpath).startswith(os.path.normpath(FAILURE_LOGS_DIR)):
+        return None
+    return fpath
+
+
+@router.get("/error-files/content/{filename:path}")
+async def api_get_error_file_content(request: Request, filename: str):
+    """Get content of a text/json error file from LOGS directory (supports subfolder/file)"""
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    fpath = _resolve_log_file_path(filename)
+    if not fpath or not os.path.isfile(fpath):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if fpath.endswith(".json"):
+        with open(fpath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return JSONResponse({"filename": filename, "type": "json", "content": data})
+    elif fpath.endswith(".txt"):
+        with open(fpath, "r", encoding="utf-8") as f:
+            text = f.read()
+        return JSONResponse({"filename": filename, "type": "text", "content": text})
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+
+
+@router.get("/error-files/screenshot/{filename:path}")
+async def api_get_screenshot(request: Request, filename: str):
+    """Serve a screenshot image from LOGS directory (supports subfolder/screenshot.png)"""
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    fpath = _resolve_log_file_path(filename)
+    if not fpath or not os.path.isfile(fpath) or not fpath.endswith(".png"):
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+
+    return FileResponse(fpath, media_type="image/png")
+
+
 # ==================== PROFILE ENDPOINTS ====================
 
 @router.get("/profile")
@@ -562,6 +741,45 @@ async def api_delete_user(request: Request, record_id: str):
         raise HTTPException(status_code=400, detail="Failed to delete user")
 
     return JSONResponse({"ok": True})
+
+
+# ==================== RFP VALIDATION ENDPOINTS ====================
+
+@router.get("/validate-rfp")
+async def api_validate_rfp(request: Request, rfp_id: str = Query(...)):
+    """Validate if an RFP exists in the database and return its company name."""
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    rfp_id = (rfp_id or "").strip()
+    if not rfp_id:
+        raise HTTPException(status_code=400, detail="RFP ID is required")
+
+    from services.dashboard_service import get_all_rfp_data_cached
+
+    all_rfp_data = get_all_rfp_data_cached(force_refresh=False)
+    downloaded_rfps = all_rfp_data.get("downloaded_rfps") or []
+
+    # Search for the RFP by ID (case-insensitive)
+    rfp_id_lower = rfp_id.lower()
+    matched_rfp = None
+    for rfp in downloaded_rfps:
+        if (rfp.get("RFP_ID") or "").lower() == rfp_id_lower:
+            matched_rfp = rfp
+            break
+
+    if not matched_rfp:
+        raise HTTPException(
+            status_code=404,
+            detail="This RFP cannot be submitted because it was not found in the database. Please download it first and then try to submit."
+        )
+
+    return JSONResponse({
+        "ok": True,
+        "rfp_id": matched_rfp.get("RFP_ID", ""),
+        "company": matched_rfp.get("Company_Name", ""),
+        "status": matched_rfp.get("participated", ""),
+    })
 
 
 # ==================== SCHEDULE ENDPOINTS ====================

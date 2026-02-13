@@ -64,6 +64,7 @@ export const ENDPOINTS = {
     DATA: `${API_PREFIX}/dashboard/data`,
     RFP_DETAILS: `${API_PREFIX}/dashboard/rfp-details`,
     SUBMIT_RFP: `${API_PREFIX}/dashboard/submit-rfp`,
+    VALIDATE_RFP: `${API_PREFIX}/validate-rfp`,
     VIEW_LOGS: `${API_PREFIX}/dashboard/view-logs`,
     SAP_PASSWORD_LOGS: `${API_PREFIX}/dashboard/sap-password-logs`,
     VIEW_EXCEL: (rfpId: string) => `${DASHBOARD_PREFIX}/view-excel/${rfpId}`,
@@ -90,6 +91,13 @@ export const ENDPOINTS = {
     BATCH_MATCH_PERCENTAGES: `${DASHBOARD_PREFIX}/rfp/batch-match-percentages`,
     SUBMIT_FINAL: `${DASHBOARD_PREFIX}/submit-rfp-final`,
     GET_DYNAMIC_FORM: (rfpId: string) => `${DASHBOARD_PREFIX}/rfp/${rfpId}/dynamic-form-structure`,
+  },
+
+  // ==================== ERROR FILES (routes/api.py) ====================
+  ERROR_FILES: {
+    LIST: `${API_PREFIX}/error-files/list`,
+    CONTENT: (filename: string) => `${API_PREFIX}/error-files/content/${encodeURIComponent(filename)}`,
+    SCREENSHOT: (filename: string) => `${API_PREFIX}/error-files/screenshot/${encodeURIComponent(filename)}`,
   },
 
   // ==================== SAP (routes/api.py) ====================

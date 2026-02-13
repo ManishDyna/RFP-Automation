@@ -122,9 +122,10 @@ RFP_STATUS_TABLE_API = "cr673_bhara_rfp_statuses"    # pluralized API name
 # Power Automate Flow endpoint
 # Legacy
 # FLOW_URL = "https://prod-44.westus.logic.azure.com:443/workflows/0ecbe93dd4cb4235ab019270aa024405/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=pZOCiQeonvszlw8n81uS2SHglLLNoM_dGW9DYioNdrE"
-FLOW_URL = "https://8250a9bfeb76ef4cba38b14a0bb011.0c.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/0ecbe93dd4cb4235ab019270aa024405/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=A1nhkrQ4Ip6hp6nKwK08lrMqC5y1BKA_esFHGkpGx4U"
+
+FLOW_URL = "https://dab4cde858caeaa0b535f6dbd4b6cf.a6.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/8b59f8e17de8493ab5f575461aa92133/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=bG4Z-fghyYpzFZHxsyu8yzsrSlPlNEkzgMCQeKvS9VI"
 # Power Automate Forgot Password (HTTP trigger URL)
-FORGOT_PASSWORD_FLOW_URL = "https://8250a9bfeb76ef4cba38b14a0bb011.0c.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/d668e231abda4775a75d9983caada124/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=_LKAHUtU1ZLbm587mzjCCU4c5NusDrYFaPXCN1wBfFs"
+FORGOT_PASSWORD_FLOW_URL = "https://dab4cde858caeaa0b535f6dbd4b6cf.a6.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/326c08241613446da0e9cd6235d4e666/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=r3S5vKCYj3BQ0ymdc-qsBY2fPgzbsM67EDzfIiQcQFQ"
 
 # Local file path
 DOWNLOAD_DIR = os.path.expanduser("~/Downloads")

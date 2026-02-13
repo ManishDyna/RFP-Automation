@@ -17,6 +17,16 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+      '/dashboard': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        bypass(req) {
+          // Only proxy API calls (fetch/XHR), not browser page navigations
+          if (req.headers.accept?.includes('text/html')) {
+            return req.url
+          }
+        },
+      },
     },
   },
 })

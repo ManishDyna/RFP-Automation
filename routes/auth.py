@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from services.user_service import authenticate_user, list_users, update_user, get_user_by_email
 from config.config import FORGOT_PASSWORD_FLOW_URL
 import hmac, hashlib, base64, time, json
@@ -89,34 +89,68 @@ async def forgot(request: Request):
     payload = {
     "to": email,
     "subject": "Reset your password",
+    "isHtml": True,
     "body": f"""<!DOCTYPE html>
-    <html>
-    <body style="margin:0;padding:0;background:#f6f9fc;font-family:Arial,Helvetica,sans-serif;color:#111;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f4f6f9;">
         <tr>
-            <td align="center" style="padding:24px;">
-            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;background:#ffffff;border:1px solid #eaeaea;border-radius:8px;">
-                <tr>
-                <td style="padding:24px;">
-                    <h2 style="margin:0 0 12px 0;font-size:20px;color:#111;">Reset your password</h2>
-                    <p style="margin:0 0 16px 0;color:#444;">We received a request to reset your password. Click the button below to set a new one.</p>
-                    <p style="margin:24px 0;">
-                    <a href="{reset_link}" target="_blank" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;display:inline-block;">Reset Password</a>
-                    </p>
-                    <p style="margin:0 0 8px 0;color:#444;">If the button doesn’t work, copy and paste this link into your browser:</p>
-                    <p style="word-break:break-all;color:#0066cc;">
-                    <a href="{reset_link}" target="_blank" style="color:#0066cc;">{reset_link}</a>
-                    </p>
-                    <p style="margin-top:16px;color:#666;font-size:13px;">This link will expire in 30 minutes. If you didn't request this, you can safely ignore this email.</p>
-                    <p style="margin-top:24px;color:#666;font-size:13px;">Thanks,<br/>Bahra E-bidding Automation</p>
-                </td>
-                </tr>
-            </table>
+            <td align="center" style="padding:40px 20px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;background-color:#ffffff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background-color:#4f46e5;padding:30px 40px;border-radius:12px 12px 0 0;text-align:center;">
+                            <h1 style="margin:0;font-size:24px;color:#ffffff;font-weight:600;">Bahra E-Bidding</h1>
+                        </td>
+                    </tr>
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding:40px;">
+                            <h2 style="margin:0 0 16px 0;font-size:22px;color:#1a1a2e;font-weight:600;">Reset Your Password</h2>
+                            <p style="margin:0 0 24px 0;font-size:15px;color:#555555;line-height:1.6;">
+                                We received a request to reset your password for your Bahra E-Bidding account. Click the button below to set a new password.
+                            </p>
+                            <!-- Button -->
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td align="center" style="padding:8px 0 32px 0;">
+                                        <a href="{reset_link}" target="_blank"
+                                           style="background-color:#4f46e5;color:#ffffff;text-decoration:none;padding:14px 36px;border-radius:8px;font-size:16px;font-weight:600;display:inline-block;letter-spacing:0.5px;">
+                                            Reset Password
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                            <!-- Link fallback -->
+                            <p style="margin:0 0 8px 0;font-size:13px;color:#888888;">If the button above doesn't work, copy and paste the link below into your browser:</p>
+                            <p style="margin:0 0 24px 0;word-break:break-all;font-size:13px;">
+                                <a href="{reset_link}" target="_blank" style="color:#4f46e5;text-decoration:underline;">{reset_link}</a>
+                            </p>
+                            <!-- Divider -->
+                            <hr style="border:none;border-top:1px solid #eeeeee;margin:24px 0;">
+                            <p style="margin:0 0 8px 0;font-size:13px;color:#999999;line-height:1.5;">
+                                This link will expire in <strong>30 minutes</strong>. If you didn't request a password reset, you can safely ignore this email.
+                            </p>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color:#f9fafb;padding:24px 40px;border-radius:0 0 12px 12px;text-align:center;">
+                            <p style="margin:0;font-size:13px;color:#888888;">
+                                Thanks,<br><strong>Bahra E-Bidding Automation Team</strong>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
             </td>
         </tr>
-        </table>
-    </body>
-    </html>"""
+    </table>
+</body>
+</html>"""
     }
     import requests
     resp = requests.post(FORGOT_PASSWORD_FLOW_URL, json=payload)
@@ -147,6 +181,127 @@ def _verify_token(secret: str, token: str) -> dict:
         return data
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+
+@router.get("/reset-password")
+async def reset_password_page(request: Request):
+    """Serve the reset password form page (opened from email link)"""
+    return HTMLResponse("""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reset Password - Bahra E-Bidding</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Segoe UI', Arial, Helvetica, sans-serif; padding: 20px; }
+        .card { background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); width: 100%; max-width: 440px; overflow: hidden; }
+        .card-header { background: #4f46e5; padding: 32px; text-align: center; }
+        .card-header h1 { color: #fff; font-size: 22px; font-weight: 600; }
+        .card-body { padding: 36px 32px; }
+        .card-body h2 { font-size: 20px; color: #1a1a2e; margin-bottom: 8px; }
+        .card-body p { font-size: 14px; color: #666; margin-bottom: 24px; line-height: 1.5; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }
+        .form-group input { width: 100%; padding: 12px 14px; border: 1.5px solid #d1d5db; border-radius: 8px; font-size: 15px; transition: border-color 0.2s, box-shadow 0.2s; outline: none; }
+        .form-group input:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+        .btn { width: 100%; padding: 13px; background: #4f46e5; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.2s; letter-spacing: 0.3px; }
+        .btn:hover { background: #4338ca; }
+        .btn:disabled { background: #a5b4fc; cursor: not-allowed; }
+        .alert { padding: 12px 16px; border-radius: 8px; font-size: 14px; margin-top: 16px; display: none; }
+        .alert-danger { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .alert-success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 8px; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .back-link { display: block; text-align: center; margin-top: 20px; color: #4f46e5; text-decoration: none; font-size: 14px; font-weight: 500; }
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="card-header">
+            <h1>Bahra E-Bidding</h1>
+        </div>
+        <div class="card-body">
+            <h2>Set New Password</h2>
+            <p>Enter your new password below to reset your account password.</p>
+            <form id="resetForm">
+                <div class="form-group">
+                    <label for="newPwd">New Password</label>
+                    <input type="password" id="newPwd" placeholder="Enter new password" required minlength="6">
+                </div>
+                <div class="form-group">
+                    <label for="confirmPwd">Confirm Password</label>
+                    <input type="password" id="confirmPwd" placeholder="Confirm new password" required minlength="6">
+                </div>
+                <button type="submit" class="btn" id="submitBtn">Reset Password</button>
+            </form>
+            <div class="alert alert-danger" id="errorAlert"></div>
+            <div class="alert alert-success" id="successAlert"></div>
+            <a href="http://localhost:3000/login" class="back-link">Back to Login</a>
+        </div>
+    </div>
+    <script>
+    (function(){
+        const form = document.getElementById('resetForm');
+        const btn = document.getElementById('submitBtn');
+        const errorAlert = document.getElementById('errorAlert');
+        const successAlert = document.getElementById('successAlert');
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token');
+
+        if (!token) {
+            errorAlert.textContent = 'Invalid or missing reset token. Please request a new password reset link.';
+            errorAlert.style.display = 'block';
+            btn.disabled = true;
+        }
+
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            errorAlert.style.display = 'none';
+            successAlert.style.display = 'none';
+
+            const password = document.getElementById('newPwd').value;
+            const confirm = document.getElementById('confirmPwd').value;
+
+            if (password.length < 6) {
+                errorAlert.textContent = 'Password must be at least 6 characters long.';
+                errorAlert.style.display = 'block';
+                return;
+            }
+            if (password !== confirm) {
+                errorAlert.textContent = 'Passwords do not match.';
+                errorAlert.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Resetting...';
+
+            try {
+                const res = await fetch('/reset-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: token, password: password })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || 'Failed to reset password');
+
+                successAlert.textContent = 'Password reset successfully! Redirecting to login...';
+                successAlert.style.display = 'block';
+                form.style.display = 'none';
+                setTimeout(() => { window.location.href = 'http://localhost:3000/login'; }, 2000);
+            } catch(err) {
+                errorAlert.textContent = err.message;
+                errorAlert.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = 'Reset Password';
+            }
+        });
+    })();
+    </script>
+</body>
+</html>""")
 
 
 @router.post("/reset-password")

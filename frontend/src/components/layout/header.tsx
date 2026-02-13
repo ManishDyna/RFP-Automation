@@ -127,7 +127,7 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
             className="h-9 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm hidden sm:flex"
           >
             <Download className="h-4 w-4 mr-2" />
-            Download RFPs
+            Download Historical Data
           </Button>
 
           {/* Mobile Download */}
@@ -141,7 +141,7 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
                 <Download className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Download RFPs</TooltipContent>
+            <TooltipContent>Download Historical Data</TooltipContent>
           </Tooltip>
 
           {/* Divider */}

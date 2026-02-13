@@ -6,6 +6,7 @@ from services.dashboard_service import (
     get_logs_data_cached,
     get_dashboard_data_cached,
     get_all_rfp_data_cached,
+    invalidate_dashboard_caches,
 )
 from services.user_service import get_user, update_user, authenticate_user, get_user_by_email
 from services.sap_service import create_sap_password_record, list_sap_password_records, list_sap_password_records_cached, invalidate_sap_password_cache
@@ -211,6 +212,8 @@ async def update_rfp_status(payload: dict = Body(...)):
         ok = update_rfp_participation_status(rfp_id, status_normalized)
         if not ok:
             raise HTTPException(status_code=404, detail="RFP not found to update")
+        # Invalidate caches so the next dashboard fetch gets fresh data
+        invalidate_dashboard_caches()
         return JSONResponse({"ok": True, "message": f"Status updated to {status_normalized}"})
     except HTTPException:
         raise
