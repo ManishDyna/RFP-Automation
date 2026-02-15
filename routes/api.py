@@ -315,9 +315,14 @@ async def api_rfp_details(
     start_date: str = Query(""),
     end_date: str = Query(""),
     company: str = Query(""),
+    material_match: str = Query(""),  # New: "matched" or "not_matched"
+    keyword_match: str = Query(""),   # New: "matched" or "not_matched"
+    participation: str = Query(""),   # New: "participated", "not_participated", "declined"
+    limit: int = Query(50),           # New: Number of records per page
+    offset: int = Query(0),           # New: Starting position
     refresh: int = Query(0),
 ):
-    """Get RFP details as JSON"""
+    """Get RFP details as JSON with pagination and new filters"""
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
 
@@ -389,21 +394,57 @@ async def api_rfp_details(
             return True
         filtered_rows = [r for r in filtered_rows if within_range(r)]
 
-    # Count statuses
+    # Filter by material matching
+    if material_match:
+        if material_match.lower() == "matched":
+            filtered_rows = [r for r in filtered_rows if (r.get("Material_Matched") or "").lower() == "yes"]
+        elif material_match.lower() == "not_matched":
+            filtered_rows = [r for r in filtered_rows if (r.get("Material_Matched") or "").lower() in ("no", "")]
+
+    # Filter by keyword matching
+    if keyword_match:
+        if keyword_match.lower() == "matched":
+            filtered_rows = [r for r in filtered_rows if (r.get("Keyword_Matched") or "").lower() == "yes"]
+        elif keyword_match.lower() == "not_matched":
+            filtered_rows = [r for r in filtered_rows if (r.get("Keyword_Matched") or "").lower() in ("no", "")]
+
+    # Filter by participation status
+    if participation:
+        participation_lower = participation.lower()
+        if participation_lower == "participated":
+            filtered_rows = [r for r in filtered_rows if r["status_key"] == "submitted"]
+        elif participation_lower == "not_participated":
+            filtered_rows = [r for r in filtered_rows if r["status_key"] == "open"]
+        elif participation_lower == "declined":
+            filtered_rows = [r for r in filtered_rows if r["status_key"] == "declined"]
+
+    # Apply pagination
+    total_filtered = len(filtered_rows)
+    paginated_rows = filtered_rows[offset:offset + limit]
+
+    # Count statuses from FILTERED rows (not all detailed_rows)
     from collections import Counter
-    status_counts = Counter(r["status_key"] for r in detailed_rows)
-    status_counts["downloaded"] = len(detailed_rows)
+    status_counts = Counter(r["status_key"] for r in filtered_rows)
+
+    # Also provide total counts (unfiltered) for reference
+    total_status_counts = Counter(r["status_key"] for r in detailed_rows)
+    total_status_counts["downloaded"] = len(detailed_rows)
 
     # Get unique companies for filter dropdown
     unique_companies = list(set(r.get("Company_Name") or "" for r in detailed_rows if r.get("Company_Name")))
     unique_companies.sort()
 
     return JSONResponse({
-        "rfps": filtered_rows,
-        "status_counts": dict(status_counts),
+        "rfps": paginated_rows,
+        "status_counts": dict(status_counts),  # Filtered counts
+        "total_status_counts": dict(total_status_counts),  # Total counts (unfiltered)
         "total": len(detailed_rows),
         "total_rows": len(detailed_rows),
-        "shown_rows": len(filtered_rows),
+        "total_filtered": total_filtered,
+        "shown_rows": len(paginated_rows),
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total_filtered,
         "unique_companies": unique_companies
     })
 

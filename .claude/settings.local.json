@@ -28,7 +28,11 @@
       "Bash(findstr:*)",
       "Bash(xargs -I {} sh -c 'echo \"\"File: {}\"\" && head -10 \"\"{}\"\"')",
       "Bash(npm run build:*)",
-      "Bash(xargs basename:*)"
+      "Bash(xargs basename:*)",
+      "Bash(set:*)",
+      "Bash(pip install:*)",
+      "Bash(wc:*)",
+      "Bash(del:*)"
     ]
   }
 }

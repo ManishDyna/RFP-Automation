@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   XCircle,
   Download,
+  Columns3,
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -42,6 +43,15 @@ import {
 } from '@/components/ui/table'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { api } from '@/lib/api'
 
 const statusOptions = [
@@ -50,6 +60,25 @@ const statusOptions = [
   { value: 'submitted', label: 'Submitted' },
   { value: 'declined', label: 'Declined' },
   { value: 'open', label: 'Open' },
+]
+
+const materialMatchOptions = [
+  { value: '', label: 'All' },
+  { value: 'matched', label: 'Matched' },
+  { value: 'not_matched', label: 'Not Matched' },
+]
+
+const keywordMatchOptions = [
+  { value: '', label: 'All' },
+  { value: 'matched', label: 'Matched' },
+  { value: 'not_matched', label: 'Not Matched' },
+]
+
+const participationOptions = [
+  { value: '', label: 'All' },
+  { value: 'participated', label: 'Participated' },
+  { value: 'not_participated', label: 'Not Participated' },
+  { value: 'declined', label: 'Declined' },
 ]
 
 function StatusBadge({ status }: { status: string }) {
@@ -110,6 +139,18 @@ function StatCard({
   )
 }
 
+// Define available columns
+const AVAILABLE_COLUMNS = {
+  company: { label: 'Company', default: true },
+  owner: { label: 'Owner', default: true },
+  published: { label: 'Published', default: true },
+  deadline: { label: 'Deadline', default: true },
+  status: { label: 'Status', default: true },
+  participation: { label: 'Participation', default: true },
+  materialMatch: { label: 'Material Match', default: false },
+  keywordMatch: { label: 'Keyword Match', default: false },
+} as const
+
 export default function RfpInsightsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -119,12 +160,67 @@ export default function RfpInsightsPage() {
     start_date: searchParams.get('start_date') || '',
     end_date: searchParams.get('end_date') || '',
     search: searchParams.get('search') || '',
+    material_match: searchParams.get('material_match') || '',
+    keyword_match: searchParams.get('keyword_match') || '',
+    participation: searchParams.get('participation') || '',
   })
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['rfpDetails', filters],
-    queryFn: () => api.getRfpDetails(filters),
+  // Column visibility state with localStorage persistence
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(() => {
+    const stored = localStorage.getItem('rfp-insights-columns')
+    if (stored) {
+      try {
+        return JSON.parse(stored)
+      } catch {
+        // If parsing fails, use defaults
+      }
+    }
+    // Default: all columns visible
+    return Object.keys(AVAILABLE_COLUMNS).reduce((acc, key) => {
+      acc[key] = AVAILABLE_COLUMNS[key as keyof typeof AVAILABLE_COLUMNS].default
+      return acc
+    }, {} as Record<string, boolean>)
   })
+
+  // Save column visibility to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('rfp-insights-columns', JSON.stringify(visibleColumns))
+  }, [visibleColumns])
+
+  const toggleColumn = (columnKey: string) => {
+    setVisibleColumns(prev => ({ ...prev, [columnKey]: !prev[columnKey] }))
+  }
+
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const ITEMS_PER_PAGE = 50
+
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['rfpDetails', filters],
+    queryFn: ({ pageParam = 0 }) =>
+      api.getRfpDetails({ ...filters, limit: ITEMS_PER_PAGE, offset: pageParam }),
+    getNextPageParam: (lastPage) => {
+      if (lastPage.has_more) {
+        return lastPage.offset + lastPage.limit
+      }
+      return undefined
+    },
+    initialPageParam: 0,
+  })
+
+  // Flatten all pages of data
+  const allRfps = data?.pages.flatMap(page => page.rfps) || []
+  const uniqueCompanies = data?.pages[0]?.unique_companies || []
+  const totalRows = data?.pages[0]?.total_rows || 0
+  const totalFiltered = data?.pages[0]?.total_filtered || 0
+  const statusCounts = data?.pages[0]?.status_counts || {}
+  const totalStatusCounts = data?.pages[0]?.total_status_counts || {}
 
   const handleFilterChange = (key: string, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
@@ -139,6 +235,27 @@ export default function RfpInsightsPage() {
     setSearchParams(params)
   }
 
+  // Scroll detection for lazy loading
+  useEffect(() => {
+    const scrollArea = scrollRef.current
+    if (!scrollArea) return
+
+    // Get the viewport element from Radix UI ScrollArea
+    const viewport = scrollArea.querySelector('[data-radix-scroll-area-viewport]')
+    if (!viewport) return
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = viewport
+      // Load more when user scrolls to within 200px of the bottom
+      if (scrollHeight - scrollTop - clientHeight < 200 && hasNextPage && !isFetchingNextPage) {
+        fetchNextPage()
+      }
+    }
+
+    viewport.addEventListener('scroll', handleScroll)
+    return () => viewport.removeEventListener('scroll', handleScroll)
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
   const handleReset = () => {
     setFilters({
       status: '',
@@ -146,6 +263,9 @@ export default function RfpInsightsPage() {
       start_date: '',
       end_date: '',
       search: '',
+      material_match: '',
+      keyword_match: '',
+      participation: '',
     })
     setSearchParams({})
   }
@@ -164,15 +284,26 @@ export default function RfpInsightsPage() {
     }
   }, [])
 
-  const rfps = data?.rfps || []
-  const uniqueCompanies = data?.unique_companies || []
-  const totalRows = data?.total_rows || 0
-  const shownRows = data?.shown_rows || rfps.length
+  // Check if any filters are active
+  const hasActiveFilters = !!(
+    filters.status ||
+    filters.company ||
+    filters.start_date ||
+    filters.end_date ||
+    filters.search ||
+    filters.material_match ||
+    filters.keyword_match ||
+    filters.participation
+  )
 
-  // Calculate stats
-  const submittedCount = rfps.filter((r: any) => r.status?.toLowerCase() === 'submitted').length
-  const openCount = rfps.filter((r: any) => r.status?.toLowerCase() === 'open').length
-  const downloadedCount = rfps.filter((r: any) => r.status?.toLowerCase() === 'downloaded').length
+  // Use filtered counts when filters are active, otherwise use total counts
+  const countsToUse = hasActiveFilters ? statusCounts : totalStatusCounts
+
+  // Calculate stats from API response (based on filtered or total data)
+  const totalRfpsCount = hasActiveFilters ? totalFiltered : totalRows
+  const submittedCount = countsToUse.submitted || 0
+  const openCount = countsToUse.open || 0
+  const downloadedCount = hasActiveFilters ? totalFiltered : totalRows
 
   return (
     <PageWrapper
@@ -191,7 +322,7 @@ export default function RfpInsightsPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard
           title="Total RFPs"
-          value={totalRows}
+          value={totalRfpsCount}
           icon={FileSpreadsheet}
           className="stat-card-blue"
         />
@@ -224,7 +355,7 @@ export default function RfpInsightsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <div className="space-y-2">
               <Label htmlFor="status" className="text-slate-600 text-sm flex items-center gap-1.5">
                 <ListFilter className="h-3.5 w-3.5" />
@@ -298,7 +429,73 @@ export default function RfpInsightsPage() {
               />
             </div>
 
-            <div className="space-y-2 lg:col-span-2">
+            <div className="space-y-2">
+              <Label htmlFor="material_match" className="text-slate-600 text-sm flex items-center gap-1.5">
+                <ListFilter className="h-3.5 w-3.5" />
+                Material Match
+              </Label>
+              <Select
+                value={filters.material_match || 'all'}
+                onValueChange={(value) => handleFilterChange('material_match', value === 'all' ? '' : value)}
+              >
+                <SelectTrigger id="material_match" className="bg-slate-50 border-slate-200 focus:bg-white">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  {materialMatchOptions.map((option) => (
+                    <SelectItem key={option.value || 'all'} value={option.value || 'all'}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="keyword_match" className="text-slate-600 text-sm flex items-center gap-1.5">
+                <ListFilter className="h-3.5 w-3.5" />
+                Keyword Match
+              </Label>
+              <Select
+                value={filters.keyword_match || 'all'}
+                onValueChange={(value) => handleFilterChange('keyword_match', value === 'all' ? '' : value)}
+              >
+                <SelectTrigger id="keyword_match" className="bg-slate-50 border-slate-200 focus:bg-white">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  {keywordMatchOptions.map((option) => (
+                    <SelectItem key={option.value || 'all'} value={option.value || 'all'}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="participation" className="text-slate-600 text-sm flex items-center gap-1.5">
+                <ListFilter className="h-3.5 w-3.5" />
+                Participation
+              </Label>
+              <Select
+                value={filters.participation || 'all'}
+                onValueChange={(value) => handleFilterChange('participation', value === 'all' ? '' : value)}
+              >
+                <SelectTrigger id="participation" className="bg-slate-50 border-slate-200 focus:bg-white">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  {participationOptions.map((option) => (
+                    <SelectItem key={option.value || 'all'} value={option.value || 'all'}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2 xl:col-span-3">
               <Label htmlFor="search" className="text-slate-600 text-sm flex items-center gap-1.5">
                 <Search className="h-3.5 w-3.5" />
                 Search
@@ -336,9 +533,45 @@ export default function RfpInsightsPage() {
 
           <div className="mt-4 flex items-center justify-between">
             <p className="text-sm text-slate-500">
-              Showing <span className="font-semibold text-slate-700">{shownRows}</span> of{' '}
-              <span className="font-semibold text-slate-700">{totalRows}</span> RFPs
+              Showing <span className="font-semibold text-slate-700">{allRfps.length}</span> of{' '}
+              <span className="font-semibold text-slate-700">{totalFiltered}</span> filtered RFPs
+              {totalFiltered !== totalRows && (
+                <span className="text-slate-400"> ({totalRows} total)</span>
+              )}
             </p>
+            <div className="flex items-center gap-3">
+              {/* Column Visibility Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-slate-200 hover:bg-slate-50"
+                  >
+                    <Columns3 className="h-4 w-4 mr-2" />
+                    Columns
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Toggle Columns</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {Object.entries(AVAILABLE_COLUMNS).map(([key, config]) => (
+                    <DropdownMenuCheckboxItem
+                      key={key}
+                      checked={visibleColumns[key]}
+                      onCheckedChange={() => toggleColumn(key)}
+                    >
+                      {config.label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {hasNextPage && (
+                <p className="text-sm text-indigo-600 font-medium">
+                  Scroll down to load more...
+                </p>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -357,7 +590,7 @@ export default function RfpInsightsPage() {
                 </div>
               ))}
             </div>
-          ) : rfps.length === 0 ? (
+          ) : allRfps.length === 0 && !isLoading ? (
             <div className="flex flex-col items-center justify-center py-20 text-slate-500">
               <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
                 <Search className="h-8 w-8 text-slate-400" />
@@ -370,21 +603,40 @@ export default function RfpInsightsPage() {
               </Button>
             </div>
           ) : (
-            <ScrollArea className="h-[520px]">
+            <ScrollArea className="h-[520px]" ref={scrollRef}>
               <Table>
                 <TableHeader className="sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10">
                   <TableRow className="border-slate-200 hover:bg-slate-50/95">
                     <TableHead className="text-slate-600 font-semibold">RFP ID</TableHead>
-                    <TableHead className="text-slate-600 font-semibold">Company</TableHead>
-                    <TableHead className="text-slate-600 font-semibold">Owner</TableHead>
-                    <TableHead className="text-slate-600 font-semibold">Published</TableHead>
-                    <TableHead className="text-slate-600 font-semibold">Deadline</TableHead>
-                    <TableHead className="text-slate-600 font-semibold">Status</TableHead>
+                    {visibleColumns.company && (
+                      <TableHead className="text-slate-600 font-semibold">Company</TableHead>
+                    )}
+                    {visibleColumns.owner && (
+                      <TableHead className="text-slate-600 font-semibold">Owner</TableHead>
+                    )}
+                    {visibleColumns.published && (
+                      <TableHead className="text-slate-600 font-semibold">Published</TableHead>
+                    )}
+                    {visibleColumns.deadline && (
+                      <TableHead className="text-slate-600 font-semibold">Deadline</TableHead>
+                    )}
+                    {visibleColumns.materialMatch && (
+                      <TableHead className="text-slate-600 font-semibold">Material Match</TableHead>
+                    )}
+                    {visibleColumns.keywordMatch && (
+                      <TableHead className="text-slate-600 font-semibold">Keyword Match</TableHead>
+                    )}
+                    {visibleColumns.status && (
+                      <TableHead className="text-slate-600 font-semibold">Status</TableHead>
+                    )}
+                    {visibleColumns.participation && (
+                      <TableHead className="text-slate-600 font-semibold">Participation</TableHead>
+                    )}
                     <TableHead className="text-slate-600 font-semibold text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rfps.map((rfp: any, index: number) => (
+                  {allRfps.map((rfp: any, index: number) => (
                     <TableRow
                       key={rfp.RFP_ID || index}
                       className="border-slate-100 hover:bg-slate-50/50 transition-colors"
@@ -404,15 +656,75 @@ export default function RfpInsightsPage() {
                           <span className="text-slate-700">{rfp.RFP_ID}</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-slate-600">
-                        {rfp.Company_Name || 'Saudi Electricity Company'}
-                      </TableCell>
-                      <TableCell className="text-slate-600">{rfp.Owner_Name || '-'}</TableCell>
-                      <TableCell className="text-slate-500 text-sm">{rfp.Publish_Time || '-'}</TableCell>
-                      <TableCell className="text-slate-500 text-sm">{rfp.RFP_End_Date || '-'}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={rfp.status_label || rfp.status || 'downloaded'} />
-                      </TableCell>
+                      {visibleColumns.company && (
+                        <TableCell className="text-slate-600">
+                          {rfp.Company_Name || 'Saudi Electricity Company'}
+                        </TableCell>
+                      )}
+                      {visibleColumns.owner && (
+                        <TableCell className="text-slate-600">{rfp.Owner_Name || '-'}</TableCell>
+                      )}
+                      {visibleColumns.published && (
+                        <TableCell className="text-slate-500 text-sm">{rfp.Publish_Time || '-'}</TableCell>
+                      )}
+                      {visibleColumns.deadline && (
+                        <TableCell className="text-slate-500 text-sm">{rfp.RFP_End_Date || '-'}</TableCell>
+                      )}
+                      {visibleColumns.materialMatch && (
+                        <TableCell>
+                          {(rfp.Material_Matched || '').toLowerCase() === 'yes' ? (
+                            <Badge variant="success" className="gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Matched
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="gap-1">
+                              <XCircle className="h-3 w-3" />
+                              Not Matched
+                            </Badge>
+                          )}
+                        </TableCell>
+                      )}
+                      {visibleColumns.keywordMatch && (
+                        <TableCell>
+                          {(rfp.Keyword_Matched || '').toLowerCase() === 'yes' ? (
+                            <Badge variant="success" className="gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Matched
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="gap-1">
+                              <XCircle className="h-3 w-3" />
+                              Not Matched
+                            </Badge>
+                          )}
+                        </TableCell>
+                      )}
+                      {visibleColumns.status && (
+                        <TableCell>
+                          <StatusBadge status={rfp.status_label || rfp.status || 'downloaded'} />
+                        </TableCell>
+                      )}
+                      {visibleColumns.participation && (
+                        <TableCell>
+                          {rfp.status_key === 'submitted' ? (
+                            <Badge variant="success" className="gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Participated
+                            </Badge>
+                          ) : rfp.status_key === 'declined' ? (
+                            <Badge variant="destructive" className="gap-1">
+                              <XCircle className="h-3 w-3" />
+                              Declined
+                            </Badge>
+                          ) : (
+                            <Badge variant="warning" className="gap-1">
+                              <Clock className="h-3 w-3" />
+                              Not Participated
+                            </Badge>
+                          )}
+                        </TableCell>
+                      )}
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
                           {rfp.Link && (
@@ -441,6 +753,16 @@ export default function RfpInsightsPage() {
                       </TableCell>
                     </TableRow>
                   ))}
+                  {isFetchingNextPage && (
+                    <TableRow>
+                      <TableCell colSpan={Object.values(visibleColumns).filter(Boolean).length + 2} className="text-center py-8">
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="w-5 h-5 border-3 border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
+                          <span className="text-sm text-slate-500">Loading more RFPs...</span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </ScrollArea>

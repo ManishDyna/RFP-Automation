@@ -169,6 +169,10 @@ def get_dashboard_data():
                 except Exception:
                     pass
 
+                # Deduplicate: Count each RFP_ID only once (keep first occurrence)
+                rfp_df = rfp_df.drop_duplicates(subset=["RFP_ID"], keep="first")
+                print(f"RFP data after deduplication: {len(rfp_df)} unique RFPs")
+
                 # Vectorized: Normalize Company_Name in dataframe (fix empty/null values)
                 rfp_df["Company_Name"] = rfp_df["Company_Name"].fillna("Saudi Electricity Company").replace("", "Saudi Electricity Company")
                 unique_companies = set(rfp_df["Company_Name"].unique())
@@ -212,6 +216,24 @@ def get_dashboard_data():
 
                         company_name = row.get("Company_Name", "") or "Saudi Electricity Company"
 
+                        # Derive Material_Matched/Keyword_Matched from count fields if not already set
+                        material_matched_raw = row.get("Material_Matched", "")
+                        keyword_matched_raw = row.get("Keyword_Matched", "")
+
+                        if not material_matched_raw or str(material_matched_raw).strip() == "":
+                            try:
+                                mat_count = int(row.get("no_of_matched_materials") or 0)
+                                material_matched_raw = "Yes" if mat_count > 0 else "No"
+                            except (ValueError, TypeError):
+                                material_matched_raw = "No"
+
+                        if not keyword_matched_raw or str(keyword_matched_raw).strip() == "":
+                            try:
+                                kw_count = int(row.get("no_of_matched_keywords") or 0)
+                                keyword_matched_raw = "Yes" if kw_count > 0 else "No"
+                            except (ValueError, TypeError):
+                                keyword_matched_raw = "No"
+
                         rfp_data = {
                             "RFP_ID": row.get("RFP_ID", ""),
                             "RFP_End_Date": end_str,
@@ -220,6 +242,8 @@ def get_dashboard_data():
                             "Publish_Time": format_publish_time(row.get("publish_time", "")),
                             "participated": row.get("participated", ""),
                             "Link": rfp_link,
+                            "Material_Matched": material_matched_raw,
+                            "Keyword_Matched": keyword_matched_raw,
                         }
 
                         downloaded_rfp_list.append(rfp_data)
@@ -323,6 +347,10 @@ def get_all_rfp_data():
                 except Exception:
                     pass
 
+                # Deduplicate: Count each RFP_ID only once (keep first occurrence)
+                rfp_df = rfp_df.drop_duplicates(subset=["RFP_ID"], keep="first")
+                print(f"All RFP data after deduplication: {len(rfp_df)} unique RFPs")
+
                 # Normalize Company_Name in dataframe (fix empty/null values)
                 rfp_df["Company_Name"] = rfp_df["Company_Name"].fillna("Saudi Electricity Company").replace("", "Saudi Electricity Company")
 
@@ -340,6 +368,26 @@ def get_all_rfp_data():
                     if not rfp_link:
                         rfp_link = URL
 
+                    # Derive Material_Matched/Keyword_Matched from count fields if not already set
+                    material_matched_raw = row.get("Material_Matched", "")
+                    keyword_matched_raw = row.get("Keyword_Matched", "")
+
+                    # If Material_Matched is not set, derive from no_of_matched_materials count
+                    if not material_matched_raw or str(material_matched_raw).strip() == "":
+                        try:
+                            mat_count = int(row.get("no_of_matched_materials") or 0)
+                            material_matched_raw = "Yes" if mat_count > 0 else "No"
+                        except (ValueError, TypeError):
+                            material_matched_raw = "No"
+
+                    # If Keyword_Matched is not set, derive from no_of_matched_keywords count
+                    if not keyword_matched_raw or str(keyword_matched_raw).strip() == "":
+                        try:
+                            kw_count = int(row.get("no_of_matched_keywords") or 0)
+                            keyword_matched_raw = "Yes" if kw_count > 0 else "No"
+                        except (ValueError, TypeError):
+                            keyword_matched_raw = "No"
+
                     rfp_data = {
                         "RFP_ID": row.get("RFP_ID", ""),
                         "RFP_End_Date": end_str,
@@ -348,6 +396,8 @@ def get_all_rfp_data():
                         "Publish_Time": format_publish_time(row.get("publish_time", "")),
                         "participated": row.get("participated", ""),
                         "Link": rfp_link,
+                        "Material_Matched": material_matched_raw,
+                        "Keyword_Matched": keyword_matched_raw,
                     }
 
                     all_rfp_list.append(rfp_data)

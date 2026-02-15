@@ -97,10 +97,15 @@ export const api = {
     start_date?: string
     end_date?: string
     search?: string
+    material_match?: string
+    keyword_match?: string
+    participation?: string
+    limit?: number
+    offset?: number
   }) => {
     const searchParams = new URLSearchParams()
     Object.entries(params).forEach(([key, value]) => {
-      if (value) searchParams.append(key, value)
+      if (value !== undefined && value !== null && value !== '') searchParams.append(key, String(value))
     })
     const response = await fetch(`${ENDPOINTS.DASHBOARD.RFP_DETAILS}?${searchParams}`, {
       credentials: 'include',
@@ -121,6 +126,18 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ company: company || '' }),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  downloadOpenRfps: async (company?: string) => {
+    const params = new URLSearchParams()
+    if (company) params.append('company', company)
+    const url = params.toString()
+      ? `${ENDPOINTS.RFP.DOWNLOAD}?${params}`
+      : ENDPOINTS.RFP.DOWNLOAD
+    const response = await fetch(url, {
       credentials: 'include',
     })
     return handleResponse(response)

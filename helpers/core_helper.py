@@ -222,40 +222,21 @@ def get_latest_file(download_dir, title):
 
 def get_rfp_activity_data_from_db(top: int = 5000, skip: int = 0):
     """
-    Get RFP activity data from Dataverse with optional pagination.
+    Get ALL RFP activity data from Dataverse using automatic pagination.
 
     Args:
-        top: Maximum number of rows to fetch (default 5000 for fetching all records)
-        skip: Number of rows to skip for pagination (default 0)
+        top: Ignored (kept for backward compatibility). All rows are fetched.
+        skip: Ignored (kept for backward compatibility).
 
     Returns:
         List of dicts with display names as keys
     """
-    # Step 1: Fetch rows from Dataverse (logical names in response)
-    rows = DATAVERSE.get_rows_from_dataverse(
+    return DATAVERSE.get_all_rows(
         table_api_name=RFP_ACTIVITY_LOG_TABLE_API,
-        select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link"],  # display names
-        top=top,
+        select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link", "Material_Matched", "Keyword_Matched"],
         table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
         use_display_names=True
     )
-
-    # Step 2: Get mapping display name -> logical name (now cached)
-    column_map = DATAVERSE.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)
-
-    # Reverse the mapping: logical name -> display name
-    logical_to_display = {v: k for k, v in column_map.items()}
-
-    # Step 3: Transform each row to use display names
-    display_rows = []
-    for row in rows:
-        display_row = {}
-        for logical_col, value in row.items():
-            display_col = logical_to_display.get(logical_col, logical_col)
-            display_row[display_col] = value
-        display_rows.append(display_row)
-
-    return display_rows
 
 def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, category: str = "Status Change"):
     """

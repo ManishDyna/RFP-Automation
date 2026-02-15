@@ -13,6 +13,7 @@ const DashboardPage = lazy(() => import('@/pages/dashboard'))
 const RfpInsightsPage = lazy(() => import('@/pages/rfp-insights'))
 const LogsPage = lazy(() => import('@/pages/logs'))
 const ProfilePage = lazy(() => import('@/pages/profile'))
+const AnalyticsPage = lazy(() => import('@/pages/analytics'))
 const UserManagementPage = lazy(() => import('@/pages/admin/users'))
 const SapPasswordLogsPage = lazy(() => import('@/pages/admin/sap-logs'))
 
@@ -61,6 +62,7 @@ function ProtectedLayout() {
   // Dialog states
   const [declineRfpOpen, setDeclineRfpOpen] = useState(false)
   const [downloadCompanyOpen, setDownloadCompanyOpen] = useState(false)
+  const [downloadMode, setDownloadMode] = useState<'open' | 'all'>('all')
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [sapPasswordOpen, setSapPasswordOpen] = useState(false)
 
@@ -89,7 +91,7 @@ function ProtectedLayout() {
   return (
     <div className="min-h-screen bg-slate-50">
       <Sidebar
-        onDownloadRfps={() => setDownloadCompanyOpen(true)}
+        onDownloadRfps={() => { setDownloadMode('open'); setDownloadCompanyOpen(true) }}
         onSubmitRfp={() => openSubmitRfpDialog()}
         onDeclineRfp={() => setDeclineRfpOpen(true)}
         onSchedule={() => setScheduleOpen(true)}
@@ -101,7 +103,7 @@ function ProtectedLayout() {
         sidebarCollapsed ? 'ml-[72px]' : 'ml-[260px]'
       )}>
         <Header
-          onDownloadAll={() => setDownloadCompanyOpen(true)}
+          onDownloadAll={() => { setDownloadMode('all'); setDownloadCompanyOpen(true) }}
           onRefresh={handleRefresh}
         />
 
@@ -113,7 +115,7 @@ function ProtectedLayout() {
               <Route path="/dashboard/rfp-insights" element={<RfpInsightsPage />} />
               <Route path="/dashboard/logs" element={<LogsPage />} />
               <Route path="/dashboard/profile" element={<ProfilePage />} />
-              <Route path="/dashboard/analytics" element={<div>Analytics Page (Coming Soon)</div>} />
+              <Route path="/dashboard/analytics" element={<AnalyticsPage />} />
               <Route path="/admin/users" element={<UserManagementPage />} />
               <Route path="/admin/sap-logs" element={<SapPasswordLogsPage />} />
             </Routes>
@@ -128,7 +130,7 @@ function ProtectedLayout() {
         initialRfpId={submitRfpInitialId}
       />
       <DeclineRfpDialog open={declineRfpOpen} onOpenChange={setDeclineRfpOpen} />
-      <DownloadCompanyDialog open={downloadCompanyOpen} onOpenChange={setDownloadCompanyOpen} />
+      <DownloadCompanyDialog open={downloadCompanyOpen} onOpenChange={setDownloadCompanyOpen} mode={downloadMode} />
       <ScheduleDialog open={scheduleOpen} onOpenChange={setScheduleOpen} />
       <SapPasswordDialog open={sapPasswordOpen} onOpenChange={setSapPasswordOpen} />
     </div>

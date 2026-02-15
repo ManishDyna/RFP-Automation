@@ -34,18 +34,25 @@ const COMPANY_OPTIONS = [
 interface DownloadCompanyDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  mode?: 'open' | 'all'
 }
 
-export function DownloadCompanyDialog({ open, onOpenChange }: DownloadCompanyDialogProps) {
+export function DownloadCompanyDialog({ open, onOpenChange, mode = 'all' }: DownloadCompanyDialogProps) {
   const [company, setCompany] = useState('all')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const isOpenMode = mode === 'open'
 
   const onSubmit = async () => {
     setIsSubmitting(true)
     try {
-      // Pass undefined for 'all' to download from all companies
-      await api.downloadRfps(company === 'all' ? undefined : company)
-      toast.success('Historical data download started successfully')
+      if (isOpenMode) {
+        await api.downloadOpenRfps(company === 'all' ? undefined : company)
+        toast.success('Open RFPs download started successfully')
+      } else {
+        await api.downloadRfps(company === 'all' ? undefined : company)
+        toast.success('Historical data download started successfully')
+      }
       handleClose()
     } catch (error: any) {
       toast.error(error.message || 'Failed to start download')
@@ -65,10 +72,12 @@ export function DownloadCompanyDialog({ open, onOpenChange }: DownloadCompanyDia
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Download className="h-5 w-5" />
-            Download Historical Data
+            {isOpenMode ? 'Download Open RFPs' : 'Download Historical Data'}
           </DialogTitle>
           <DialogDescription>
-            Select which company portal to download historical RFP data from.
+            {isOpenMode
+              ? 'Select which company portal to download open status RFPs from.'
+              : 'Select which company portal to download historical RFP data from.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -100,17 +109,29 @@ export function DownloadCompanyDialog({ open, onOpenChange }: DownloadCompanyDia
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Warning</AlertTitle>
             <AlertDescription>
-              This process will download all historical RFP data from the selected company/companies.
+              {isOpenMode
+                ? 'This process will download only open status RFPs from the selected company.'
+                : 'This process will download all historical RFP data from the selected company/companies.'}
             </AlertDescription>
           </Alert>
 
           <div className="text-sm text-muted-foreground space-y-1">
             <p>This automation will:</p>
             <ul className="list-disc list-inside ml-2 space-y-1">
-              <li>Export RFP data from the selected company/companies</li>
-              <li>Download individual RFP files</li>
-              <li>Store files company-wise in the ALLRFPs folder</li>
-              <li>Save RFP information to the database</li>
+              {isOpenMode ? (
+                <>
+                  <li>Scrape open status RFPs from the selected company portal</li>
+                  <li>Download RFP files for open RFPs only</li>
+                  <li>Save RFP information to the database</li>
+                </>
+              ) : (
+                <>
+                  <li>Export RFP data from the selected company/companies</li>
+                  <li>Download individual RFP files</li>
+                  <li>Store files company-wise in the ALLRFPs folder</li>
+                  <li>Save RFP information to the database</li>
+                </>
+              )}
             </ul>
           </div>
 

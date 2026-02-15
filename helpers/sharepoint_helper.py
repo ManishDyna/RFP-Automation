@@ -1,6 +1,7 @@
 # config_sharepoint.py
 from core.common_imports import *
 from io import BytesIO
+import time
 # from helpers.core_helper import *
 # ===== Graph Client =====
 class GraphClient:
@@ -12,6 +13,7 @@ class GraphClient:
         self.site_path = site_path
         self.drive_name = drive_name
         self.token = None
+        self.token_expiry = 0
         self.headers = None
         self.site_id = None
         self.drive_id = None
@@ -34,8 +36,15 @@ class GraphClient:
             raise RuntimeError(f"❌ Could not acquire token: {result}")
 
         self.token = result["access_token"]
+        self.token_expiry = time.time() + result.get("expires_in", 3600) - 300
         self.headers = {"Authorization": f"Bearer {self.token}"}
         print(f"✅ Token acquired successfully (length: {len(self.token)})")
+
+    def ensure_token(self):
+        """Re-authenticate if token is missing or about to expire."""
+        if not self.token or time.time() >= self.token_expiry:
+            print("🔄 Token expired or missing, re-authenticating...")
+            self.auth()
 
     def resolve_site_and_drive(self):
         # Resolve site ID
@@ -138,8 +147,7 @@ class GraphClient:
         """Upload a local file to SharePoint under remote_base_folder using dest_filename.
         Preserves original filenames when provided by callers.
         """
-        if not self.token:
-            self.auth()
+        self.ensure_token()
         if not self.site_id or not self.drive_id:
             self.resolve_site_and_drive()
 
@@ -155,8 +163,7 @@ class GraphClient:
 
     def sync_local_to_sharepoint(self, local_path, remote_base_folder):
         """Mirror a local file/folder into SharePoint under remote_base_folder."""
-        if not self.token:
-            self.auth()
+        self.ensure_token()
         if not self.site_id or not self.drive_id:
             self.resolve_site_and_drive()
 

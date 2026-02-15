@@ -108,13 +108,58 @@ def log_event(category, action, status, message=None, rfp_id=None, run_id=None, 
     write_log_row(category, action, status, message or "", rfp_id or "", run_id or get_current_run_id(), insert_to_dataverse)
 # ---------------- RFP activity log ----------------
 
+def calculate_match_counts(matched_data):
+    """
+    Calculate material match statistics from matched data DataFrame.
+
+    Args:
+        matched_data: pandas DataFrame with matched materials
+
+    Returns:
+        dict: {'total_materials': int, 'keyword_matched': int, 'exact_matched': int}
+    """
+    if matched_data is None or (isinstance(matched_data, pd.DataFrame) and matched_data.empty):
+        return {
+            'total_materials': 0,
+            'keyword_matched': 0,
+            'exact_matched': 0
+        }
+
+    if not isinstance(matched_data, pd.DataFrame):
+        return {
+            'total_materials': 0,
+            'keyword_matched': 0,
+            'exact_matched': 0
+        }
+
+    total = len(matched_data)
+
+    # Count by match method (handle backward compatibility)
+    if 'MatchMethod' in matched_data.columns:
+        # Handle NaN values and case variations
+        match_method = matched_data['MatchMethod'].fillna('exact').str.lower()
+        keyword_count = (match_method == 'keyword').sum()
+        exact_count = (match_method == 'exact').sum()
+    else:
+        # Backward compatibility: if no MatchMethod column, assume all exact
+        keyword_count = 0
+        exact_count = total
+
+    return {
+        'total_materials': total,
+        'keyword_matched': keyword_count,
+        'exact_matched': exact_count
+    }
+
 def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                      Matched_Data=None, email_sent_at=None,
                      email_to=None, email_status=None,
                      owner_name=None, publish_time=None,
                      participated=None, link=None,
                      company_name=None,
-                     run_id=None, insert_to_dataverse=True):
+                     run_id=None, insert_to_dataverse=True,
+                     no_of_matched_materials=None,
+                     no_of_matched_keywords=None):
 
     if isinstance(Matched_Data, pd.DataFrame) and not Matched_Data.empty:
         Matched_Data_str = Matched_Data.to_json(orient="records")
@@ -155,6 +200,21 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
     if company_name is not None and company_name.strip():
         row_data["Company_Name"] = company_name.strip()
 
+    # Auto-calculate match counts from Matched_Data if not explicitly provided
+    if no_of_matched_materials is None and Matched_Data is not None:
+        counts = calculate_match_counts(Matched_Data)
+        no_of_matched_materials = counts['total_materials']
+        no_of_matched_keywords = counts['keyword_matched']
+
+    # Add count fields to row_data
+    if no_of_matched_materials is not None:
+        row_data["no_of_matched_materials"] = no_of_matched_materials
+        # Also set Material_Matched flag based on count
+        row_data["Material_Matched"] = "Yes" if int(no_of_matched_materials) > 0 else "No"
+    if no_of_matched_keywords is not None:
+        row_data["no_of_matched_keywords"] = no_of_matched_keywords
+        # Also set Keyword_Matched flag based on count
+        row_data["Keyword_Matched"] = "Yes" if int(no_of_matched_keywords) > 0 else "No"
 
     print("Row Data:", row_data)
     if insert_to_dataverse:
@@ -216,6 +276,13 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                             existing_matched = existing_row.get("Matched_Data", "")
                             if not existing_matched or not existing_matched.strip():
                                 update_data["Matched_Data"] = Matched_Data_str
+                                # Also update count fields and match flags when matched data is updated
+                                if no_of_matched_materials is not None:
+                                    update_data["no_of_matched_materials"] = no_of_matched_materials
+                                    update_data["Material_Matched"] = "Yes" if int(no_of_matched_materials) > 0 else "No"
+                                if no_of_matched_keywords is not None:
+                                    update_data["no_of_matched_keywords"] = no_of_matched_keywords
+                                    update_data["Keyword_Matched"] = "Yes" if int(no_of_matched_keywords) > 0 else "No"
                         if link is not None and link.strip():
                             existing_link = existing_row.get("Link", "")
                             if not existing_link or existing_link.strip() != link.strip():

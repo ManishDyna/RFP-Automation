@@ -55,6 +55,75 @@ class DataverseClient:
             headers.update(extra)
         return headers
 
+    def count_rows(self, table_api_name: str, filter_expr: str = None, table_logical_name: str = None, use_display_names: bool = True) -> int:
+        """Get the total count of rows in a Dataverse table using $count."""
+        url = f"{self.api_url}{table_api_name}"
+        params = {"$count": "true", "$top": "0"}
+
+        if filter_expr and use_display_names and table_logical_name:
+            column_map = self.get_column_mapping(table_logical_name)
+            for display_name, logical_name in column_map.items():
+                filter_expr = filter_expr.replace(display_name, logical_name)
+
+        if filter_expr:
+            params["$filter"] = filter_expr
+
+        resp = requests.get(url, headers=self._headers(), params=params)
+        if resp.status_code != 200:
+            raise Exception(f"[ERROR] Count failed for '{table_api_name}': {resp.status_code}")
+        return resp.json().get("@odata.count", 0)
+
+    def get_all_rows(self, table_api_name: str, select_columns: List[str] = None, table_logical_name: str = None, use_display_names: bool = True, page_size: int = 5000) -> List[dict]:
+        """Fetch ALL rows from a Dataverse table using @odata.nextLink pagination."""
+        url = f"{self.api_url}{table_api_name}"
+        params = {"$top": str(page_size)}
+
+        select_expr = None
+        if select_columns:
+            select_expr = ",".join(select_columns)
+
+        if use_display_names and table_logical_name and select_expr:
+            column_map = self.get_column_mapping(table_logical_name)
+            select_fields = [column_map.get(f.strip(), f.strip()) for f in select_expr.split(",")]
+            select_expr = ",".join(select_fields)
+
+        if select_expr:
+            params["$select"] = select_expr
+
+        all_rows = []
+        page_num = 0
+        while url:
+            page_num += 1
+            resp = requests.get(url, headers=self._headers(), params=params)
+            if resp.status_code != 200:
+                error_text = resp.text.encode('ascii', 'replace').decode('ascii')
+                raise Exception(f"[ERROR] Query failed for '{table_api_name}': {resp.status_code}, {error_text}")
+            data = resp.json()
+            page_rows = data.get("value", [])
+            all_rows.extend(page_rows)
+            next_link = data.get("@odata.nextLink")
+            print(f"📊 Page {page_num}: fetched {len(page_rows)} rows (total so far: {len(all_rows)}, has next: {bool(next_link)})")
+            url = next_link
+            params = {}  # nextLink URL already contains query params
+
+        # Remap to display names if needed
+        if use_display_names and table_logical_name:
+            try:
+                column_map = self.get_column_mapping(table_logical_name)
+                logical_to_display = {logical: display for display, logical in column_map.items()}
+                display_rows = []
+                for row in all_rows:
+                    display_row = {}
+                    for logical_col, value in row.items():
+                        display_col = logical_to_display.get(logical_col, logical_col)
+                        display_row[display_col] = value
+                    display_rows.append(display_row)
+                return display_rows
+            except Exception:
+                return all_rows
+
+        return all_rows
+
     # ---------------- Get rows with filters and select columns ----------------
     def get_rows_from_dataverse(
         self,

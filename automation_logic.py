@@ -342,8 +342,9 @@ async def export_rfps(page, company_name):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_company_name = await sanitize_filename(company_name)
 
-    # Save to temporary location first
-    temp_path = os.path.join(OUTPUT_DIR, f"temp_{timestamp}.download")
+    # Save to temporary location (no permanent local storage)
+    temp_export_dir = tempfile.mkdtemp(prefix="rfp_export_")
+    temp_path = os.path.join(temp_export_dir, f"temp_{timestamp}.download")
     await download.save_as(temp_path)
 
     # Detect actual file type from content
@@ -352,7 +353,7 @@ async def export_rfps(page, company_name):
         try:
             with open(file_path, 'rb') as f:
                 header = f.read(8)
-            
+
             # Check file signatures
             if header[:4] == b'\xD0\xCF\x11\xE0':
                 return '.xls'  # Old Excel binary format
@@ -373,7 +374,7 @@ async def export_rfps(page, company_name):
                             return '.csv'
                 except:
                     pass
-            
+
             # Default to xlsx if can't determine
             return '.xlsx'
         except Exception as e:
@@ -386,7 +387,7 @@ async def export_rfps(page, company_name):
 
     # Create final filename with correct extension
     target_filename = f"{safe_company_name}_{timestamp}{real_ext}"
-    target_path = os.path.join(OUTPUT_DIR, target_filename)
+    target_path = os.path.join(temp_export_dir, target_filename)
 
     # Rename temp file to final name
     os.rename(temp_path, target_path)
@@ -410,24 +411,33 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
     log_event("RFP", "Download", "Start", f"Downloading {len(open_rfps)}")
     await download_rfp_files(page, open_rfps, company_name, graph_client)
 
-    # Process matched materials
-    # try:
-    master_csv_local = os.path.join(OUTPUT_DIR, "master_material.csv")
+    # Process matched materials (downloads from SharePoint to temp, no local dependency)
     matched_df, matched_csv_path, not_mateched_files = process_folder(
-        graph_client, OUTPUT_DIR, master_csv_local, company_name=company_name
+        graph_client, None, None, company_name=company_name
     )
     print(f"✅ Matched materials processed: {matched_csv_path}")
 
-    trigger_email_rfps = trigger_email(
-        csv_file=matched_csv_path, graph_client=graph_client, not_mateched_files=not_mateched_files, company_name=company_name
-    )
-    log_event(
-        "EMAIL",
-        "Sent",
-        "Success",
-        message=f"Email triggered with {len(matched_df)} matches",
-        rfp_id=trigger_email_rfps,
-    )
+    # Only trigger email if there are results to send
+    if not matched_df.empty or not_mateched_files:
+        trigger_email_rfps = trigger_email(
+            csv_file=matched_csv_path, graph_client=graph_client, not_mateched_files=not_mateched_files, company_name=company_name
+        )
+        log_event(
+            "EMAIL",
+            "Sent",
+            "Success",
+            message=f"Email triggered with {len(matched_df)} matches",
+            rfp_id=trigger_email_rfps,
+        )
+    else:
+        log_event("RFP", "Process", "Info", "No new matches or files to process - skipping email")
+
+    # Clean up temp directory used by process_folder
+    if matched_csv_path and matched_csv_path not in ("no_files", "not_matched_data") and os.path.exists(matched_csv_path):
+        try:
+            shutil.rmtree(os.path.dirname(matched_csv_path), ignore_errors=True)
+        except Exception:
+            pass
 
     log_event("SYSTEM", "DownloadRFP", "Success", "Download flow finished")
 
@@ -987,12 +997,18 @@ async def run_automation_sync_portal():
             # Export all RFPs visible for the selected company
             log_event("SYNC", "Export", "Start", "Starting RFP export from portal")
             exported_path = await export_rfps(page, "SaudiAriba")
-            log_event("SYNC", "Export", "Success", f"Export completed. File saved at: {exported_path}")
-            
+            log_event("SYNC", "Export", "Success", f"Export completed: {os.path.basename(exported_path)}")
+
             # Extract RFP data from exported file
             log_event("SYNC", "Extract", "Start", "Extracting RFP data from exported file")
             rfp_data = await extract_rfp_data(exported_path)
             log_event("SYNC", "Extract", "Success", f"Extracted {len(rfp_data)} RFPs from portal")
+
+            # Clean up temp export file (no longer needed after extraction)
+            try:
+                shutil.rmtree(os.path.dirname(exported_path), ignore_errors=True)
+            except Exception:
+                pass
             
             # Compare against DB and update mismatches
             log_event("SYNC", "Database", "Start", "Starting database sync")
@@ -1365,11 +1381,7 @@ async def run_automation_download_all_rfps(selected_company: str = ""):
     filter_text = f" for {company_filter}" if company_filter else " from all companies"
     log_event("ALL_RFPS", "StartRun", "Success", f"Download all RFPs automation started{filter_text}")
 
-    # Setup folders - store company-wise in ALLRFPs
-    rfps_folder = os.path.join(os.path.dirname(__file__), "temp", "RFPs")
-    allrfps_folder = OUTPUT_DIR  # Use OUTPUT_DIR directly (already set to ALLRFPs in config)
-    os.makedirs(rfps_folder, exist_ok=True)
-    os.makedirs(allrfps_folder, exist_ok=True)
+    # No local folder setup needed — files go to temp dirs and SharePoint only
 
     # Initialize SharePoint client for file existence checks
     graph_client = GraphClient(
@@ -1460,16 +1472,8 @@ async def run_automation_download_all_rfps(selected_company: str = ""):
                 print(f"{'='*70}")
                 log_event("ALL_RFPS", "ProcessCompany", "Start", f"Processing company {idx}/{len(companies)}: {company}")
                 
-                # Check if company file already exists
-                exists, existing_file = await company_file_exists(company, rfps_folder)
-                if exists:
-                    print(f"  ⏩ SKIPPED - File already exists: {existing_file}")
-                    company_summary["status"] = "skipped"
-                    company_summary["exported_file"] = existing_file
-                    summary["skipped"] += 1
-                    summary["companies"].append(company_summary)
-                    continue
-                
+                # No local file check — individual RFP existence is checked
+                # against SharePoint and Dataverse in download_single_rfp_file
                 try:
                     # Check if logged in before processing company
                     if not await ensure_logged_in(page):
@@ -1500,13 +1504,19 @@ async def run_automation_download_all_rfps(selected_company: str = ""):
                         # Re-select company after re-login
                         await select_company_from_portal(page, company)
                     
-                    # Export RFPs (HTML/Excel)
+                    # Export RFPs (HTML/Excel) to temp directory
                     exported_path = await export_rfps(page, company)
-                    company_summary["exported_file"] = exported_path
-                    
+                    company_summary["exported_file"] = os.path.basename(exported_path)
+
                     # Extract RFP data from exported file
                     rfp_data_list = await extract_rfp_data(exported_path)
                     company_summary["rfps_found"] = len(rfp_data_list)
+
+                    # Clean up temp export file (no longer needed after extraction)
+                    try:
+                        shutil.rmtree(os.path.dirname(exported_path), ignore_errors=True)
+                    except Exception:
+                        pass
                     
                     if not rfp_data_list:
                         company_summary["status"] = "completed"
@@ -1540,7 +1550,7 @@ async def run_automation_download_all_rfps(selected_company: str = ""):
                             pass
                         
                         status, error_reason, needs_relogin, file_path, owner_name, publish_time = await download_single_rfp_file(
-                            page, rfp_data, company, allrfps_folder, graph_client=graph_client
+                            page, rfp_data, company, None, graph_client=graph_client
                         )
                         
                         if status == 'success':

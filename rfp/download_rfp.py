@@ -2,6 +2,7 @@ from helpers.core_helper import *
 from core.common_imports import *
 import re
 import tempfile
+import shutil
 
 async def extract_rfp_details_inner_text(page):
     """Use inner_text() which is closer to what you see in browser"""
@@ -185,20 +186,22 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
     """
     Process downloaded RFP Excel files, match materials with master CSV,
     and generate/upload a matched materials CSV.
-    Optionally fetch the RFP activity log from Dataverse instead of CSV.
-    If no local Excel files found, fetches from SharePoint.
+    Fetches RFP activity log from Dataverse.
+    Always fetches RFP files from SharePoint (no local file dependency).
     """
-    log_event("RFP", "Process Folder", "Start", f"Processing folder: {folder}")
-    excel_files = get_all_excel_files(folder)
+    log_event("RFP", "Process Folder", "Start", f"Processing RFPs for company: {company_name}")
 
-    # If no local Excel files found, try to fetch from SharePoint
-    if not excel_files and company_name:
-        print(f"⚠️ No local Excel files found, fetching from SharePoint...")
+    # Always download fresh from SharePoint to temp directory (no local dependency)
+    temp_process_dir = tempfile.mkdtemp(prefix="rfp_process_")
+    excel_files = []
+
+    if company_name:
+        print(f"🔄 Fetching RFP files from SharePoint for company: {company_name}...")
         log_event("RFP", "Process Folder", "Downloading", "Fetching RFP files from SharePoint")
         try:
             downloaded_files = graph_client.download_rfp_files_from_sharepoint(
                 company_name=company_name,
-                local_output_dir=folder,
+                local_output_dir=temp_process_dir,
                 sp_base_folder=SP_BASE_FOLDER
             )
             if downloaded_files:
@@ -212,17 +215,20 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
             log_event("RFP", "Process Folder", "Fail", error_msg)
 
     if not excel_files:
-        error_msg = "No Excel files found in folder or SharePoint"
-        log_event("RFP", "Process Folder", "Fail", error_msg, "")
-        raise FileNotFoundError(f"❌ {error_msg}")
+        log_event("RFP", "Process Folder", "Info", "No Excel files found in SharePoint - nothing to process", "")
+        print("✅ No Excel files found in SharePoint - nothing to process.")
+        # Clean up temp directory
+        shutil.rmtree(temp_process_dir, ignore_errors=True)
+        return pd.DataFrame(), "no_files", []
 
-    # 🔹 Download Master Material CSV if not exists locally
+    # 🔹 Download Master Material CSV to temp directory
+    master_csv_temp = os.path.join(temp_process_dir, "master_material.csv")
     try:
         print(f"🔄 Downloading 'Master material' from SharePoint...")
         log_event("RFP", "Download Master", "Downloading", "Fetching master material CSV from SharePoint")
         master_csv_path = graph_client.download_file_from_sharepoint(
             sp_path=f"{SP_BASE_FOLDER}/master-files/material.csv",
-            local_path=master_csv
+            local_path=master_csv_temp
         )
         print(f"✅ Master file downloaded: {master_csv_path}")
         log_event("RFP", "Download Master", "Success", f"Master file downloaded: {master_csv_path}")
@@ -241,7 +247,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
 
     # 🔹 Download and load Keywords CSV for keyword matching
     keywords_list = []
-    keywords_csv_local = os.path.join(OUTPUT_DIR, "unique_keywords.csv")
+    keywords_csv_local = os.path.join(temp_process_dir, "unique_keywords.csv")
     try:
         print(f"🔄 Downloading 'unique_keywords' from SharePoint...")
         log_event("RFP", "Download Keywords", "Downloading", "Fetching unique keywords CSV from SharePoint")
@@ -411,7 +417,8 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
                                 "TDS_file_path": get_sharepoint_rfp_tds_path(rfp_id, mat),
                                 "RowNumber": idx + 2,
                                 "ColumnName": col_name,
-                                "ExtractedMaterial": mat
+                                "ExtractedMaterial": mat,
+                                "MatchMethod": "exact"
                             })
                             # Capture specific columns from Excel
                             for col_index in [2, 7, 13, 14, 17, 19, 22]:
@@ -457,9 +464,9 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
     result_df = pd.DataFrame(all_matches)
     print("not_mateched_files:-",not_mateched_files)
     if not result_df.empty:
-        # ✅ Generate timestamped CSV
+        # ✅ Generate timestamped CSV in temp directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_csv = os.path.join(OUTPUT_DIR, f"matched_materials_{timestamp}.csv")
+        output_csv = os.path.join(temp_process_dir, f"matched_materials_{timestamp}.csv")
         try:
             result_df.to_csv(output_csv, index=False)
             print(f"✅ Exported matches to {output_csv}")
@@ -500,7 +507,11 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
     # Summary log
     summary_msg = f"Processing complete. Files processed: {files_processed}, Skipped: {files_skipped}, Failed: {files_failed}, Matches found: {len(result_df)}"
     log_event("RFP", "Process Folder", "Complete", summary_msg)
-    
+
+    # Note: temp_process_dir is NOT cleaned up here because the caller
+    # may still need the output CSV file (e.g., for trigger_email).
+    # Caller is responsible for cleanup after use.
+
     return result_df, output_csv, not_mateched_files
 
 # ===== DOWNLOAD RFP FILES =====
