@@ -217,6 +217,26 @@ export const api = {
     window.URL.revokeObjectURL(downloadUrl)
   },
 
+  // ==================== Material Insights ====================
+  getMaterialInsights: async (params: {
+    rfp_id?: string
+    company?: string
+    material_match?: string
+    keyword_match?: string
+    search?: string
+    limit?: number
+    offset?: number
+  }) => {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') searchParams.append(key, String(value))
+    })
+    const response = await fetch(`${ENDPOINTS.DASHBOARD.MATERIAL_INSIGHTS}?${searchParams}`, {
+      credentials: 'include',
+    })
+    return handleResponse<any>(response)
+  },
+
   // ==================== Logs ====================
   getAutomationLogs: async (page: number = 1, pageSize: number = 20) => {
     const response = await fetch(

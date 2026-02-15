@@ -66,6 +66,7 @@ export const ENDPOINTS = {
     SUBMIT_RFP: `${API_PREFIX}/dashboard/submit-rfp`,
     VALIDATE_RFP: `${API_PREFIX}/validate-rfp`,
     VIEW_LOGS: `${API_PREFIX}/dashboard/view-logs`,
+    MATERIAL_INSIGHTS: `${API_PREFIX}/dashboard/material-insights`,
     SAP_PASSWORD_LOGS: `${API_PREFIX}/dashboard/sap-password-logs`,
     VIEW_EXCEL: (rfpId: string) => `${DASHBOARD_PREFIX}/view-excel/${rfpId}`,
     SAVE_EXCEL: (rfpId: string) => `${DASHBOARD_PREFIX}/save-excel/${rfpId}`,

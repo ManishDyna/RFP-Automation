@@ -9,7 +9,8 @@ from services.user_service import (
     authenticate_user, list_users, get_user, create_user, update_user, delete_user, get_user_by_email
 )
 from services.dashboard_service import (
-    get_dashboard_data_cached, get_all_rfp_data_cached, get_logs_data_cached
+    get_dashboard_data_cached, get_all_rfp_data_cached, get_logs_data_cached,
+    get_material_insights_cached
 )
 from services.sap_service import create_sap_password_record, list_sap_password_records_cached
 from services.role_service import has_access_to_feature
@@ -446,6 +447,69 @@ async def api_rfp_details(
         "limit": limit,
         "has_more": offset + limit < total_filtered,
         "unique_companies": unique_companies
+    })
+
+
+@router.get("/dashboard/material-insights")
+async def api_material_insights(
+    request: Request,
+    rfp_id: str = Query(""),
+    company: str = Query(""),
+    material_match: str = Query(""),
+    keyword_match: str = Query(""),
+    search: str = Query(""),
+    limit: int = Query(50),
+    offset: int = Query(0),
+    refresh: int = Query(0),
+):
+    """Get material insights data from bahra_rfps table with filtering and pagination."""
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    data = get_material_insights_cached(force_refresh=bool(refresh))
+    materials = data.get("materials", [])
+
+    # Apply filters
+    filtered = materials
+
+    if company:
+        filtered = [m for m in filtered if m["company"] == company]
+
+    if rfp_id:
+        filtered = [m for m in filtered if m["rfp_id"] == rfp_id]
+
+    if material_match:
+        if material_match.lower() == "yes":
+            filtered = [m for m in filtered if m["material_matched"].lower() == "yes"]
+        elif material_match.lower() == "no":
+            filtered = [m for m in filtered if m["material_matched"].lower() != "yes"]
+
+    if keyword_match:
+        if keyword_match.lower() == "yes":
+            filtered = [m for m in filtered if m["keyword_matched"].lower() == "yes"]
+        elif keyword_match.lower() == "no":
+            filtered = [m for m in filtered if m["keyword_matched"].lower() != "yes"]
+
+    if search:
+        q = search.lower()
+        filtered = [
+            m for m in filtered
+            if q in (m.get("rfp_id") or "").lower()
+            or q in (m.get("company") or "").lower()
+        ]
+
+    total_filtered = len(filtered)
+    paginated = filtered[offset:offset + limit]
+
+    return JSONResponse({
+        "materials": paginated,
+        "stats": data.get("stats", {}),
+        "unique_rfps": data.get("unique_rfps", {}),
+        "total_filtered": total_filtered,
+        "total": len(materials),
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total_filtered,
     })
 
 

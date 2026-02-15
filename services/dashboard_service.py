@@ -169,6 +169,13 @@ def get_dashboard_data():
                 except Exception:
                     pass
 
+                # Aggregate Material_Matched / Keyword_Matched at RFP level before dedup
+                # If ANY row for an RFP has "Yes", propagate "Yes" to all rows for that RFP
+                for col in ["Material_Matched", "Keyword_Matched"]:
+                    if col in rfp_df.columns:
+                        yes_rfps = set(rfp_df.loc[rfp_df[col].astype(str).str.strip().str.lower() == "yes", "RFP_ID"])
+                        rfp_df.loc[rfp_df["RFP_ID"].isin(yes_rfps), col] = "Yes"
+
                 # Deduplicate: Count each RFP_ID only once (keep first occurrence)
                 rfp_df = rfp_df.drop_duplicates(subset=["RFP_ID"], keep="first")
                 print(f"RFP data after deduplication: {len(rfp_df)} unique RFPs")
@@ -216,23 +223,9 @@ def get_dashboard_data():
 
                         company_name = row.get("Company_Name", "") or "Saudi Electricity Company"
 
-                        # Derive Material_Matched/Keyword_Matched from count fields if not already set
-                        material_matched_raw = row.get("Material_Matched", "")
-                        keyword_matched_raw = row.get("Keyword_Matched", "")
-
-                        if not material_matched_raw or str(material_matched_raw).strip() == "":
-                            try:
-                                mat_count = int(row.get("no_of_matched_materials") or 0)
-                                material_matched_raw = "Yes" if mat_count > 0 else "No"
-                            except (ValueError, TypeError):
-                                material_matched_raw = "No"
-
-                        if not keyword_matched_raw or str(keyword_matched_raw).strip() == "":
-                            try:
-                                kw_count = int(row.get("no_of_matched_keywords") or 0)
-                                keyword_matched_raw = "Yes" if kw_count > 0 else "No"
-                            except (ValueError, TypeError):
-                                keyword_matched_raw = "No"
+                        # Use Material_Matched / Keyword_Matched directly from Dataverse
+                        material_matched_raw = str(row.get("Material_Matched", "") or "").strip()
+                        keyword_matched_raw = str(row.get("Keyword_Matched", "") or "").strip()
 
                         rfp_data = {
                             "RFP_ID": row.get("RFP_ID", ""),
@@ -328,6 +321,17 @@ def get_all_rfp_data():
         else:
             rfp_df = pd.DataFrame(rfp_rows).fillna("")
 
+        # DEBUG: Check raw data right after fetch
+        if not rfp_df.empty and "Material_Matched" in rfp_df.columns:
+            raw_yes = rfp_df["Material_Matched"].astype(str).str.strip().str.lower().eq("yes").sum()
+            raw_unique_vals = rfp_df["Material_Matched"].astype(str).str.strip().unique().tolist()[:10]
+            raw_yes_rfps = rfp_df.loc[rfp_df["Material_Matched"].astype(str).str.strip().str.lower() == "yes", "RFP_ID"].unique().tolist()
+            print(f"DEBUG RAW: Material_Matched column exists. Rows with 'Yes': {raw_yes}")
+            print(f"DEBUG RAW: Unique Material_Matched values (first 10): {raw_unique_vals}")
+            print(f"DEBUG RAW: RFP_IDs with Material_Matched=Yes ({len(raw_yes_rfps)}): {raw_yes_rfps}")
+        else:
+            print(f"DEBUG RAW: Material_Matched column {'NOT FOUND' if not rfp_df.empty else 'empty df'}. Columns: {list(rfp_df.columns) if not rfp_df.empty else 'N/A'}")
+
         all_rfp_list = []
         total_submitted_rfps = 0
         total_declined_rfps = 0
@@ -346,6 +350,13 @@ def get_all_rfp_data():
                     rfp_df = rfp_df.sort_values(["_RFP_End_Date_dt", "RFP_ID"], ascending=[True, True])
                 except Exception:
                     pass
+
+                # Aggregate Material_Matched / Keyword_Matched at RFP level before dedup
+                # If ANY row for an RFP has "Yes", propagate "Yes" to all rows for that RFP
+                for col in ["Material_Matched", "Keyword_Matched"]:
+                    if col in rfp_df.columns:
+                        yes_rfps = set(rfp_df.loc[rfp_df[col].astype(str).str.strip().str.lower() == "yes", "RFP_ID"])
+                        rfp_df.loc[rfp_df["RFP_ID"].isin(yes_rfps), col] = "Yes"
 
                 # Deduplicate: Count each RFP_ID only once (keep first occurrence)
                 rfp_df = rfp_df.drop_duplicates(subset=["RFP_ID"], keep="first")
@@ -368,25 +379,9 @@ def get_all_rfp_data():
                     if not rfp_link:
                         rfp_link = URL
 
-                    # Derive Material_Matched/Keyword_Matched from count fields if not already set
-                    material_matched_raw = row.get("Material_Matched", "")
-                    keyword_matched_raw = row.get("Keyword_Matched", "")
-
-                    # If Material_Matched is not set, derive from no_of_matched_materials count
-                    if not material_matched_raw or str(material_matched_raw).strip() == "":
-                        try:
-                            mat_count = int(row.get("no_of_matched_materials") or 0)
-                            material_matched_raw = "Yes" if mat_count > 0 else "No"
-                        except (ValueError, TypeError):
-                            material_matched_raw = "No"
-
-                    # If Keyword_Matched is not set, derive from no_of_matched_keywords count
-                    if not keyword_matched_raw or str(keyword_matched_raw).strip() == "":
-                        try:
-                            kw_count = int(row.get("no_of_matched_keywords") or 0)
-                            keyword_matched_raw = "Yes" if kw_count > 0 else "No"
-                        except (ValueError, TypeError):
-                            keyword_matched_raw = "No"
+                    # Use Material_Matched / Keyword_Matched directly from Dataverse
+                    material_matched_raw = str(row.get("Material_Matched", "") or "").strip()
+                    keyword_matched_raw = str(row.get("Keyword_Matched", "") or "").strip()
 
                     rfp_data = {
                         "RFP_ID": row.get("RFP_ID", ""),
@@ -401,6 +396,19 @@ def get_all_rfp_data():
                     }
 
                     all_rfp_list.append(rfp_data)
+
+        # Debug: Log Material_Matched / Keyword_Matched value distribution
+        mat_yes = sum(1 for r in all_rfp_list if r.get("Material_Matched", "").lower() == "yes")
+        mat_no = sum(1 for r in all_rfp_list if r.get("Material_Matched", "").lower() == "no")
+        mat_empty = sum(1 for r in all_rfp_list if r.get("Material_Matched", "").strip() == "")
+        kw_yes = sum(1 for r in all_rfp_list if r.get("Keyword_Matched", "").lower() == "yes")
+        kw_no = sum(1 for r in all_rfp_list if r.get("Keyword_Matched", "").lower() == "no")
+        kw_empty = sum(1 for r in all_rfp_list if r.get("Keyword_Matched", "").strip() == "")
+        print(f"DEBUG Material_Matched: Yes={mat_yes}, No={mat_no}, Empty={mat_empty}, Total={len(all_rfp_list)}")
+        print(f"DEBUG Keyword_Matched: Yes={kw_yes}, No={kw_no}, Empty={kw_empty}, Total={len(all_rfp_list)}")
+        # Print sample of first 3 Material_Matched values to check format
+        sample_vals = [(r.get("RFP_ID", ""), repr(r.get("Material_Matched", ""))) for r in all_rfp_list[:3]]
+        print(f"DEBUG Sample Material_Matched values: {sample_vals}")
 
         end_time = time.time()
         print(f"All RFP data processed in {end_time - start_time:.2f} seconds")
@@ -430,6 +438,85 @@ def get_all_rfp_data_cached(force_refresh: bool = False):
     data = get_all_rfp_data()
     _ALL_RFP_CACHE["data"] = data
     _ALL_RFP_CACHE["ts"] = now
+    return data
+
+
+def get_material_insights_data():
+    """
+    Build material insights from the existing bahra_rfps table data.
+    Uses the same data as RFP Insights (get_all_rfp_data_cached) which already
+    has Material_Matched, Keyword_Matched columns populated.
+    """
+    all_rfp_data = get_all_rfp_data_cached(force_refresh=False)
+    downloaded_rfps = all_rfp_data.get("downloaded_rfps") or []
+
+    if not downloaded_rfps:
+        return {"materials": [], "stats": {}, "unique_rfps": {}}
+
+    materials_list = []
+    company_rfps = {}
+    material_matched_count = 0
+    keyword_matched_count = 0
+
+    for row in downloaded_rfps:
+        rfp_id = row.get("RFP_ID", "")
+        company = row.get("Company_Name", "") or "Saudi Electricity Company"
+        material_matched = (row.get("Material_Matched") or "No").strip()
+        keyword_matched = (row.get("Keyword_Matched") or "No").strip()
+
+        if company not in company_rfps:
+            company_rfps[company] = set()
+        company_rfps[company].add(rfp_id)
+
+        is_material = material_matched.lower() == "yes"
+        is_keyword = keyword_matched.lower() == "yes"
+
+        if is_material:
+            material_matched_count += 1
+        if is_keyword:
+            keyword_matched_count += 1
+
+        materials_list.append({
+            "rfp_id": rfp_id,
+            "company": company,
+            "material_matched": material_matched,
+            "keyword_matched": keyword_matched,
+        })
+
+    # Build unique RFPs grouped by company for filter dropdown
+    unique_rfps = {}
+    for comp, rfp_ids in company_rfps.items():
+        unique_rfps[comp] = sorted(list(rfp_ids))
+
+    stats = {
+        "total_rfps": len(materials_list),
+        "material_matched_count": material_matched_count,
+        "keyword_matched_count": keyword_matched_count,
+        "not_matched_count": len(materials_list) - material_matched_count - keyword_matched_count
+            + len([m for m in materials_list if m["material_matched"].lower() == "yes" and m["keyword_matched"].lower() == "yes"]),
+    }
+
+    return {
+        "materials": materials_list,
+        "stats": stats,
+        "unique_rfps": unique_rfps,
+    }
+
+
+# ===== MATERIAL INSIGHTS CACHE =====
+_MATERIAL_CACHE = {"data": None, "ts": 0}
+_MATERIAL_TTL_SECONDS = DASHBOARD_TTL_SECONDS
+
+
+def get_material_insights_cached(force_refresh: bool = False):
+    from time import time as _now
+    now = _now()
+    if not force_refresh:
+        if _MATERIAL_CACHE["data"] is not None and (now - _MATERIAL_CACHE["ts"]) < _MATERIAL_TTL_SECONDS:
+            return _MATERIAL_CACHE["data"]
+    data = get_material_insights_data()
+    _MATERIAL_CACHE["data"] = data
+    _MATERIAL_CACHE["ts"] = now
     return data
 
 

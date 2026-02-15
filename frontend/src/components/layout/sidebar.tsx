@@ -16,6 +16,7 @@ import {
   Zap,
   Shield,
   Activity,
+  Package,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -141,6 +142,13 @@ export function Sidebar({
                   icon={FileSearch}
                   label="RFP Insights"
                   active={location.pathname === '/dashboard/rfp-insights'}
+                  collapsed={collapsed}
+                />
+                <NavItem
+                  path="/dashboard/material-insights"
+                  icon={Package}
+                  label="Material Insights"
+                  active={location.pathname === '/dashboard/material-insights'}
                   collapsed={collapsed}
                 />
                 <NavItem

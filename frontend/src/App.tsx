@@ -16,6 +16,7 @@ const ProfilePage = lazy(() => import('@/pages/profile'))
 const AnalyticsPage = lazy(() => import('@/pages/analytics'))
 const UserManagementPage = lazy(() => import('@/pages/admin/users'))
 const SapPasswordLogsPage = lazy(() => import('@/pages/admin/sap-logs'))
+const MaterialInsightsPage = lazy(() => import('@/pages/material-insights'))
 
 // Dialogs
 import { SubmitRfpDialog } from '@/components/dialogs/submit-rfp-dialog'
@@ -113,6 +114,7 @@ function ProtectedLayout() {
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/dashboard/rfp-insights" element={<RfpInsightsPage />} />
+              <Route path="/dashboard/material-insights" element={<MaterialInsightsPage />} />
               <Route path="/dashboard/logs" element={<LogsPage />} />
               <Route path="/dashboard/profile" element={<ProfilePage />} />
               <Route path="/dashboard/analytics" element={<AnalyticsPage />} />

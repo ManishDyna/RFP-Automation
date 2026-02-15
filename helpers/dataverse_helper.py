@@ -76,7 +76,7 @@ class DataverseClient:
     def get_all_rows(self, table_api_name: str, select_columns: List[str] = None, table_logical_name: str = None, use_display_names: bool = True, page_size: int = 5000) -> List[dict]:
         """Fetch ALL rows from a Dataverse table using @odata.nextLink pagination."""
         url = f"{self.api_url}{table_api_name}"
-        params = {"$top": str(page_size)}
+        params = {}  # No $top — let Dataverse paginate naturally via @odata.nextLink
 
         select_expr = None
         if select_columns:
