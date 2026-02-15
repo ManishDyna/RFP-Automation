@@ -10,7 +10,7 @@ from services.user_service import (
 )
 from services.dashboard_service import (
     get_dashboard_data_cached, get_all_rfp_data_cached, get_logs_data_cached,
-    get_material_insights_cached
+    get_material_insights_cached, get_material_insights_grouped_cached
 )
 from services.sap_service import create_sap_password_record, list_sap_password_records_cached
 from services.role_service import has_access_to_feature
@@ -337,7 +337,7 @@ async def api_rfp_details(
                 continue
         return None
 
-    def _normalize_participation(raw_status):
+    def _normalize_participation(raw_status, rfp_end_date_str):
         value = (raw_status or "").strip().lower()
         if value in ("submitted", "yes"):
             return "submitted"
@@ -346,6 +346,14 @@ async def api_rfp_details(
         if value == "saved_draft":
             return "saved_draft"
         if value in ("", "no", "open", "not participated"):
+            # Check if end date is in the past - mark as not_participant
+            if rfp_end_date_str:
+                try:
+                    end_dt = datetime.strptime(rfp_end_date_str[:16], "%Y-%m-%d %H:%M")
+                    if end_dt < datetime.now():
+                        return "not_participant"
+                except (ValueError, TypeError):
+                    pass
             return "open"
         return "other"
 
@@ -354,7 +362,7 @@ async def api_rfp_details(
 
     detailed_rows = []
     for row in downloaded_rows:
-        status_key = _normalize_participation(row.get("participated"))
+        status_key = _normalize_participation(row.get("participated"), row.get("RFP_End_Date", ""))
         detailed_rows.append({**row, "status_key": status_key})
 
     # Filter by status
@@ -415,7 +423,7 @@ async def api_rfp_details(
         if participation_lower == "participated":
             filtered_rows = [r for r in filtered_rows if r["status_key"] == "submitted"]
         elif participation_lower == "not_participated":
-            filtered_rows = [r for r in filtered_rows if r["status_key"] == "open"]
+            filtered_rows = [r for r in filtered_rows if r["status_key"] in ("open", "not_participant")]
         elif participation_lower == "declined":
             filtered_rows = [r for r in filtered_rows if r["status_key"] == "declined"]
 
@@ -457,6 +465,7 @@ async def api_material_insights(
     company: str = Query(""),
     material_match: str = Query(""),
     keyword_match: str = Query(""),
+    participated: str = Query(""),
     search: str = Query(""),
     limit: int = Query(50),
     offset: int = Query(0),
@@ -490,6 +499,15 @@ async def api_material_insights(
         elif keyword_match.lower() == "no":
             filtered = [m for m in filtered if m["keyword_matched"].lower() != "yes"]
 
+    if participated:
+        p = participated.lower()
+        if p == "submitted":
+            filtered = [m for m in filtered if m.get("participated", "").lower() in ("submitted", "yes")]
+        elif p == "declined":
+            filtered = [m for m in filtered if m.get("participated", "").lower() == "declined"]
+        elif p == "open":
+            filtered = [m for m in filtered if m.get("participated", "").lower() not in ("submitted", "yes", "declined")]
+
     if search:
         q = search.lower()
         filtered = [
@@ -504,12 +522,85 @@ async def api_material_insights(
     return JSONResponse({
         "materials": paginated,
         "stats": data.get("stats", {}),
+        "item_stats": data.get("item_stats", {}),
         "unique_rfps": data.get("unique_rfps", {}),
         "total_filtered": total_filtered,
         "total": len(materials),
         "offset": offset,
         "limit": limit,
         "has_more": offset + limit < total_filtered,
+    })
+
+
+@router.get("/dashboard/material-insights-grouped")
+async def api_material_insights_grouped(
+    request: Request,
+    tab: str = Query("materials"),
+    company: str = Query(""),
+    search: str = Query(""),
+    participated: str = Query(""),
+    limit: int = Query(50),
+    offset: int = Query(0),
+    refresh: int = Query(0),
+):
+    """Get material insights grouped by material code or keyword."""
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    data = get_material_insights_grouped_cached(force_refresh=bool(refresh))
+
+    if tab == "keywords":
+        items = data.get("keywords", [])
+    else:
+        items = data.get("materials", [])
+
+    filtered = items
+
+    if company:
+        filtered = [item for item in filtered if company in item.get("companies", [])]
+
+    if participated:
+        p = participated.lower()
+        if p == "submitted":
+            filtered = [
+                item for item in filtered
+                if any(r.get("participated", "") in ("submitted", "yes") for r in item.get("rfps", []))
+            ]
+        elif p == "declined":
+            filtered = [
+                item for item in filtered
+                if any(r.get("participated", "") == "declined" for r in item.get("rfps", []))
+            ]
+
+    if search:
+        q = search.lower()
+        if tab == "keywords":
+            filtered = [item for item in filtered if q in item.get("keyword", "").lower()]
+        else:
+            filtered = [
+                item for item in filtered
+                if q in item.get("material_code", "").lower()
+                or q in item.get("material_description", "").lower()
+            ]
+
+    total_filtered = len(filtered)
+    paginated = filtered[offset:offset + limit]
+
+    all_companies = set()
+    for item in items:
+        all_companies.update(item.get("companies", []))
+
+    return JSONResponse({
+        "items": paginated,
+        "stats": data.get("stats", {}),
+        "top_materials_chart": data.get("top_materials_chart", []),
+        "keyword_chart": data.get("keyword_chart", []),
+        "total_filtered": total_filtered,
+        "total": len(items),
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total_filtered,
+        "unique_companies": sorted(list(all_companies)),
     })
 
 

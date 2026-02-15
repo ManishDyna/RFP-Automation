@@ -223,6 +223,7 @@ export const api = {
     company?: string
     material_match?: string
     keyword_match?: string
+    participated?: string
     search?: string
     limit?: number
     offset?: number
@@ -232,6 +233,25 @@ export const api = {
       if (value !== undefined && value !== null && value !== '') searchParams.append(key, String(value))
     })
     const response = await fetch(`${ENDPOINTS.DASHBOARD.MATERIAL_INSIGHTS}?${searchParams}`, {
+      credentials: 'include',
+    })
+    return handleResponse<any>(response)
+  },
+
+  getMaterialInsightsGrouped: async (params: {
+    tab?: string
+    company?: string
+    search?: string
+    participated?: string
+    limit?: number
+    offset?: number
+    refresh?: number
+  }) => {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') searchParams.append(key, String(value))
+    })
+    const response = await fetch(`${ENDPOINTS.DASHBOARD.MATERIAL_INSIGHTS_GROUPED}?${searchParams}`, {
       credentials: 'include',
     })
     return handleResponse<any>(response)

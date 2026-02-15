@@ -446,41 +446,85 @@ def get_material_insights_data():
     Build material insights from the existing bahra_rfps table data.
     Uses the same data as RFP Insights (get_all_rfp_data_cached) which already
     has Material_Matched, Keyword_Matched columns populated.
+    Calculates all analytics from Material_Matched/Keyword_Matched flags and participated status.
     """
     all_rfp_data = get_all_rfp_data_cached(force_refresh=False)
     downloaded_rfps = all_rfp_data.get("downloaded_rfps") or []
 
     if not downloaded_rfps:
-        return {"materials": [], "stats": {}, "unique_rfps": {}}
+        return {"materials": [], "stats": {}, "unique_rfps": {}, "item_stats": {}}
 
     materials_list = []
     company_rfps = {}
     material_matched_count = 0
     keyword_matched_count = 0
 
+    # RFP-level accumulators (calculated from existing Yes/No flags)
+    rfps_with_keyword_match = 0
+    rfps_with_material_match = 0
+    rfps_with_any_match = 0
+    submitted_rfp_count = 0
+    submitted_with_material_match = 0
+    submitted_with_keyword_match = 0
+
+    # Company-wise breakdown for charts
+    company_breakdown = {}
+
     for row in downloaded_rfps:
         rfp_id = row.get("RFP_ID", "")
         company = row.get("Company_Name", "") or "Saudi Electricity Company"
         material_matched = (row.get("Material_Matched") or "No").strip()
         keyword_matched = (row.get("Keyword_Matched") or "No").strip()
+        participated = (row.get("participated") or "").strip().lower()
 
         if company not in company_rfps:
             company_rfps[company] = set()
         company_rfps[company].add(rfp_id)
+
+        # Init company breakdown
+        if company not in company_breakdown:
+            company_breakdown[company] = {
+                "total": 0, "material_matched": 0, "keyword_matched": 0,
+                "not_matched": 0, "submitted": 0, "declined": 0, "open": 0,
+            }
+        company_breakdown[company]["total"] += 1
 
         is_material = material_matched.lower() == "yes"
         is_keyword = keyword_matched.lower() == "yes"
 
         if is_material:
             material_matched_count += 1
+            rfps_with_material_match += 1
+            company_breakdown[company]["material_matched"] += 1
         if is_keyword:
             keyword_matched_count += 1
+            rfps_with_keyword_match += 1
+            company_breakdown[company]["keyword_matched"] += 1
+        if is_material or is_keyword:
+            rfps_with_any_match += 1
+        if not is_material and not is_keyword:
+            company_breakdown[company]["not_matched"] += 1
+
+        # Count submitted/bid RFPs
+        is_submitted = participated in ("submitted", "yes")
+        if is_submitted:
+            submitted_rfp_count += 1
+            company_breakdown[company]["submitted"] += 1
+            if is_material:
+                submitted_with_material_match += 1
+            if is_keyword:
+                submitted_with_keyword_match += 1
+        elif participated == "declined":
+            company_breakdown[company]["declined"] += 1
+        else:
+            company_breakdown[company]["open"] += 1
 
         materials_list.append({
             "rfp_id": rfp_id,
             "company": company,
             "material_matched": material_matched,
             "keyword_matched": keyword_matched,
+            "participated": participated,
         })
 
     # Build unique RFPs grouped by company for filter dropdown
@@ -488,18 +532,42 @@ def get_material_insights_data():
     for comp, rfp_ids in company_rfps.items():
         unique_rfps[comp] = sorted(list(rfp_ids))
 
+    total_rfps = len(materials_list)
+    not_matched_count = total_rfps - material_matched_count - keyword_matched_count \
+        + len([m for m in materials_list if m["material_matched"].lower() == "yes" and m["keyword_matched"].lower() == "yes"])
+
     stats = {
-        "total_rfps": len(materials_list),
+        "total_rfps": total_rfps,
         "material_matched_count": material_matched_count,
         "keyword_matched_count": keyword_matched_count,
-        "not_matched_count": len(materials_list) - material_matched_count - keyword_matched_count
-            + len([m for m in materials_list if m["material_matched"].lower() == "yes" and m["keyword_matched"].lower() == "yes"]),
+        "not_matched_count": not_matched_count,
+    }
+
+    # Build company chart data (sorted by total descending)
+    company_chart_data = sorted(
+        [{"company": comp, **counts} for comp, counts in company_breakdown.items()],
+        key=lambda x: x["total"],
+        reverse=True
+    )
+
+    # RFP-level analysis stats (calculated in code from existing flags)
+    item_stats = {
+        "total_rfps": total_rfps,
+        "rfps_with_material_match": rfps_with_material_match,
+        "rfps_with_keyword_match": rfps_with_keyword_match,
+        "rfps_with_any_match": rfps_with_any_match,
+        "rfps_not_matched": not_matched_count,
+        "submitted_rfp_count": submitted_rfp_count,
+        "submitted_with_material_match": submitted_with_material_match,
+        "submitted_with_keyword_match": submitted_with_keyword_match,
+        "company_chart_data": company_chart_data,
     }
 
     return {
         "materials": materials_list,
         "stats": stats,
         "unique_rfps": unique_rfps,
+        "item_stats": item_stats,
     }
 
 
@@ -517,6 +585,223 @@ def get_material_insights_cached(force_refresh: bool = False):
     data = get_material_insights_data()
     _MATERIAL_CACHE["data"] = data
     _MATERIAL_CACHE["ts"] = now
+    return data
+
+
+# ===== RAW RFP DATA CACHE (with Matched_Data) =====
+_RAW_RFP_CACHE = {"data": None, "ts": 0}
+
+
+def get_raw_rfp_data_cached(force_refresh=False):
+    """Cache raw Dataverse rows (with Matched_Data) for material insights."""
+    from time import time as _now
+    now = _now()
+    if not force_refresh:
+        if _RAW_RFP_CACHE["data"] is not None and (now - _RAW_RFP_CACHE["ts"]) < _MATERIAL_TTL_SECONDS:
+            return _RAW_RFP_CACHE["data"]
+    data = get_rfp_activity_data_from_db()
+    _RAW_RFP_CACHE["data"] = data
+    _RAW_RFP_CACHE["ts"] = now
+    return data
+
+
+def _get_keywords_list():
+    """Load the unique keywords from the master CSV file."""
+    import csv as _csv
+    import os as _os
+    keywords_path = _os.path.join("ALLRFPs", "unique_keywords.csv")
+    keywords = []
+    try:
+        with open(keywords_path, 'r') as f:
+            reader = _csv.reader(f)
+            next(reader, None)  # skip header
+            for row in reader:
+                if row and row[0].strip():
+                    keywords.append(row[0].strip())
+    except Exception as e:
+        print(f"Error loading keywords CSV: {e}")
+    return keywords
+
+
+_KEYWORDS_CACHE = {"data": None}
+
+
+def _get_keywords_list_cached():
+    if _KEYWORDS_CACHE["data"] is not None:
+        return _KEYWORDS_CACHE["data"]
+    _KEYWORDS_CACHE["data"] = _get_keywords_list()
+    return _KEYWORDS_CACHE["data"]
+
+
+def get_material_insights_grouped_data():
+    """
+    Build material-code-centric and keyword-centric views
+    by parsing Matched_Data JSON from each RFP.
+    """
+    import json as _json
+
+    raw_rows = get_raw_rfp_data_cached()
+    if not raw_rows:
+        return {"materials": [], "keywords": [], "stats": {}, "top_materials_chart": [], "keyword_chart": []}
+
+    keywords_list = _get_keywords_list_cached()
+
+    material_groups = {}  # material_code -> group dict
+    keyword_groups = {}   # keyword -> group dict
+    all_rfp_ids_with_matches = set()
+
+    for row in raw_rows:
+        rfp_id = row.get("RFP_ID", "")
+        matched_data_str = row.get("Matched_Data", "") or ""
+        company = row.get("Company_Name", "") or "Saudi Electricity Company"
+        participated = (row.get("participated") or "").strip().lower()
+        rfp_end_date = row.get("RFP_End_Date", "")
+
+        if not matched_data_str.strip():
+            continue
+
+        try:
+            matched_items = _json.loads(matched_data_str)
+        except (ValueError, TypeError):
+            continue
+
+        if not isinstance(matched_items, list):
+            continue
+
+        all_rfp_ids_with_matches.add(rfp_id)
+
+        for item in matched_items:
+            material_code = str(item.get("Material", "") or "").strip()
+            material_desc = str(item.get("Material Description", "") or "").strip()
+            match_method = str(item.get("MatchMethod", "exact") or "exact").lower()
+            extracted = str(item.get("ExtractedMaterial", "") or "").strip()
+
+            # --- Material Code grouping ---
+            if material_code:
+                if material_code not in material_groups:
+                    material_groups[material_code] = {
+                        "material_code": material_code,
+                        "material_description": material_desc,
+                        "rfp_count": 0,
+                        "rfps": [],
+                        "companies": set(),
+                        "submitted_count": 0,
+                    }
+                group = material_groups[material_code]
+                existing_rfp_ids = {r["rfp_id"] for r in group["rfps"]}
+                if rfp_id not in existing_rfp_ids:
+                    group["rfps"].append({
+                        "rfp_id": rfp_id,
+                        "company": company,
+                        "rfp_end_date": str(rfp_end_date),
+                        "participated": participated,
+                        "match_method": match_method,
+                        "extracted_material": extracted,
+                    })
+                    group["rfp_count"] += 1
+                    group["companies"].add(company)
+                    if participated in ("submitted", "yes"):
+                        group["submitted_count"] += 1
+
+            # --- Keyword grouping ---
+            if match_method == "keyword":
+                # Cross-reference item against keywords list
+                desc_upper = material_desc.upper()
+                name_upper = str(item.get("ColumnName", "") or "").upper()
+                search_text = desc_upper + " " + name_upper + " " + extracted.upper()
+
+                matched_keywords = []
+                for kw in keywords_list:
+                    if kw.upper() in search_text:
+                        matched_keywords.append(kw)
+
+                for kw in matched_keywords:
+                    if kw not in keyword_groups:
+                        keyword_groups[kw] = {
+                            "keyword": kw,
+                            "rfp_count": 0,
+                            "rfps": [],
+                            "companies": set(),
+                            "submitted_count": 0,
+                            "material_codes": set(),
+                        }
+                    kw_group = keyword_groups[kw]
+                    existing_kw_rfps = {r["rfp_id"] for r in kw_group["rfps"]}
+                    if rfp_id not in existing_kw_rfps:
+                        kw_group["rfps"].append({
+                            "rfp_id": rfp_id,
+                            "company": company,
+                            "rfp_end_date": str(rfp_end_date),
+                            "participated": participated,
+                            "material_code": material_code,
+                            "material_description": material_desc,
+                        })
+                        kw_group["rfp_count"] += 1
+                        kw_group["companies"].add(company)
+                        if participated in ("submitted", "yes"):
+                            kw_group["submitted_count"] += 1
+                    kw_group["material_codes"].add(material_code)
+
+    # Convert sets to sorted lists for JSON serialization
+    materials_list = sorted(material_groups.values(), key=lambda x: x["rfp_count"], reverse=True)
+    for m in materials_list:
+        m["companies"] = sorted(list(m["companies"]))
+
+    keywords_list_result = sorted(keyword_groups.values(), key=lambda x: x["rfp_count"], reverse=True)
+    for k in keywords_list_result:
+        k["companies"] = sorted(list(k["companies"]))
+        k["material_codes"] = sorted(list(k["material_codes"]))
+
+    # Count submitted RFPs across all matched
+    submitted_count = sum(
+        1 for row in raw_rows
+        if (row.get("participated") or "").strip().lower() in ("submitted", "yes")
+        and row.get("RFP_ID", "") in all_rfp_ids_with_matches
+    )
+
+    stats = {
+        "total_unique_materials": len(materials_list),
+        "total_unique_keywords": len(keywords_list_result),
+        "total_rfps_with_matches": len(all_rfp_ids_with_matches),
+        "total_material_rfp_links": sum(m["rfp_count"] for m in materials_list),
+        "total_keyword_rfp_links": sum(k["rfp_count"] for k in keywords_list_result),
+        "submitted_rfp_count": submitted_count,
+    }
+
+    # Chart data: top 10 materials by RFP count
+    top_materials_chart = [
+        {"material": m["material_code"], "description": m["material_description"][:40], "rfp_count": m["rfp_count"]}
+        for m in materials_list[:10]
+    ]
+
+    # Chart data: keyword frequency
+    keyword_chart = [
+        {"keyword": k["keyword"], "rfp_count": k["rfp_count"]}
+        for k in keywords_list_result
+    ]
+
+    return {
+        "materials": materials_list,
+        "keywords": keywords_list_result,
+        "stats": stats,
+        "top_materials_chart": top_materials_chart,
+        "keyword_chart": keyword_chart,
+    }
+
+
+# ===== MATERIAL INSIGHTS GROUPED CACHE =====
+_MATERIAL_GROUPED_CACHE = {"data": None, "ts": 0}
+
+
+def get_material_insights_grouped_cached(force_refresh=False):
+    from time import time as _now
+    now = _now()
+    if not force_refresh:
+        if _MATERIAL_GROUPED_CACHE["data"] is not None and (now - _MATERIAL_GROUPED_CACHE["ts"]) < _MATERIAL_TTL_SECONDS:
+            return _MATERIAL_GROUPED_CACHE["data"]
+    data = get_material_insights_grouped_data()
+    _MATERIAL_GROUPED_CACHE["data"] = data
+    _MATERIAL_GROUPED_CACHE["ts"] = now
     return data
 
 

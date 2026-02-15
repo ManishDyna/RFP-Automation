@@ -59,6 +59,7 @@ const statusOptions = [
   { value: 'downloaded', label: 'Downloaded' },
   { value: 'submitted', label: 'Submitted' },
   { value: 'declined', label: 'Declined' },
+  { value: 'not_participant', label: 'Not Participant' },
   { value: 'open', label: 'Open' },
 ]
 
@@ -84,6 +85,7 @@ const participationOptions = [
 function StatusBadge({ status }: { status: string }) {
   const statusMap: Record<string, { label: string; variant: 'warning' | 'success' | 'destructive' | 'secondary' | 'info'; icon: React.ElementType }> = {
     open: { label: 'Open', variant: 'warning', icon: Clock },
+    not_participant: { label: 'Not Participant', variant: 'destructive', icon: XCircle },
     submitted: { label: 'Submitted', variant: 'success', icon: CheckCircle2 },
     declined: { label: 'Declined', variant: 'destructive', icon: XCircle },
     'saved draft': { label: 'Saved Draft', variant: 'secondary', icon: ListFilter },
@@ -302,7 +304,8 @@ export default function RfpInsightsPage() {
   // Calculate stats from API response (based on filtered or total data)
   const totalRfpsCount = hasActiveFilters ? totalFiltered : totalRows
   const submittedCount = countsToUse.submitted || 0
-  const openCount = countsToUse.open || 0
+  const notParticipantCount = countsToUse.not_participant || 0
+  const declinedCount = countsToUse.declined || 0
   const downloadedCount = hasActiveFilters ? totalFiltered : totalRows
 
   return (
@@ -319,7 +322,7 @@ export default function RfpInsightsPage() {
       }
     >
       {/* Stats Overview */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         <StatCard
           title="Total RFPs"
           value={totalRfpsCount}
@@ -333,16 +336,22 @@ export default function RfpInsightsPage() {
           className="stat-card-emerald"
         />
         <StatCard
-          title="Open"
-          value={openCount}
-          icon={Clock}
+          title="Declined"
+          value={declinedCount}
+          icon={XCircle}
+          className="stat-card-rose"
+        />
+        <StatCard
+          title="Not Participant"
+          value={notParticipantCount}
+          icon={XCircle}
           className="stat-card-amber"
         />
         <StatCard
           title="Downloaded"
           value={downloadedCount}
           icon={Download}
-          className="stat-card-rose"
+          className="stat-card-violet"
         />
       </div>
 
@@ -716,6 +725,11 @@ export default function RfpInsightsPage() {
                             <Badge variant="destructive" className="gap-1">
                               <XCircle className="h-3 w-3" />
                               Declined
+                            </Badge>
+                          ) : rfp.status_key === 'not_participant' ? (
+                            <Badge variant="destructive" className="gap-1">
+                              <XCircle className="h-3 w-3" />
+                              Not Participant
                             </Badge>
                           ) : (
                             <Badge variant="warning" className="gap-1">

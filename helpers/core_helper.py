@@ -233,7 +233,7 @@ def get_rfp_activity_data_from_db(top: int = 5000, skip: int = 0):
     """
     return DATAVERSE.get_all_rows(
         table_api_name=RFP_ACTIVITY_LOG_TABLE_API,
-        select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link", "Material_Matched", "Keyword_Matched"],
+        select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link", "Material_Matched", "Keyword_Matched", "Matched_Data"],
         table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
         use_display_names=True
     )

@@ -251,6 +251,10 @@
   background: linear-gradient(135deg, #fef2f2 0%, #fce8e8 100%);
 }
 
+.stat-card-violet {
+  background: linear-gradient(135deg, #f3f0ff 0%, #e8e0ff 100%);
+}
+
 /* Login page specific - Industrial gradient */
 .login-illustration {
   background: linear-gradient(135deg, #1a1f24 0%, #32373c 50%, #3d1a1a 100%);
