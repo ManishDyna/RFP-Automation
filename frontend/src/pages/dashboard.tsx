@@ -562,6 +562,7 @@ export default function DashboardPage() {
   // Material Breakdown Dialog state
   const [breakdownDialogOpen, setBreakdownDialogOpen] = useState(false)
   const [breakdownRfpId, setBreakdownRfpId] = useState<string | null>(null)
+  const [breakdownCompany, setBreakdownCompany] = useState<string | null>(null)
 
   const handleDownloadExcel = useCallback(async (rfpId: string, company?: string) => {
     setDownloadingRfpId(rfpId)
@@ -577,7 +578,20 @@ export default function DashboardPage() {
 
   const handleSyncPortal = async () => {
     try {
-      await api.syncPortalData()
+      // Collect all RFP IDs currently visible in the dashboard (today's and future RFPs)
+      const dashboardRfpIds: string[] = []
+      for (const company of companies) {
+        const companyRfps = companiesRfps[company] || {}
+        for (const status of ['open', 'submitted', 'saved_draft', 'declined']) {
+          const rfps = companyRfps[status] || []
+          for (const rfp of rfps) {
+            if (rfp.RFP_ID && !dashboardRfpIds.includes(rfp.RFP_ID)) {
+              dashboardRfpIds.push(rfp.RFP_ID)
+            }
+          }
+        }
+      }
+      await api.syncPortalData(dashboardRfpIds.length > 0 ? dashboardRfpIds : undefined)
       toast.success('Portal data synced successfully')
       refetch()
     } catch (error: any) {
@@ -598,21 +612,23 @@ export default function DashboardPage() {
   const companiesRfps = data?.companies_rfps || {}
   const lastRunTime = data?.automation?.last_run_time
 
-  // Collect all RFP IDs from all company tabs for batch fetch
-  const allRfpIds = useMemo(() => {
+  // Collect all RFP IDs and their company mappings for batch fetch
+  const { allRfpIds, rfpCompanyMap } = useMemo(() => {
     const ids: string[] = []
+    const companyMap: Record<string, string> = {}
     for (const company of companies) {
-      const companyRfps = companiesRfps[company] || {}
+      const compRfps = companiesRfps[company] || {}
       for (const status of ['open', 'submitted', 'saved_draft', 'declined']) {
-        const rfps = companyRfps[status] || []
+        const rfps = compRfps[status] || []
         for (const rfp of rfps) {
           if (rfp.RFP_ID && !ids.includes(rfp.RFP_ID)) {
             ids.push(rfp.RFP_ID)
+            companyMap[rfp.RFP_ID] = company
           }
         }
       }
     }
-    return ids
+    return { allRfpIds: ids, rfpCompanyMap: companyMap }
   }, [companies, companiesRfps])
 
   // Fetch match percentages from batch endpoint
@@ -622,7 +638,15 @@ export default function DashboardPage() {
     const needsFetch = allRfpIds.filter((id) => !matchPercentages[id])
     if (needsFetch.length === 0) return
 
-    api.getBatchMatchPercentages(needsFetch)
+    // Build company map for only the IDs we need to fetch
+    const companiesForFetch: Record<string, string> = {}
+    for (const id of needsFetch) {
+      if (rfpCompanyMap[id]) {
+        companiesForFetch[id] = rfpCompanyMap[id]
+      }
+    }
+
+    api.getBatchMatchPercentages(needsFetch, companiesForFetch)
       .then((result) => {
         setMatchPercentages((prev) => ({ ...prev, ...result }))
       })
@@ -631,10 +655,11 @@ export default function DashboardPage() {
       })
   }, [allRfpIds.length])
 
-  const handleViewBreakdown = useCallback((rfpId: string) => {
+  const handleViewBreakdown = useCallback((rfpId: string, company?: string) => {
     setBreakdownRfpId(rfpId)
+    setBreakdownCompany(company || rfpCompanyMap[rfpId] || null)
     setBreakdownDialogOpen(true)
-  }, [])
+  }, [rfpCompanyMap])
 
   // Format last run time
   const formatLastRun = (time: string) => {
@@ -890,6 +915,7 @@ export default function DashboardPage() {
         open={breakdownDialogOpen}
         onOpenChange={setBreakdownDialogOpen}
         rfpId={breakdownRfpId}
+        company={breakdownCompany}
       />
     </PageWrapper>
   )

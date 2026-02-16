@@ -701,18 +701,51 @@ def get_cached_keywords(graph_client, keywords_csv_local):
     
     return keywords_list
 
-def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list, company: str = None):
-    """Calculate match percentage for a single RFP (optimized with caching)"""
-    # Resolve company if not provided
-    if company:
-        excel_path = get_rfp_excel_file_path(rfp_id, company)
-    else:
-        # Try to find file across all company folders
+def ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client):
+    """
+    Ensure RFP Excel file exists locally by downloading from SharePoint if needed.
+    Returns local excel_path or None if not found anywhere.
+    """
+    if not company:
+        # Try local search first
         excel_path, found_company = find_rfp_file_across_companies(rfp_id)
-        if not excel_path:
-            excel_path = get_rfp_excel_file_path(rfp_id, COMPANY_NAME)
+        if excel_path and os.path.exists(excel_path):
+            return excel_path
+        company = found_company or COMPANY_NAME
 
-    if not os.path.exists(excel_path):
+    excel_path = get_rfp_excel_file_path(rfp_id, company)
+    if os.path.exists(excel_path):
+        return excel_path
+
+    # File not local — try downloading from SharePoint
+    if not graph_client:
+        return None
+
+    clean_title = clean_rfp_title(rfp_id)
+    for ext in ['.xls', '.xlsx']:
+        filename = f"{clean_title}{ext}"
+        sp_path = get_sharepoint_rfp_material_path(rfp_id, company, filename)
+        try:
+            local_path = os.path.join(
+                get_rfp_material_file_path(rfp_id, company),
+                filename
+            )
+            graph_client.download_file_from_sharepoint(sp_path, local_path)
+            print(f"✅ Downloaded RFP Excel from SharePoint: {sp_path}")
+            return local_path
+        except Exception as e:
+            print(f"⚠️ SharePoint download attempt ({ext}): {e}")
+            continue
+
+    print(f"❌ RFP Excel not found on SharePoint for {rfp_id} (company: {company})")
+    return None
+
+
+def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list, company: str = None, graph_client=None):
+    """Calculate match percentage for a single RFP (optimized with caching)"""
+    excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client)
+
+    if not excel_path or not os.path.exists(excel_path):
         return {"match_percentage": 0, "total_materials": 0, "matched_count": 0, "file_mtime": None}
     
     # Check cache first
@@ -2017,20 +2050,20 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
         selected_company = (company or "").strip()
         if not selected_company:
             # Try to find company from database or file system
-            excel_path, found_company = find_rfp_file_across_companies(rfp_id)
+            _, found_company = find_rfp_file_across_companies(rfp_id)
             if found_company:
                 selected_company = found_company
             else:
                 selected_company = COMPANY_NAME
                 print(f"⚠️ Company not found for RFP {rfp_id}, using default: {selected_company}")
 
-        # Find Excel file for this RFP with company
-        excel_path = get_rfp_excel_file_path(rfp_id, selected_company)
+        # Find Excel file — download from SharePoint if not local
+        excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, selected_company, graph_client)
 
-        if not os.path.exists(excel_path):
+        if not excel_path or not os.path.exists(excel_path):
             raise HTTPException(
                 status_code=404,
-                detail=f"Excel file not found for RFP: {rfp_id}. Please ensure the file exists in ALLRFPs/{selected_company}/{rfp_id}/downloaded-rfp/"
+                detail=f"Excel file not found for RFP: {rfp_id} (company: {selected_company}). File not found locally or on SharePoint."
             )
         
         # Extract materials with Name and Description from Excel
@@ -2201,23 +2234,32 @@ async def get_dynamic_form_structure(request: Request, rfp_id: str, company: str
 
 
 @router.get("/rfp/batch-match-percentages")
-async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...)):
+async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...), companies: str = Query(default="")):
     """
     Get match percentages for multiple RFPs in one request (optimized with caching).
     rfp_ids: comma-separated list of RFP IDs
+    companies: JSON object mapping rfp_id -> company_name (optional)
     """
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
     try:
         rfp_id_list = [r.strip() for r in rfp_ids.split(',') if r.strip()]
-        
+
+        # Parse company mapping
+        company_map = {}
+        if companies:
+            try:
+                company_map = json.loads(companies)
+            except Exception:
+                company_map = {}
+
         if not rfp_id_list:
             return JSONResponse({
                 "ok": True,
                 "results": {}
             })
-        
+
         # Initialize GraphClient once
         graph_client = GraphClient(
             CLIENT_ID, CLIENT_SECRET, TENANT_ID,
@@ -2225,23 +2267,27 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
         )
         graph_client.auth()
         graph_client.resolve_site_and_drive()
-        
+
         # Get cached master data (downloads only if needed)
         master_csv_local = os.path.join(OUTPUT_DIR, "master_material.csv")
         master = get_cached_master_data(graph_client, master_csv_local)
         master_col = find_column_name(master.columns, "material")
         if not master_col:
             raise HTTPException(status_code=500, detail="No 'material' column found in master CSV")
-        
+
         # Get cached keywords (downloads only if needed)
         keywords_csv_local = os.path.join(OUTPUT_DIR, "unique_keywords.csv")
         keywords_list = get_cached_keywords(graph_client, keywords_csv_local)
-        
+
         # Calculate percentages for all RFPs
         results = {}
         for rfp_id in rfp_id_list:
             try:
-                result = calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list)
+                rfp_company = company_map.get(rfp_id, None)
+                result = calculate_match_percentage_optimized(
+                    rfp_id, master, master_col, keywords_list,
+                    company=rfp_company, graph_client=graph_client
+                )
                 results[rfp_id] = {
                     "match_percentage": result["match_percentage"],
                     "total_materials": result["total_materials"],
@@ -2254,7 +2300,7 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
                     "matched_count": 0,
                     "error": str(e)
                 }
-        
+
         return JSONResponse({
             "ok": True,
             "results": results
@@ -2268,14 +2314,14 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 @router.get("/rfp/{rfp_id}/match-percentage")
-async def get_rfp_match_percentage(request: Request, rfp_id: str):
+async def get_rfp_match_percentage(request: Request, rfp_id: str, company: str = None):
     """
     Get matching percentage for a single RFP (uses cache).
     Returns only the percentage without full material details.
     """
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
     try:
         # Initialize GraphClient
         graph_client = GraphClient(
@@ -2284,7 +2330,7 @@ async def get_rfp_match_percentage(request: Request, rfp_id: str):
         )
         graph_client.auth()
         graph_client.resolve_site_and_drive()
-        
+
         # Get cached master data
         master_csv_local = os.path.join(OUTPUT_DIR, "master_material.csv")
         master = get_cached_master_data(graph_client, master_csv_local)
@@ -2295,13 +2341,16 @@ async def get_rfp_match_percentage(request: Request, rfp_id: str):
                 "match_percentage": 0,
                 "error": "No 'material' column found in master CSV"
             })
-        
+
         # Get cached keywords
         keywords_csv_local = os.path.join(OUTPUT_DIR, "unique_keywords.csv")
         keywords_list = get_cached_keywords(graph_client, keywords_csv_local)
-        
+
         # Calculate (uses cache if available)
-        result = calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list)
+        result = calculate_match_percentage_optimized(
+            rfp_id, master, master_col, keywords_list,
+            company=company, graph_client=graph_client
+        )
         
         return JSONResponse({
             "ok": True,

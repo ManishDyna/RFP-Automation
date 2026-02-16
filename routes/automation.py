@@ -405,14 +405,24 @@ async def submit_rfp_endpoint(payload: dict = Body(...)):
     return JSONResponse({"ok": True, "started": True}, status_code=202)
 
 @router.get("/sync_portal_data")
-async def dashboard_sync_portal_data():
+async def dashboard_sync_portal_data(rfp_ids: str = Query("", alias="rfp_ids")):
+    """
+    Sync portal participation status.
+    - If rfp_ids is provided (comma-separated), only sync those specific RFPs (dashboard mode).
+    - If rfp_ids is empty, sync ALL RFPs (full sync from RFP Insights).
+    """
     # Thread-safe atomic check-and-set
     if not _try_start_operation("sync"):
         return JSONResponse({"ok": False, "message": "Sync already running"}, status_code=409)
 
+    # Parse rfp_ids if provided
+    parsed_rfp_ids = None
+    if rfp_ids and rfp_ids.strip():
+        parsed_rfp_ids = [rid.strip() for rid in rfp_ids.split(",") if rid.strip()]
+
     async def _task():
         try:
-            await run_automation_sync_portal()
+            await run_automation_sync_portal(rfp_ids=parsed_rfp_ids)
         finally:
             _finish_operation("sync")
 

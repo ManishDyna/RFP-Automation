@@ -428,7 +428,7 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
         log_event("SYSTEM", "DownloadRFP", "Success", "Download flow finished (all RFPs already existed)")
         return
 
-    # Process matched materials (downloads from SharePoint to temp, no local dependency)
+    # Process matched materials (uses local ALLRFPs folder)
     matched_df, matched_csv_path, not_mateched_files = process_folder(
         graph_client, None, None, company_name=company_name
     )
@@ -448,13 +448,6 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
         )
     else:
         log_event("RFP", "Process", "Info", "No new matches or files to process - skipping email")
-
-    # Clean up temp directory used by process_folder
-    if matched_csv_path and matched_csv_path not in ("no_files", "not_matched_data") and os.path.exists(matched_csv_path):
-        try:
-            shutil.rmtree(os.path.dirname(matched_csv_path), ignore_errors=True)
-        except Exception:
-            pass
 
     log_event("SYSTEM", "DownloadRFP", "Success", "Download flow finished")
 
@@ -906,18 +899,26 @@ def _build_scraped_index(rfp_data: list[dict]) -> list[dict]:
     return enriched
 
 
-def sync_participation_with_db(rfp_data: list[dict]) -> dict:
+def sync_participation_with_db(rfp_data: list[dict], rfp_ids: list[str] | None = None) -> dict:
     """
     Compare scraped RFPs with DB; update 'participated' if mismatched.
     Matching logic:
       - Prefer exact RFP_ID match
       - Fallback: fuzzy match using title via rfp_ids_match(search_id, title)
+    If rfp_ids is provided, only sync those specific RFP IDs (dashboard-only sync).
     Returns summary dict.
     """
-    log_event("SYNC", "Database", "Start", f"Starting sync with database for {len(rfp_data)} RFPs")
+    log_event("SYNC", "Database", "Start", f"Starting sync with database for {len(rfp_data)} RFPs" +
+              (f" (filtered to {len(rfp_ids)} IDs)" if rfp_ids else " (all)"))
     db_rows = get_rfp_activity_data_from_db() or []
     log_event("SYNC", "Database", "Step", f"Retrieved {len(db_rows)} records from database")
     scraped = _build_scraped_index(rfp_data)
+
+    # If rfp_ids filter is provided, only keep scraped entries matching those IDs
+    if rfp_ids:
+        rfp_ids_set = {rid.strip() for rid in rfp_ids if rid.strip()}
+        scraped = [s for s in scraped if (s.get("RFP_ID") or "").strip() in rfp_ids_set]
+        log_event("SYNC", "Database", "Step", f"Filtered scraped data to {len(scraped)} RFPs matching dashboard IDs")
 
     # Build quick indices
     db_by_id = {}
@@ -988,10 +989,12 @@ def sync_participation_with_db(rfp_data: list[dict]) -> dict:
     return summary
 
 # === Sync portal data (export all RFPs and update DB participation) ===
-async def run_automation_sync_portal():
+async def run_automation_sync_portal(rfp_ids: list[str] | None = None):
     import json
     start_new_run()  # Generate new unique RUN_ID for this automation run
-    log_event("SYSTEM", "StartRun", "Success", "Sync portal data started")
+    mode = "filtered" if rfp_ids else "all"
+    log_event("SYSTEM", "StartRun", "Success", f"Sync portal data started (mode={mode})" +
+              (f" for {len(rfp_ids)} RFPs" if rfp_ids else ""))
     
     graph_client = GraphClient(
         CLIENT_ID, CLIENT_SECRET, TENANT_ID,
@@ -1028,9 +1031,10 @@ async def run_automation_sync_portal():
                 pass
             
             # Compare against DB and update mismatches
-            log_event("SYNC", "Database", "Start", "Starting database sync")
-            sync_summary = sync_participation_with_db(rfp_data)
-            log_event("SYNC", "Database", "Success", 
+            log_event("SYNC", "Database", "Start", "Starting database sync" +
+                     (f" (filtered to {len(rfp_ids)} dashboard RFPs)" if rfp_ids else " (all RFPs)"))
+            sync_summary = sync_participation_with_db(rfp_data, rfp_ids=rfp_ids)
+            log_event("SYNC", "Database", "Success",
                      f"Database sync completed: {sync_summary.get('updated', 0)} updated, "
                      f"{sync_summary.get('checked', 0)} checked")
             

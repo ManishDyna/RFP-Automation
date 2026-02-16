@@ -1,5 +1,6 @@
 from helpers.core_helper import *
 from core.common_imports import *
+from config.config import OUTPUT_DIR
 import re
 import tempfile
 import shutil
@@ -187,37 +188,34 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
     Process downloaded RFP Excel files, match materials with master CSV,
     and generate/upload a matched materials CSV.
     Fetches RFP activity log from Dataverse.
-    Always fetches RFP files from SharePoint (no local file dependency).
+    Uses local ALLRFPs folder for RFP files (no SharePoint download needed).
     """
     log_event("RFP", "Process Folder", "Start", f"Processing RFPs for company: {company_name}")
 
-    # Always download fresh from SharePoint to temp directory (no local dependency)
+    # Temp dir only for master/keywords CSVs (not for RFP files)
     temp_process_dir = tempfile.mkdtemp(prefix="rfp_process_")
     excel_files = []
 
+    # Use local ALLRFPs folder to find RFP Excel files
     if company_name:
-        print(f"🔄 Fetching RFP files from SharePoint for company: {company_name}...")
-        log_event("RFP", "Process Folder", "Downloading", "Fetching RFP files from SharePoint")
-        try:
-            downloaded_files = graph_client.download_rfp_files_from_sharepoint(
-                company_name=company_name,
-                local_output_dir=temp_process_dir,
-                sp_base_folder=SP_BASE_FOLDER
-            )
-            if downloaded_files:
-                excel_files = downloaded_files
-                log_event("RFP", "Process Folder", "Success", f"Downloaded {len(downloaded_files)} RFP files from SharePoint")
+        local_company_dir = os.path.join(OUTPUT_DIR, company_name)
+        print(f"🔄 Looking for RFP files in local folder: {local_company_dir}")
+        log_event("RFP", "Process Folder", "Scanning", "Scanning local ALLRFPs folder for Excel files")
+        if os.path.exists(local_company_dir):
+            for root, dirs, files in os.walk(local_company_dir):
+                for f in files:
+                    if f.lower().endswith(('.xls', '.xlsx')):
+                        excel_files.append(os.path.join(root, f))
+            if excel_files:
+                log_event("RFP", "Process Folder", "Success", f"Found {len(excel_files)} local RFP files")
             else:
-                log_event("RFP", "Process Folder", "Warning", "No RFP files found in SharePoint")
-        except Exception as e:
-            error_msg = f"Could not fetch RFP files from SharePoint: {e}"
-            print(f"⚠️ {error_msg}")
-            log_event("RFP", "Process Folder", "Fail", error_msg)
+                log_event("RFP", "Process Folder", "Warning", "No Excel files found in local folder")
+        else:
+            log_event("RFP", "Process Folder", "Warning", f"Local folder not found: {local_company_dir}")
 
     if not excel_files:
-        log_event("RFP", "Process Folder", "Info", "No Excel files found in SharePoint - nothing to process", "")
-        print("✅ No Excel files found in SharePoint - nothing to process.")
-        # Clean up temp directory
+        log_event("RFP", "Process Folder", "Info", "No Excel files found locally - nothing to process", "")
+        print("✅ No Excel files found locally - nothing to process.")
         shutil.rmtree(temp_process_dir, ignore_errors=True)
         return pd.DataFrame(), "no_files", []
 
@@ -463,9 +461,9 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
     result_df = pd.DataFrame(all_matches)
     print("not_mateched_files:-",not_mateched_files)
     if not result_df.empty:
-        # ✅ Generate timestamped CSV in temp directory
+        # ✅ Generate timestamped CSV in local ALLRFPs directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_csv = os.path.join(temp_process_dir, f"matched_materials_{timestamp}.csv")
+        output_csv = os.path.join(OUTPUT_DIR, f"matched_materials_{timestamp}.csv")
         try:
             result_df.to_csv(output_csv, index=False)
             print(f"✅ Exported matches to {output_csv}")
@@ -508,9 +506,8 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
     summary_msg = f"Processing complete. Files processed: {files_processed}, Skipped: {files_skipped}, Failed: {files_failed}, Matches found: {len(result_df)}"
     log_event("RFP", "Process Folder", "Complete", summary_msg)
 
-    # Note: temp_process_dir is NOT cleaned up here because the caller
-    # may still need the output CSV file (e.g., for trigger_email).
-    # Caller is responsible for cleanup after use.
+    # Clean up temp dir (only held master/keywords CSVs)
+    shutil.rmtree(temp_process_dir, ignore_errors=True)
 
     return result_df, output_csv, not_mateched_files
 
@@ -527,7 +524,57 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
     
     clean_title = clean_rfp_title(title)
 
-    # 1. Check if already exists in Dataverse
+    # Build local storage path
+    local_rfp_dir = os.path.join(OUTPUT_DIR, company_name, clean_title, "downloaded-rfp")
+    os.makedirs(local_rfp_dir, exist_ok=True)
+    local_file_path = os.path.join(local_rfp_dir, f"{clean_title}.xls")
+
+    # 1. If file exists locally, check Dataverse & SharePoint without re-downloading
+    if os.path.exists(local_file_path):
+        try:
+            safe_rfp_id = sanitize_filter_value(title)
+            safe_company = sanitize_filter_value(company_name)
+            existing_result = DATAVERSE.query_rows(
+                RFP_ACTIVITY_LOG_TABLE_API,
+                filter_expr=f"RFP_ID eq '{safe_rfp_id}' and Company_Name eq '{safe_company}'",
+                top=1,
+                table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+                use_display_names=True
+            )
+            if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
+                log_event("RFP", "Download", "Skip", "File exists locally & in Dataverse", title)
+            else:
+                # File exists locally but NOT in Dataverse — insert entry
+                log_event("RFP", "Download", "Insert", "File exists locally but not in Dataverse — inserting", title)
+                log_rfp_activity(
+                    rfp_id=title,
+                    Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    RFP_End_Date=RFP_End_Date,
+                    participated=participated,
+                    link=link,
+                    company_name=company_name
+                )
+        except Exception as e:
+            log_event("RFP", "Download", "Warning", f"Local file Dataverse check failed: {e}", title)
+
+        # Upload to SharePoint only if missing
+        if graph_client:
+            try:
+                sp_material_path = get_sharepoint_rfp_material_path(title, company_name=company_name)
+                sp_file_full_path = f"{sp_material_path}/{os.path.basename(local_file_path)}"
+                sp_check = graph_client._get_item_by_path(sp_file_full_path)
+                if sp_check.status_code == 404:
+                    log_event("Sharepoint", "Upload", "Uploading", "File missing in SharePoint, uploading from local", title)
+                    graph_client.upload_file_as(local_file_path, sp_material_path, os.path.basename(local_file_path))
+                    log_event("Sharepoint", "Upload", "Success", "Uploaded local file to SharePoint", title)
+                else:
+                    log_event("Sharepoint", "Upload", "Skip", "File already exists in SharePoint", title)
+            except Exception as e:
+                log_event("Sharepoint", "Upload", "Warning", f"SharePoint check/upload failed: {e}", title)
+
+        return "skipped"
+
+    # 2. File does NOT exist locally — check Dataverse before downloading from portal
     try:
         safe_rfp_id = sanitize_filter_value(title)
         safe_company = sanitize_filter_value(company_name)
@@ -543,7 +590,7 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
             return "skipped"
     except Exception as e:
         log_event("RFP", "Download", "Warning", f"Dataverse check failed: {e}", title)
-       
+
     success = False
     new_page = await page.context.new_page()
     try:
@@ -627,33 +674,28 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
             log_event("RFP", "Download", "Success", "Download button clicked successfully", title)
         download = await dl_info.value
 
-        # Save to temp directory, upload to SharePoint, then cleanup
+        # Save to local folder (persistent storage)
         clean_title = clean_rfp_title(title)
         final_filename = download.suggested_filename or f"{clean_title}.xls"
-        if download.suggested_filename:
-            _, ext = os.path.splitext(download.suggested_filename)
-            if not ext:
-                ext = ".xls"
-        else:
-            ext = ".xls"
-
-        # Save to temp directory (no local permanent storage)
-        temp_dir = tempfile.mkdtemp(prefix="rfp_download_")
-        temp_path = os.path.join(temp_dir, f"{clean_title}{ext}")
 
         print("Downloading:", final_filename)
-        log_event("RFP", "Download", "Saving", f"Saving file: {final_filename} to temp", title)
+        log_event("RFP", "Download", "Saving", f"Saving file: {final_filename} to local", title)
 
-        await download.save_as(temp_path)
+        await download.save_as(local_file_path)
         log_event("RFP", "Download", "Success", f"Successfully downloaded: {final_filename}", title)
 
-        # Upload to SharePoint
+        # Upload to SharePoint only if not already there
         if graph_client:
             try:
                 sp_material_path = get_sharepoint_rfp_material_path(title, company_name=company_name)
-                log_event("Sharepoint", "Upload", "Uploading", f"Uploading {final_filename} to SharePoint", title)
-                graph_client.upload_file_as(temp_path, sp_material_path, os.path.basename(temp_path))
-                log_event("Sharepoint", "Upload", "Success", f"Successfully uploaded {final_filename} to SharePoint", title)
+                sp_file_full_path = f"{sp_material_path}/{os.path.basename(local_file_path)}"
+                sp_check = graph_client._get_item_by_path(sp_file_full_path)
+                if sp_check.status_code == 404:
+                    log_event("Sharepoint", "Upload", "Uploading", f"Uploading {final_filename} to SharePoint", title)
+                    graph_client.upload_file_as(local_file_path, sp_material_path, os.path.basename(local_file_path))
+                    log_event("Sharepoint", "Upload", "Success", f"Successfully uploaded {final_filename} to SharePoint", title)
+                else:
+                    log_event("Sharepoint", "Upload", "Skip", "File already exists in SharePoint", title)
             except Exception as e:
                 error_msg = f"Failed to upload {final_filename} to SharePoint: {str(e)}"
                 log_event("Sharepoint", "Upload", "Fail", error_msg, title)
@@ -671,12 +713,6 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
         )
         success = True
 
-        # Cleanup temp file
-        try:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        except Exception:
-            pass
-
     except Exception as e:
         error_msg = f"Download failed: {str(e)}"
         log_event("RFP", "Download", "Fail", error_msg, title)
@@ -692,23 +728,23 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
             await asyncio.sleep(1)
         if latest_file:
             clean_title = clean_rfp_title(title)
-            _, ext = os.path.splitext(latest_file)
-            if not ext:
-                ext = ".xls"
-            # Move fallback file to temp, upload to SharePoint, then cleanup
-            temp_dir = tempfile.mkdtemp(prefix="rfp_fallback_")
-            temp_path = os.path.join(temp_dir, f"{clean_title}{ext}")
             try:
-                shutil.move(latest_file, temp_path)
-                log_event("RFP", "Download", "Success", f"Fallback file saved to temp", title)
+                # Move fallback file to local folder
+                shutil.move(latest_file, local_file_path)
+                log_event("RFP", "Download", "Success", f"Fallback file saved to local", title)
 
-                # Upload to SharePoint
+                # Upload to SharePoint only if not already there
                 if graph_client:
                     try:
                         sp_material_path = get_sharepoint_rfp_material_path(title, company_name)
-                        log_event("Sharepoint", "Upload", "Uploading", f"Uploading fallback file to SharePoint", title)
-                        graph_client.upload_file_as(temp_path, sp_material_path, os.path.basename(temp_path))
-                        log_event("Sharepoint", "Upload", "Success", f"Successfully uploaded fallback file to SharePoint", title)
+                        sp_file_full_path = f"{sp_material_path}/{os.path.basename(local_file_path)}"
+                        sp_check = graph_client._get_item_by_path(sp_file_full_path)
+                        if sp_check.status_code == 404:
+                            log_event("Sharepoint", "Upload", "Uploading", f"Uploading fallback file to SharePoint", title)
+                            graph_client.upload_file_as(local_file_path, sp_material_path, os.path.basename(local_file_path))
+                            log_event("Sharepoint", "Upload", "Success", f"Successfully uploaded fallback file to SharePoint", title)
+                        else:
+                            log_event("Sharepoint", "Upload", "Skip", "File already exists in SharePoint", title)
                     except Exception as e:
                         error_msg = f"Failed to upload fallback file to SharePoint: {str(e)}"
                         log_event("Sharepoint", "Upload", "Fail", error_msg, title)
@@ -725,12 +761,6 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                     company_name=company_name
                 )
                 success = True
-
-                # Cleanup temp
-                try:
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                except Exception:
-                    pass
             except Exception as e:
                 error_msg = f"Failed to process fallback file: {str(e)}"
                 log_event("RFP", "Download", "Fail", error_msg, title)

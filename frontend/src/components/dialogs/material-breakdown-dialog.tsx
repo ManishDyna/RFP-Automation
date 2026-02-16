@@ -37,12 +37,14 @@ interface MaterialBreakdownDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   rfpId: string | null
+  company?: string | null
 }
 
 export function MaterialBreakdownDialog({
   open,
   onOpenChange,
   rfpId,
+  company,
 }: MaterialBreakdownDialogProps) {
   const [filter, setFilter] = useState<MaterialFilter>('all')
   const [search, setSearch] = useState('')
@@ -56,8 +58,8 @@ export function MaterialBreakdownDialog({
   }, [open, rfpId])
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['rfpMaterials', rfpId],
-    queryFn: () => api.getRfpMaterials(rfpId!),
+    queryKey: ['rfpMaterials', rfpId, company],
+    queryFn: () => api.getRfpMaterials(rfpId!, company || undefined),
     enabled: open && !!rfpId,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   })

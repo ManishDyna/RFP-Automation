@@ -437,6 +437,107 @@ class GraphClient:
             print(f"   ❌ Error: {e}")
             raise e
 
+    def download_all_from_sharepoint(self, sp_folder_path: str, local_base_dir: str):
+        """
+        Recursively download all files and folders from a SharePoint directory to local system.
+
+        Args:
+            sp_folder_path: SharePoint folder path (e.g., 'RFP-logs' or 'RFP-logs/ALLRFPs')
+            local_base_dir: Local directory to download into (e.g., 'C:/Downloads/SharePoint-Backup')
+
+        Returns:
+            dict with 'downloaded', 'failed', 'total_files', 'total_folders' counts
+        """
+        self.ensure_token()
+        if not self.site_id or not self.drive_id:
+            self.resolve_site_and_drive()
+
+        stats = {"downloaded": 0, "failed": 0, "skipped": 0, "total_files": 0, "total_folders": 0, "errors": []}
+        self._download_folder_recursive(sp_folder_path, local_base_dir, sp_folder_path, stats)
+
+        print(f"\n{'='*60}")
+        print(f"Download Complete!")
+        print(f"  Total files found : {stats['total_files']}")
+        print(f"  Downloaded         : {stats['downloaded']}")
+        print(f"  Failed             : {stats['failed']}")
+        print(f"  Skipped            : {stats['skipped']}")
+        print(f"  Folders created    : {stats['total_folders']}")
+        print(f"{'='*60}")
+
+        if stats["errors"]:
+            print(f"\nFailed files:")
+            for err in stats["errors"]:
+                print(f"  - {err}")
+
+        return stats
+
+    def _download_folder_recursive(self, sp_folder_path: str, local_base_dir: str, sp_root: str, stats: dict):
+        """Recursively download all items in a SharePoint folder."""
+        self.ensure_token()
+
+        url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{sp_folder_path}:/children"
+        response = requests.get(url, headers=self.headers)
+
+        if response.status_code != 200:
+            print(f"Could not access folder '{sp_folder_path}': {response.status_code}")
+            stats["errors"].append(f"Folder access failed: {sp_folder_path} ({response.status_code})")
+            return
+
+        items = response.json().get("value", [])
+
+        # Handle pagination
+        next_link = response.json().get("@odata.nextLink")
+        while next_link:
+            self.ensure_token()
+            resp = requests.get(next_link, headers=self.headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                items.extend(data.get("value", []))
+                next_link = data.get("@odata.nextLink")
+            else:
+                break
+
+        for item in items:
+            name = item.get("name", "")
+            is_folder = "folder" in item
+
+            if is_folder:
+                stats["total_folders"] += 1
+                subfolder_sp = f"{sp_folder_path}/{name}"
+                # Calculate local path relative to the SharePoint root
+                relative_path = subfolder_sp[len(sp_root):].lstrip("/")
+                local_folder = os.path.join(local_base_dir, relative_path)
+                os.makedirs(local_folder, exist_ok=True)
+                print(f"[Folder] {relative_path}/")
+                self._download_folder_recursive(subfolder_sp, local_base_dir, sp_root, stats)
+            else:
+                stats["total_files"] += 1
+                file_sp_path = f"{sp_folder_path}/{name}"
+                relative_path = file_sp_path[len(sp_root):].lstrip("/")
+                local_file_path = os.path.join(local_base_dir, relative_path)
+
+                try:
+                    os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+                    self.ensure_token()
+                    download_url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{file_sp_path}:/content"
+                    file_resp = requests.get(download_url, headers=self.headers, stream=True)
+
+                    if file_resp.status_code == 200:
+                        with open(local_file_path, "wb") as f:
+                            for chunk in file_resp.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        size_kb = os.path.getsize(local_file_path) / 1024
+                        print(f"  [OK] {relative_path} ({size_kb:.1f} KB)")
+                        stats["downloaded"] += 1
+                    else:
+                        print(f"  [FAIL] {relative_path} -> {file_resp.status_code}")
+                        stats["failed"] += 1
+                        stats["errors"].append(f"{relative_path} ({file_resp.status_code})")
+                except Exception as e:
+                    print(f"  [ERROR] {relative_path} -> {e}")
+                    stats["failed"] += 1
+                    stats["errors"].append(f"{relative_path} ({e})")
+
     def find_file_with_fuzzy_matching(self, sp_path: str):
         """
         Find a file in SharePoint using fuzzy matching for filename normalization

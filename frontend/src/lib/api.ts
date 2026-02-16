@@ -180,8 +180,15 @@ export const api = {
     return handleResponse(response)
   },
 
-  syncPortalData: async () => {
-    const response = await fetch(ENDPOINTS.RFP.SYNC_PORTAL, {
+  syncPortalData: async (rfpIds?: string[]) => {
+    const params = new URLSearchParams()
+    if (rfpIds && rfpIds.length > 0) {
+      params.set('rfp_ids', rfpIds.join(','))
+    }
+    const url = params.toString()
+      ? `${ENDPOINTS.RFP.SYNC_PORTAL}?${params}`
+      : ENDPOINTS.RFP.SYNC_PORTAL
+    const response = await fetch(url, {
       credentials: 'include',
     })
     return handleResponse(response)
@@ -218,8 +225,11 @@ export const api = {
   },
 
   // ==================== RFP Match Percentages ====================
-  getBatchMatchPercentages: async (rfpIds: string[]) => {
+  getBatchMatchPercentages: async (rfpIds: string[], companiesMap?: Record<string, string>) => {
     const params = new URLSearchParams({ rfp_ids: rfpIds.join(',') })
+    if (companiesMap && Object.keys(companiesMap).length > 0) {
+      params.set('companies', JSON.stringify(companiesMap))
+    }
     const response = await fetch(`${ENDPOINTS.RFP.BATCH_MATCH_PERCENTAGES}?${params}`, {
       credentials: 'include',
     })
@@ -227,8 +237,11 @@ export const api = {
     return data.results
   },
 
-  getRfpMaterials: async (rfpId: string) => {
-    const response = await fetch(ENDPOINTS.RFP.GET_MATERIALS(rfpId), {
+  getRfpMaterials: async (rfpId: string, company?: string) => {
+    const url = company
+      ? `${ENDPOINTS.RFP.GET_MATERIALS(rfpId)}?company=${encodeURIComponent(company)}`
+      : ENDPOINTS.RFP.GET_MATERIALS(rfpId)
+    const response = await fetch(url, {
       credentials: 'include',
     })
     return handleResponse<{
