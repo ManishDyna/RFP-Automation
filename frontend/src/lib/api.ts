@@ -217,6 +217,36 @@ export const api = {
     window.URL.revokeObjectURL(downloadUrl)
   },
 
+  // ==================== RFP Match Percentages ====================
+  getBatchMatchPercentages: async (rfpIds: string[]) => {
+    const params = new URLSearchParams({ rfp_ids: rfpIds.join(',') })
+    const response = await fetch(`${ENDPOINTS.RFP.BATCH_MATCH_PERCENTAGES}?${params}`, {
+      credentials: 'include',
+    })
+    const data = await handleResponse<{ ok: boolean; results: Record<string, { match_percentage: number; total_materials: number; matched_count: number }> }>(response)
+    return data.results
+  },
+
+  getRfpMaterials: async (rfpId: string) => {
+    const response = await fetch(ENDPOINTS.RFP.GET_MATERIALS(rfpId), {
+      credentials: 'include',
+    })
+    return handleResponse<{
+      rfp_id: string
+      total_materials: number
+      matched_count: number
+      match_percentage: number
+      materials: Array<{
+        material_code: string
+        name: string
+        description: string
+        is_matched: boolean
+        match_method: string | null
+        master_description: string | null
+      }>
+    }>(response)
+  },
+
   // ==================== Material Insights ====================
   getMaterialInsights: async (params: {
     rfp_id?: string

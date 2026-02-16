@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
 import { useDialogs } from '@/contexts/dialog-context'
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import {
   Download,
   CheckCircle2,
@@ -20,6 +20,8 @@ import {
   TrendingUp,
   Inbox,
   ArrowRightLeft,
+  Eye,
+  BarChart3,
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -30,6 +32,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Progress } from '@/components/ui/progress'
+import { MaterialBreakdownDialog } from '@/components/dialogs/material-breakdown-dialog'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -153,6 +157,20 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+// Helper: get badge color for match percentage
+function getMatchBadgeStyle(pct: number) {
+  if (pct >= 80) return 'bg-emerald-100 text-emerald-700 border-emerald-200'
+  if (pct >= 50) return 'bg-amber-100 text-amber-700 border-amber-200'
+  if (pct > 0) return 'bg-rose-100 text-rose-700 border-rose-200'
+  return 'bg-slate-100 text-slate-500 border-slate-200'
+}
+
+function getProgressBarColor(pct: number) {
+  if (pct >= 80) return '[&>div]:bg-emerald-500'
+  if (pct >= 50) return '[&>div]:bg-amber-500'
+  return '[&>div]:bg-rose-500'
+}
+
 // RFP Table Row Component (extracted for virtualization)
 interface RfpTableRowProps {
   rfp: any
@@ -163,10 +181,13 @@ interface RfpTableRowProps {
   onChangeStatus?: (rfpId: string, newStatus: string) => void
   onDownloadExcel?: (rfpId: string, company?: string) => void
   downloadingRfpId?: string | null
+  matchData?: { match_percentage: number; total_materials: number; matched_count: number } | null
+  onViewBreakdown?: (rfpId: string) => void
 }
 
-function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId }: RfpTableRowProps) {
+function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchData, onViewBreakdown }: RfpTableRowProps) {
   const isDownloading = downloadingRfpId === rfp.RFP_ID
+  const pct = matchData?.match_percentage ?? null
   return (
     <TableRow key={rfp.RFP_ID || index} className="group">
       <TableCell>
@@ -187,15 +208,29 @@ function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeSta
       <TableCell className="text-slate-600 text-sm">{rfp.Owner_Name || '-'}</TableCell>
       <TableCell className="text-slate-500 text-sm">{rfp.Publish_Time || '-'}</TableCell>
       <TableCell className="text-slate-500 text-sm">{rfp.RFP_End_Date || '-'}</TableCell>
-      {showActions && (
-        <TableCell>
-          {rfp.match_percentage && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
-              {rfp.match_percentage}
+      <TableCell>
+        {pct !== null ? (
+          <div className="flex items-center gap-1.5">
+            <span className={cn(
+              'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border',
+              getMatchBadgeStyle(pct)
+            )}>
+              <BarChart3 className="h-3 w-3" />
+              {pct}%
             </span>
-          )}
-        </TableCell>
-      )}
+            <Progress value={pct} className={cn('h-1.5 w-12 bg-slate-200', getProgressBarColor(pct))} />
+            <button
+              onClick={() => onViewBreakdown?.(rfp.RFP_ID)}
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-slate-100"
+              title="View material breakdown"
+            >
+              <Eye className="h-3.5 w-3.5 text-slate-400 hover:text-indigo-600" />
+            </button>
+          </div>
+        ) : (
+          <span className="text-xs text-slate-400">-</span>
+        )}
+      </TableCell>
       <TableCell>
         <StatusBadge status={rfp.status || 'open'} />
       </TableCell>
@@ -245,9 +280,11 @@ interface RfpTableProps {
   onChangeStatus?: (rfpId: string, newStatus: string) => void
   onDownloadExcel?: (rfpId: string, company?: string) => void
   downloadingRfpId?: string | null
+  matchPercentages?: Record<string, { match_percentage: number; total_materials: number; matched_count: number }>
+  onViewBreakdown?: (rfpId: string) => void
 }
 
-function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId }: RfpTableProps) {
+function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchPercentages = {}, onViewBreakdown }: RfpTableProps) {
   const parentRef = useRef<HTMLDivElement>(null)
 
   // Use virtualization only for large datasets
@@ -283,7 +320,7 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
             <TableHead className="text-slate-500 font-medium">Owner</TableHead>
             <TableHead className="text-slate-500 font-medium">Published</TableHead>
             <TableHead className="text-slate-500 font-medium">Deadline</TableHead>
-            {showActions && <TableHead className="text-slate-500 font-medium">Match</TableHead>}
+            <TableHead className="text-slate-500 font-medium">Match %</TableHead>
             <TableHead className="text-slate-500 font-medium">Status</TableHead>
             <TableHead className="text-slate-500 font-medium text-right">Actions</TableHead>
           </TableRow>
@@ -300,6 +337,8 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
               onChangeStatus={onChangeStatus}
               onDownloadExcel={onDownloadExcel}
               downloadingRfpId={downloadingRfpId}
+              matchData={matchPercentages[rfp.RFP_ID] || null}
+              onViewBreakdown={onViewBreakdown}
             />
           ))}
         </TableBody>
@@ -317,7 +356,7 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
             <TableHead className="text-slate-500 font-medium">Owner</TableHead>
             <TableHead className="text-slate-500 font-medium">Published</TableHead>
             <TableHead className="text-slate-500 font-medium">Deadline</TableHead>
-            {showActions && <TableHead className="text-slate-500 font-medium">Match</TableHead>}
+            <TableHead className="text-slate-500 font-medium">Match %</TableHead>
             <TableHead className="text-slate-500 font-medium">Status</TableHead>
             <TableHead className="text-slate-500 font-medium text-right">Actions</TableHead>
           </TableRow>
@@ -340,6 +379,8 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                 const rfp = rfps[virtualRow.index]
                 const isDownloading = downloadingRfpId === rfp.RFP_ID
+                const pctData = matchPercentages[rfp.RFP_ID]
+                const pct = pctData?.match_percentage ?? null
                 return (
                   <TableRow
                     key={rfp.RFP_ID || virtualRow.index}
@@ -371,15 +412,29 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
                     <TableCell className="text-slate-600 text-sm">{rfp.Owner_Name || '-'}</TableCell>
                     <TableCell className="text-slate-500 text-sm">{rfp.Publish_Time || '-'}</TableCell>
                     <TableCell className="text-slate-500 text-sm">{rfp.RFP_End_Date || '-'}</TableCell>
-                    {showActions && (
-                      <TableCell>
-                        {rfp.match_percentage && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
-                            {rfp.match_percentage}
+                    <TableCell>
+                      {pct !== null ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn(
+                            'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border',
+                            getMatchBadgeStyle(pct)
+                          )}>
+                            <BarChart3 className="h-3 w-3" />
+                            {pct}%
                           </span>
-                        )}
-                      </TableCell>
-                    )}
+                          <Progress value={pct} className={cn('h-1.5 w-12 bg-slate-200', getProgressBarColor(pct))} />
+                          <button
+                            onClick={() => onViewBreakdown?.(rfp.RFP_ID)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-slate-100"
+                            title="View material breakdown"
+                          >
+                            <Eye className="h-3.5 w-3.5 text-slate-400 hover:text-indigo-600" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">-</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <StatusBadge status={rfp.status || 'open'} />
                     </TableCell>
@@ -501,6 +556,13 @@ export default function DashboardPage() {
 
   const [downloadingRfpId, setDownloadingRfpId] = useState<string | null>(null)
 
+  // Match percentage data (loaded via batch endpoint)
+  const [matchPercentages, setMatchPercentages] = useState<Record<string, { match_percentage: number; total_materials: number; matched_count: number }>>({})
+
+  // Material Breakdown Dialog state
+  const [breakdownDialogOpen, setBreakdownDialogOpen] = useState(false)
+  const [breakdownRfpId, setBreakdownRfpId] = useState<string | null>(null)
+
   const handleDownloadExcel = useCallback(async (rfpId: string, company?: string) => {
     setDownloadingRfpId(rfpId)
     try {
@@ -535,6 +597,44 @@ export default function DashboardPage() {
   const companies = data?.unique_companies || []
   const companiesRfps = data?.companies_rfps || {}
   const lastRunTime = data?.automation?.last_run_time
+
+  // Collect all RFP IDs from all company tabs for batch fetch
+  const allRfpIds = useMemo(() => {
+    const ids: string[] = []
+    for (const company of companies) {
+      const companyRfps = companiesRfps[company] || {}
+      for (const status of ['open', 'submitted', 'saved_draft', 'declined']) {
+        const rfps = companyRfps[status] || []
+        for (const rfp of rfps) {
+          if (rfp.RFP_ID && !ids.includes(rfp.RFP_ID)) {
+            ids.push(rfp.RFP_ID)
+          }
+        }
+      }
+    }
+    return ids
+  }, [companies, companiesRfps])
+
+  // Fetch match percentages from batch endpoint
+  useEffect(() => {
+    if (allRfpIds.length === 0) return
+
+    const needsFetch = allRfpIds.filter((id) => !matchPercentages[id])
+    if (needsFetch.length === 0) return
+
+    api.getBatchMatchPercentages(needsFetch)
+      .then((result) => {
+        setMatchPercentages((prev) => ({ ...prev, ...result }))
+      })
+      .catch((err) => {
+        console.error('Failed to fetch match percentages:', err)
+      })
+  }, [allRfpIds.length])
+
+  const handleViewBreakdown = useCallback((rfpId: string) => {
+    setBreakdownRfpId(rfpId)
+    setBreakdownDialogOpen(true)
+  }, [])
 
   // Format last run time
   const formatLastRun = (time: string) => {
@@ -740,6 +840,8 @@ export default function DashboardPage() {
                               onSubmit={handleSubmitRfp}
                               onDownloadExcel={handleDownloadExcel}
                               downloadingRfpId={downloadingRfpId}
+                              matchPercentages={matchPercentages}
+                              onViewBreakdown={handleViewBreakdown}
                             />
                           </TabsContent>
                           <TabsContent value="submitted" className="mt-0">
@@ -747,6 +849,8 @@ export default function DashboardPage() {
                               rfps={companyRfps.submitted || []}
                               onDownloadExcel={handleDownloadExcel}
                               downloadingRfpId={downloadingRfpId}
+                              matchPercentages={matchPercentages}
+                              onViewBreakdown={handleViewBreakdown}
                             />
                           </TabsContent>
                           <TabsContent value="draft" className="mt-0">
@@ -757,6 +861,8 @@ export default function DashboardPage() {
                               onChangeStatus={handleChangeStatus}
                               onDownloadExcel={handleDownloadExcel}
                               downloadingRfpId={downloadingRfpId}
+                              matchPercentages={matchPercentages}
+                              onViewBreakdown={handleViewBreakdown}
                             />
                           </TabsContent>
                           <TabsContent value="declined" className="mt-0">
@@ -764,6 +870,8 @@ export default function DashboardPage() {
                               rfps={companyRfps.declined || []}
                               onDownloadExcel={handleDownloadExcel}
                               downloadingRfpId={downloadingRfpId}
+                              matchPercentages={matchPercentages}
+                              onViewBreakdown={handleViewBreakdown}
                             />
                           </TabsContent>
                         </div>
@@ -776,6 +884,13 @@ export default function DashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Material Breakdown Dialog */}
+      <MaterialBreakdownDialog
+        open={breakdownDialogOpen}
+        onOpenChange={setBreakdownDialogOpen}
+        rfpId={breakdownRfpId}
+      />
     </PageWrapper>
   )
 }

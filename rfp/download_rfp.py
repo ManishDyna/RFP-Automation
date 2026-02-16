@@ -346,7 +346,6 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
             description_text = str(df.iloc[idx][col_desc]) if col_desc and not pd.isna(df.iloc[idx][col_desc]) else ""
             
             for mat in re.findall(r'\d{9}', name_text):
-                
                 # Method 1: Exact Material Code Match
                 matched_rows = master[master[master_col].astype(str) == mat]
                 is_matched = not matched_rows.empty
@@ -491,12 +490,13 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
         # ✅ Log activity for new RFPs
         for rfp_id in processed_rfps:
             matches_in_file = result_df[result_df["RFP_Title"] == rfp_id]
+
             if not matches_in_file.empty:
                 log_rfp_activity(
                     rfp_id=rfp_id,
                     Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     Matched_Data=matches_in_file,
-                    company_name=company_name
+                    company_name=company_name,
                 )
     else:
         print("not_mateched_files:-", not_mateched_files)
@@ -527,18 +527,7 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
     
     clean_title = clean_rfp_title(title)
 
-    # 1. Check if already exists in SharePoint
-    if graph_client:
-        try:
-            sp_material_path = get_sharepoint_rfp_material_path(title, company_name)
-            sp_files = graph_client.list_files_in_directory(sp_material_path, ['.xls', '.xlsx'])
-            if sp_files and len(sp_files) > 0:
-                log_event("RFP", "Download", "Skip", f"Already exists in SharePoint: {sp_files[0]['name']}", title)
-                return True
-        except Exception as e:
-            log_event("RFP", "Download", "Warning", f"SharePoint check failed: {e}", title)
-
-    # 2. Check if already exists in Dataverse
+    # 1. Check if already exists in Dataverse
     try:
         safe_rfp_id = sanitize_filter_value(title)
         safe_company = sanitize_filter_value(company_name)
@@ -551,7 +540,7 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
         )
         if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
             log_event("RFP", "Download", "Skip", f"Already exists in Dataverse", title)
-            return True
+            return "skipped"
     except Exception as e:
         log_event("RFP", "Download", "Warning", f"Dataverse check failed: {e}", title)
        
@@ -760,16 +749,20 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
 
 
 async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
+    """Returns the number of newly downloaded RFPs (excludes skipped ones)."""
     log_event("RFP", "Download Batch", "Start", f"Starting download for {len(rfps)} RFPs")
     missing = []
     successful = []
+    skipped = []
     total_rfps = len(rfps)
-    
+
     for row in rfps:
         title = row.get("Title", "")
-        if await attempt_download(page, row, company_name, graph_client=graph_client):
+        result = await attempt_download(page, row, company_name, graph_client=graph_client)
+        if result == "skipped":
+            skipped.append(title)
+        elif result:
             successful.append(title)
-            
         else:
             missing.append(row)
             log_event("RFP", "Download", "Fail", "Failed on first attempt", title)
@@ -780,22 +773,26 @@ async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
         for row in missing:
             title = row.get("Title", "")
             log_event("RFP", "Retry", "Downloading", "Attempt 2", title)
-            if await attempt_download(page, row, company_name, "Attempt 2", graph_client=graph_client):
+            result = await attempt_download(page, row, company_name, "Attempt 2", graph_client=graph_client)
+            if result and result != "skipped":
                 successful.append(title)
                 log_event("RFP", "Retry", "Success", f"Successfully downloaded on retry", title)
             else:
                 still_missing.append(title)
                 log_event("RFP", "Retry", "Fail", "Failed on retry attempt", title)
-        
+
         if still_missing:
             for t in still_missing:
                 log_event("RFP", "Retry", "Fail", "Still missing after retry", t)
         else:
             log_event("RFP", "Retry", "Success", "All failed downloads recovered on retry")
-    
+
     # Summary log
-    success_count = len(successful)
+    new_download_count = len(successful)
+    skipped_count = len(skipped)
     failed_count = len(missing) if not missing else (len(still_missing) if 'still_missing' in locals() and still_missing else 0)
-    summary_msg = f"Download batch complete. Total: {total_rfps}, Successful: {success_count}, Failed: {failed_count}"
+    summary_msg = f"Download batch complete. Total: {total_rfps}, New: {new_download_count}, Skipped: {skipped_count}, Failed: {failed_count}"
     log_event("RFP", "Download Batch", "Complete", summary_msg)
+
+    return new_download_count
    

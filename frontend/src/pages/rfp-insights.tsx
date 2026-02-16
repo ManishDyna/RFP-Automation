@@ -43,7 +43,6 @@ import {
 } from '@/components/ui/table'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -217,12 +216,14 @@ export default function RfpInsightsPage() {
   })
 
   // Flatten all pages of data
-  const allRfps = data?.pages.flatMap(page => page.rfps) || []
+  const rawRfps = data?.pages.flatMap(page => page.rfps) || []
   const uniqueCompanies = data?.pages[0]?.unique_companies || []
   const totalRows = data?.pages[0]?.total_rows || 0
   const totalFiltered = data?.pages[0]?.total_filtered || 0
   const statusCounts = data?.pages[0]?.status_counts || {}
   const totalStatusCounts = data?.pages[0]?.total_status_counts || {}
+
+  const allRfps = rawRfps
 
   const handleFilterChange = (key: string, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
@@ -783,6 +784,7 @@ export default function RfpInsightsPage() {
           )}
         </CardContent>
       </Card>
+
     </PageWrapper>
   )
 }

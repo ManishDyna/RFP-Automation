@@ -409,7 +409,24 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
 
     # Download RFP files (filtering already done in scrape_open_rfps)
     log_event("RFP", "Download", "Start", f"Downloading {len(open_rfps)}")
-    await download_rfp_files(page, open_rfps, company_name, graph_client)
+    new_download_count = await download_rfp_files(page, open_rfps, company_name, graph_client)
+
+    # Skip processing if no new RFPs were downloaded (all were already in Dataverse)
+    if new_download_count == 0:
+        log_event("RFP", "Process", "Skip", "No new RFPs downloaded - skipping process_folder")
+        trigger_email(
+            subject=f"No New RFP Available - {company_name} ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})",
+            body_html=f"""
+            <p>Dear Team,</p>
+            <p>The automation ran successfully for <b>{company_name}</b>, but <b>no new RFPs</b> were found to download.</p>
+            <p>All <b>{len(open_rfps)}</b> open RFPs already exist in the database.</p>
+            <p>Best Regards,<br>Automation System</p>
+            """,
+            email_flag="automation_failure",
+            company_name=company_name,
+        )
+        log_event("SYSTEM", "DownloadRFP", "Success", "Download flow finished (all RFPs already existed)")
+        return
 
     # Process matched materials (downloads from SharePoint to temp, no local dependency)
     matched_df, matched_csv_path, not_mateched_files = process_folder(
@@ -1165,17 +1182,6 @@ async def download_single_rfp_file(page, rfp_data, company_name, allrfps_base_fo
         return 'failed', "No link provided", False, None, None, None
 
     clean_title = clean_rfp_title(title)
-
-    # Check if file already exists in SharePoint
-    try:
-        if graph_client:
-            sp_material_path = get_sharepoint_rfp_material_path(title, company_name)
-            sp_files = graph_client.list_files_in_directory(sp_material_path, ['.xls', '.xlsx'])
-            if sp_files and len(sp_files) > 0:
-                print(f"  ⏩ File already exists in SharePoint: {sp_files[0]['name']}")
-                return 'skipped', 'File already exists in SharePoint', False, None, None, None
-    except Exception as check_error:
-        print(f"  ⚠ SharePoint check failed (will proceed with download): {check_error}")
 
     # Check if file already exists in Dataverse
     try:
