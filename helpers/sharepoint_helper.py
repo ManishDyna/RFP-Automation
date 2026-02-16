@@ -437,13 +437,14 @@ class GraphClient:
             print(f"   ❌ Error: {e}")
             raise e
 
-    def download_all_from_sharepoint(self, sp_folder_path: str, local_base_dir: str):
+    def download_all_from_sharepoint(self, sp_folder_path: str, local_base_dir: str, skip_existing: bool = False):
         """
         Recursively download all files and folders from a SharePoint directory to local system.
 
         Args:
             sp_folder_path: SharePoint folder path (e.g., 'RFP-logs' or 'RFP-logs/ALLRFPs')
             local_base_dir: Local directory to download into (e.g., 'C:/Downloads/SharePoint-Backup')
+            skip_existing: If True, skip files that already exist locally
 
         Returns:
             dict with 'downloaded', 'failed', 'total_files', 'total_folders' counts
@@ -453,7 +454,7 @@ class GraphClient:
             self.resolve_site_and_drive()
 
         stats = {"downloaded": 0, "failed": 0, "skipped": 0, "total_files": 0, "total_folders": 0, "errors": []}
-        self._download_folder_recursive(sp_folder_path, local_base_dir, sp_folder_path, stats)
+        self._download_folder_recursive(sp_folder_path, local_base_dir, sp_folder_path, stats, skip_existing)
 
         print(f"\n{'='*60}")
         print(f"Download Complete!")
@@ -471,7 +472,7 @@ class GraphClient:
 
         return stats
 
-    def _download_folder_recursive(self, sp_folder_path: str, local_base_dir: str, sp_root: str, stats: dict):
+    def _download_folder_recursive(self, sp_folder_path: str, local_base_dir: str, sp_root: str, stats: dict, skip_existing: bool = False):
         """Recursively download all items in a SharePoint folder."""
         self.ensure_token()
 
@@ -509,12 +510,18 @@ class GraphClient:
                 local_folder = os.path.join(local_base_dir, relative_path)
                 os.makedirs(local_folder, exist_ok=True)
                 print(f"[Folder] {relative_path}/")
-                self._download_folder_recursive(subfolder_sp, local_base_dir, sp_root, stats)
+                self._download_folder_recursive(subfolder_sp, local_base_dir, sp_root, stats, skip_existing)
             else:
                 stats["total_files"] += 1
                 file_sp_path = f"{sp_folder_path}/{name}"
                 relative_path = file_sp_path[len(sp_root):].lstrip("/")
                 local_file_path = os.path.join(local_base_dir, relative_path)
+
+                # Skip if file already exists locally
+                if skip_existing and os.path.exists(local_file_path):
+                    print(f"  [SKIP] {relative_path} (already exists)")
+                    stats["skipped"] += 1
+                    continue
 
                 try:
                     os.makedirs(os.path.dirname(local_file_path), exist_ok=True)

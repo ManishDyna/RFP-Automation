@@ -81,15 +81,22 @@ class SharePointDownloader:
         if not self.drive_id:
             raise RuntimeError(f"Drive '{self.drive_name}' not found")
 
-    def download_all(self, sp_folder_path: str, local_base_dir: str):
-        """Recursively download all files and folders from SharePoint to local."""
-        stats = {"downloaded": 0, "failed": 0, "total_files": 0, "total_folders": 0, "errors": []}
-        self._download_recursive(sp_folder_path, local_base_dir, sp_folder_path, stats)
+    def download_all(self, sp_folder_path: str, local_base_dir: str, skip_existing: bool = False):
+        """Recursively download all files and folders from SharePoint to local.
+
+        Args:
+            sp_folder_path: SharePoint folder path
+            local_base_dir: Local directory to download into
+            skip_existing: If True, skip files that already exist locally
+        """
+        stats = {"downloaded": 0, "failed": 0, "skipped": 0, "total_files": 0, "total_folders": 0, "errors": []}
+        self._download_recursive(sp_folder_path, local_base_dir, sp_folder_path, stats, skip_existing)
 
         print(f"\n{'='*60}")
         print(f"  Download Complete!")
         print(f"  Total files found : {stats['total_files']}")
-        print(f"  Downloaded        : {stats['downloaded']}")
+        print(f"  Downloaded (new)  : {stats['downloaded']}")
+        print(f"  Skipped (exists)  : {stats['skipped']}")
         print(f"  Failed            : {stats['failed']}")
         print(f"  Folders created   : {stats['total_folders']}")
         print(f"{'='*60}")
@@ -101,7 +108,7 @@ class SharePointDownloader:
 
         return stats
 
-    def _download_recursive(self, sp_folder_path: str, local_base_dir: str, sp_root: str, stats: dict):
+    def _download_recursive(self, sp_folder_path: str, local_base_dir: str, sp_root: str, stats: dict, skip_existing: bool = False):
         self.ensure_token()
 
         url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{sp_folder_path}:/children"
@@ -137,12 +144,18 @@ class SharePointDownloader:
                 local_folder = os.path.join(local_base_dir, relative_path)
                 os.makedirs(local_folder, exist_ok=True)
                 print(f"  [Folder] {relative_path}/")
-                self._download_recursive(subfolder_sp, local_base_dir, sp_root, stats)
+                self._download_recursive(subfolder_sp, local_base_dir, sp_root, stats, skip_existing)
             else:
                 stats["total_files"] += 1
                 file_sp_path = f"{sp_folder_path}/{name}"
                 relative_path = file_sp_path[len(sp_root):].lstrip("/")
                 local_file_path = os.path.join(local_base_dir, relative_path)
+
+                # Skip if file already exists locally
+                if skip_existing and os.path.exists(local_file_path):
+                    print(f"  [SKIP] {relative_path} (already exists)")
+                    stats["skipped"] += 1
+                    continue
 
                 try:
                     os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
@@ -179,6 +192,12 @@ def main():
         default=None,
         help="Local directory to save files (default: ./SharePoint-Downloads/<timestamp>)",
     )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        default=False,
+        help="Skip files that already exist locally (only download new files)",
+    )
     args = parser.parse_args()
 
     # Default output directory with timestamp
@@ -197,6 +216,7 @@ def main():
     print(f"  Drive           : {DRIVE_NAME}")
     print(f"  Source Folder   : {args.folder}")
     print(f"  Local Dest      : {local_dir}")
+    print(f"  Skip Existing   : {'Yes' if args.skip_existing else 'No'}")
     print("=" * 60)
 
     # Initialize and authenticate
@@ -209,8 +229,8 @@ def main():
 
     print(f"\n  Authenticated. Starting download...\n")
 
-    # Download everything
-    stats = client.download_all(args.folder, local_dir)
+    # Download everything (skip existing if flag is set)
+    stats = client.download_all(args.folder, local_dir, skip_existing=args.skip_existing)
 
     print(f"\n  All files saved to: {local_dir}")
 

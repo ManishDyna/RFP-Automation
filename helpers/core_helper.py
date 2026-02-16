@@ -661,55 +661,61 @@ def extract_keywords_from_text(
     
     return keywords
 
-def extract_materials_from_excel(excel_path: str, include_details: bool = False):
+def extract_materials_from_excel(excel_path: str, include_details: bool = False, filter_by_intent: bool = True):
     """
-    Extract materials from Excel 'Other Content' sheet where 'Intend To Respond' = Yes.
-    
+    Extract materials from Excel 'Other Content' sheet.
+
     Args:
         excel_path: Path to Excel file
-        include_details: If True, returns list of dicts with name/description. 
+        include_details: If True, returns list of dicts with name/description.
                         If False, returns set of material codes only.
-    
+        filter_by_intent: If True, only include rows where 'Intend To Respond' = Yes.
+                         If False, include ALL rows (used for match % calculation).
+
     Returns:
         If include_details=True: list[dict] with material_code, name, description
         If include_details=False: set[str] of material codes only
     """
     import pandas as pd
     import re
-    
+
     sheet = _find_other_content_sheet_name(excel_path) or "Other Content"
     try:
         df = pd.read_excel(excel_path, sheet_name=sheet)
     except Exception as e:
         print(f"⚠ Could not read sheet '{sheet}' from {excel_path}: {e}")
         return [] if include_details else set()
-    
+
     name_col = find_column_name(df.columns, "name")
     if not name_col:
         print("⚠ 'name' column not found; no materials extracted.")
         return [] if include_details else set()
-    
-    # Try to find the intent column with tolerant matching
-    intent_col = (
-        find_column_name(df.columns, "intend to respond")
-        or find_column_name(df.columns, "intend")
-        or find_column_name(df.columns, "respond intend")
-    )
-    if not intent_col:
-        print("⚠ 'Intend To Respond' column not found; no materials selected.")
-        return [] if include_details else set()
-    
-    def is_yes(v) -> bool:
-        s = str(v).strip().lower()
-        return s in {"yes", "y", "true", "1"}
-    
-    # Keep only rows where intent indicates Yes
-    try:
-        filtered = df[df[intent_col].map(is_yes)]
-    except Exception as e:
-        print(f"⚠ Could not filter by intent column '{intent_col}': {e}")
-        return [] if include_details else set()
-    
+
+    if filter_by_intent:
+        # Try to find the intent column with tolerant matching
+        intent_col = (
+            find_column_name(df.columns, "intend to respond")
+            or find_column_name(df.columns, "intend")
+            or find_column_name(df.columns, "respond intend")
+        )
+        if not intent_col:
+            print("⚠ 'Intend To Respond' column not found; no materials selected.")
+            return [] if include_details else set()
+
+        def is_yes(v) -> bool:
+            s = str(v).strip().lower()
+            return s in {"yes", "y", "true", "1"}
+
+        # Keep only rows where intent indicates Yes
+        try:
+            filtered = df[df[intent_col].map(is_yes)]
+        except Exception as e:
+            print(f"⚠ Could not filter by intent column '{intent_col}': {e}")
+            return [] if include_details else set()
+    else:
+        # Use ALL rows — no intent filtering
+        filtered = df
+
     if include_details:
         # Return list of dicts with details
         desc_col = find_column_name(df.columns, "description")
@@ -731,7 +737,7 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False)
                         "description": desc_value
                     })
 
-        print(f"🧾 Materials extracted with details: {len(materials_data)}")
+        print(f"🧾 Materials extracted (filter_by_intent={filter_by_intent}): {len(materials_data)}")
         return materials_data
     else:
         # Return set of material codes only
@@ -741,6 +747,6 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False)
                 continue
             for mat in re.findall(r"\d{9}", str(value)):
                 materials.add(mat)
-        
-        print(f"🧾 Materials (Intent=Yes): {sorted(materials)}")
+
+        print(f"🧾 Materials extracted (filter_by_intent={filter_by_intent}): {sorted(materials)}")
         return materials

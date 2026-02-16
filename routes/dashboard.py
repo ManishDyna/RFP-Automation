@@ -13,6 +13,7 @@ from services.sap_service import create_sap_password_record, list_sap_password_r
 from fastapi.responses import JSONResponse, FileResponse, Response
 import os
 import re
+import math
 from hashlib import md5
 import json
 from functools import lru_cache
@@ -628,6 +629,8 @@ async def save_rfp_excel(request: Request, rfp_id: str, file: UploadFile = File(
 _MASTER_CACHE = {"data": None, "timestamp": None, "path": None, "file_mtime": None}
 _KEYWORDS_CACHE = {"data": None, "timestamp": None, "path": None, "file_mtime": None}
 _MATCH_PERCENTAGE_CACHE = {}  # {rfp_id: {"percentage": float, "file_mtime": float, "total_materials": int, "matched_count": int}}
+# Bump this version whenever match logic changes — forces cache invalidation
+_MATCH_CACHE_VERSION = 3  # v3: all items + exact code + keyword matching (same as download time)
 
 # Cache TTL (5 minutes)
 CACHE_TTL_SECONDS = 300
@@ -742,44 +745,50 @@ def ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client):
 
 
 def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list, company: str = None, graph_client=None):
-    """Calculate match percentage for a single RFP (optimized with caching)"""
-    excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client)
+    """
+    Calculate match percentage for a single RFP (optimized with caching).
+    Uses ALL items from Excel (no intent filter).
+    Matching uses exact code + keyword matching (same logic as download time).
+    Only uses locally available files — never downloads from SharePoint.
+    """
+    # Local-only lookup: pass None for graph_client to skip SharePoint downloads
+    excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, company, None)
 
     if not excel_path or not os.path.exists(excel_path):
         return {"match_percentage": 0, "total_materials": 0, "matched_count": 0, "file_mtime": None}
-    
-    # Check cache first
+
+    # Check cache first (invalidate if file changed or match logic version changed)
     file_mtime = os.path.getmtime(excel_path)
     if rfp_id in _MATCH_PERCENTAGE_CACHE:
         cached = _MATCH_PERCENTAGE_CACHE[rfp_id]
-        if cached.get("file_mtime") == file_mtime:
+        if cached.get("file_mtime") == file_mtime and cached.get("cache_version") == _MATCH_CACHE_VERSION:
             return cached
-    
-    # Extract materials
-    materials_data = extract_materials_from_excel(excel_path, include_details=True)
-    
+
+    # Extract ALL materials from Excel (no intent filter)
+    materials_data = extract_materials_from_excel(excel_path, include_details=True, filter_by_intent=False)
+
     if not materials_data:
         result = {"match_percentage": 0, "total_materials": 0, "matched_count": 0, "file_mtime": file_mtime}
         _MATCH_PERCENTAGE_CACHE[rfp_id] = result
         return result
-    
-    # Quick match count
+
+    # Match using exact code + keyword (same logic as download time)
     matched_count = 0
     for mat_data in materials_data:
         mat_code = mat_data["material_code"]
         name_text = mat_data.get("name", "")
         description_text = mat_data.get("description", "")
-        
+
         # Method 1: Exact Material Code Match
         matched_rows = master[master[master_col].astype(str) == mat_code]
         is_matched = not matched_rows.empty
-        
-        # Method 2: Keyword Matching
+
+        # Method 2: Keyword Matching (only if exact match failed)
         if not is_matched and keywords_list:
             name_keywords = extract_keywords_from_text(name_text)
             desc_keywords = extract_keywords_from_text(description_text)
             all_material_keywords = set(name_keywords + desc_keywords)
-            
+
             for csv_keyword in keywords_list:
                 for mat_keyword in all_material_keywords:
                     if csv_keyword in mat_keyword or mat_keyword in csv_keyword:
@@ -787,18 +796,19 @@ def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_li
                         break
                 if is_matched:
                     break
-        
+
         if is_matched:
             matched_count += 1
-    
+
     total_materials = len(materials_data)
     match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
-    
+
     result = {
         "match_percentage": match_percentage,
         "total_materials": total_materials,
         "matched_count": matched_count,
-        "file_mtime": file_mtime
+        "file_mtime": file_mtime,
+        "cache_version": _MATCH_CACHE_VERSION
     }
     _MATCH_PERCENTAGE_CACHE[rfp_id] = result
     return result
@@ -2066,25 +2076,24 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
                 detail=f"Excel file not found for RFP: {rfp_id} (company: {selected_company}). File not found locally or on SharePoint."
             )
         
-        # Extract materials with Name and Description from Excel
-        materials_data = extract_materials_from_excel(excel_path, include_details=True)
-        
+        # Extract ALL materials from Excel (no intent filter — counts all items)
+        materials_data = extract_materials_from_excel(excel_path, include_details=True, filter_by_intent=False)
+
         if not materials_data:
             return JSONResponse({
                 "ok": True,
                 "materials": [],
                 "message": "No materials found in RFP file"
             })
-        
+
         # Get cached master data (downloads only if needed)
         master_csv_local = os.path.join(OUTPUT_DIR, "master_material.csv")
         master = get_cached_master_data(graph_client, master_csv_local)
-        
+
         # Get cached keywords (downloads only if needed)
         keywords_csv_local = os.path.join(OUTPUT_DIR, "unique_keywords.csv")
         keywords_list = get_cached_keywords(graph_client, keywords_csv_local)
-        print(f"📚 Loaded {len(keywords_list)} keywords for matching")
-        
+
         # Find 'material' column in master CSV
         master_col = find_column_name(master.columns, "material")
         if not master_col:
@@ -2092,29 +2101,26 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
                 status_code=500,
                 detail="No 'material' column found in master CSV"
             )
-        
-        # Match materials and prepare response
+
+        # Match materials using same logic as download time (exact code + keyword)
         materials_list = []
         for mat_data in materials_data:
             mat_code = mat_data["material_code"]
             name_text = mat_data.get("name", "")
             description_text = mat_data.get("description", "")
-            
+
             # Method 1: Exact Material Code Match
             matched_rows = master[master[master_col].astype(str) == mat_code]
             is_matched = not matched_rows.empty
             match_method = "exact_code" if is_matched else None
-            
+
             # Method 2: Keyword Matching (only if exact match failed)
             if not is_matched and keywords_list:
-                # Extract keywords from Name and Description (comma-separated)
                 name_keywords = extract_keywords_from_text(name_text)
                 desc_keywords = extract_keywords_from_text(description_text)
                 all_material_keywords = set(name_keywords + desc_keywords)
-                
-                # Check if any keyword from CSV matches any keyword from material
+
                 for csv_keyword in keywords_list:
-                    # Check if CSV keyword appears in any material keyword
                     for mat_keyword in all_material_keywords:
                         if csv_keyword in mat_keyword or mat_keyword in csv_keyword:
                             is_matched = True
@@ -2122,51 +2128,53 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
                             break
                     if is_matched:
                         break
-            
+
             material_info = {
                 "material_code": mat_code,
                 "name": name_text,
                 "description": description_text,
                 "is_matched": is_matched,
                 "match_method": match_method,  # "exact_code", "keyword", or None
-                "selected": False,  # Default to not selected
-                "reason": ""  # For unmatched materials
+                "selected": False,
+                "reason": ""
             }
-            
+
             # If matched, add additional info from master file
-            if is_matched and match_method == "exact_code":
+            if is_matched and not matched_rows.empty:
                 matched_row = matched_rows.iloc[0]
-                # Get material description if available
                 desc_col = find_column_name(master.columns, "description") or find_column_name(master.columns, "material description")
                 if desc_col:
                     material_info["master_description"] = str(matched_row.get(desc_col, ""))
                 else:
                     material_info["master_description"] = ""
-                
-                # Store full matched row data for later use
-                material_info["master_data"] = matched_row.to_dict()
+                # Sanitize master_data: replace NaN/Infinity with None for JSON serialization
+                raw_dict = matched_row.to_dict()
+                material_info["master_data"] = {
+                    k: (None if (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) else v)
+                    for k, v in raw_dict.items()
+                }
             else:
                 material_info["master_description"] = ""
                 material_info["master_data"] = {}
-            
+
             materials_list.append(material_info)
-        
+
         # Count matches by method
         exact_code_matches = sum(1 for m in materials_list if m.get("match_method") == "exact_code")
         keyword_matches = sum(1 for m in materials_list if m.get("match_method") == "keyword")
         matched_count = sum(1 for m in materials_list if m["is_matched"])
         total_materials = len(materials_list)
-        
+
         # Calculate matching percentage
         match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
-        
+
         return JSONResponse({
             "ok": True,
             "materials": materials_list,
             "rfp_id": rfp_id,
             "total_materials": total_materials,
             "matched_count": matched_count,
-            "unmatched_count": sum(1 for m in materials_list if not m["is_matched"]),
+            "unmatched_count": total_materials - matched_count,
             "exact_code_matches": exact_code_matches,
             "keyword_matches": keyword_matches,
             "match_percentage": match_percentage
