@@ -644,8 +644,8 @@ export default function LogsPage() {
   })
 
   const logs: LogEntry[] = data?.logs || []
-  const totalLogs = data?.total || 0
-  const totalPages = Math.ceil(totalLogs / pageSize)
+  const totalRuns = data?.total_runs || 0
+  const totalPages = Math.ceil(totalRuns / pageSize)
 
   // Group logs into automation runs
   const allRuns = useMemo(() => groupLogsByRunId(logs), [logs])
@@ -892,7 +892,7 @@ export default function LogsPage() {
             <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/50">
               <p className="text-sm text-slate-500">
                 Showing <span className="font-semibold text-slate-700">{filteredRuns.length}</span> runs
-                from <span className="font-semibold text-slate-700">{totalLogs}</span> log entries
+                of <span className="font-semibold text-slate-700">{totalRuns}</span> total
               </p>
               <div className="flex items-center gap-2">
                 <Button

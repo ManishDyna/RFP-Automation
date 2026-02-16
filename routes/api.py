@@ -605,8 +605,8 @@ async def api_material_insights_grouped(
 
 
 @router.get("/dashboard/view-logs")
-async def api_view_logs(request: Request, page: int = Query(1), page_size: int = Query(20)):
-    """Get automation logs as JSON"""
+async def api_view_logs(request: Request, page: int = Query(1), page_size: int = Query(50)):
+    """Get automation logs as JSON, grouped by run_id and paginated by runs."""
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
 
@@ -629,16 +629,34 @@ async def api_view_logs(request: Request, page: int = Query(1), page_size: int =
             "details": log.get("Message", "-"),
         })
 
-    # Paginate
+    # Group logs by run_id so pagination works on runs, not individual entries
+    from collections import OrderedDict
+    run_groups: dict[str, list] = OrderedDict()
+    for log in mapped_logs:
+        key = log.get("run_id", "-")
+        if key not in run_groups:
+            run_groups[key] = []
+        run_groups[key].append(log)
+
+    total_runs = len(run_groups)
+    all_run_ids = list(run_groups.keys())
+
+    # Paginate by runs
     start = (page - 1) * page_size
     end = start + page_size
-    paginated = mapped_logs[start:end]
+    paginated_run_ids = all_run_ids[start:end]
+
+    # Collect all log entries for the paginated runs
+    paginated_logs = []
+    for run_id in paginated_run_ids:
+        paginated_logs.extend(run_groups[run_id])
 
     return JSONResponse({
-        "logs": paginated,
+        "logs": paginated_logs,
         "total": len(mapped_logs),
+        "total_runs": total_runs,
         "page": page,
-        "page_size": page_size
+        "page_size": page_size,
     })
 
 

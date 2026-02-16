@@ -3021,20 +3021,22 @@ function initViewExcelButtons() {
         button.addEventListener('click', async function(e) {
             e.preventDefault();
             const rfpId = this.getAttribute('data-rfp-id');
-            
+            const company = this.getAttribute('data-company') || '';
+
             if (!rfpId) {
                 showAlert('RFP ID not found', 'danger');
                 return;
             }
-            
+
             // Show loading state (button only, no global loader)
             const originalHTML = this.innerHTML;
             this.disabled = true;
             this.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Opening...';
-            
+
             try {
                 // Call the backend endpoint to get the unprotected Excel file
-                const response = await fetch(`/dashboard/view-excel/${encodeURIComponent(rfpId)}`);
+                const companyParam = company ? `?company=${encodeURIComponent(company)}` : '';
+                const response = await fetch(`/dashboard/view-excel/${encodeURIComponent(rfpId)}${companyParam}`);
                 
                 if (!response.ok) {
                     const errorData = await response.json();

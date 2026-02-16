@@ -117,7 +117,7 @@
                                 <i class="fas fa-door-open me-1"></i>Portal
                             </a>
                             {% endif %}
-                            <button class="btn btn-sm btn-primary view-excel-btn" data-rfp-id="{{ r.RFP_ID }}">
+                            <button class="btn btn-sm btn-primary view-excel-btn" data-rfp-id="{{ r.RFP_ID }}" data-company="{{ r.Company_Name or '' }}">
                                 <i class="fas fa-file-excel me-1"></i>Excel
                             </button>
                         </td>

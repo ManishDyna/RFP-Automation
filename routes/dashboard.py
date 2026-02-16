@@ -10,7 +10,7 @@ from services.dashboard_service import (
 )
 from services.user_service import get_user, update_user, authenticate_user, get_user_by_email
 from services.sap_service import create_sap_password_record, list_sap_password_records, list_sap_password_records_cached, invalidate_sap_password_cache
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 import os
 import re
 from hashlib import md5
@@ -32,6 +32,7 @@ from config.config import (
     MIN_PAGE_SIZE,
     MAX_PAGE_SIZE,
     COMPANY_OPTIONS,
+    COMPANY_NAME,
 )
 from config.config import AUTOMATION_SCHEDULE_TABLE_API, AUTOMATION_SCHEDULE_TABLE_LOGICAL
 from helpers.core_helper import (
@@ -55,7 +56,7 @@ from config.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, SHAREPOINT_HOSTNA
 import tempfile
 from io import BytesIO
 import pandas as pd
-from helpers.unprotect_xls import unprotect_excel_file
+from helpers.unprotect_xls import unprotect_excel_file, unprotect_excel_bytes
 import glob
 import base64
 
@@ -469,103 +470,72 @@ async def save_schedule(request: Request, payload: dict = Body(...)):
 async def view_rfp_excel(request: Request, rfp_id: str, company: str = None):
     """
     View and edit RFP Excel file (unprotected version).
-
-    This endpoint:
-    1. Finds the Excel file for the given RFP ID in ALLRFPs folder
-    2. Unprotects it (removes password and sheet protection)
-    3. Serves the unprotected file for download/viewing
+    Downloads directly from SharePoint, unprotects in memory, and streams to browser.
+    No local file storage.
     """
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     try:
-        # Resolve company - either from query param or by searching
+        # Resolve company
         selected_company = (company or "").strip()
         if not selected_company:
-            # Try to find company from database or file system
             found_path, found_company = find_rfp_file_across_companies(rfp_id)
             if found_company:
                 selected_company = found_company
             else:
                 selected_company = COMPANY_NAME
 
-        # Use new folder structure: ALLRFPs/Company/RFP_title/downloaded-rfp/RFP_title.xls
-        found_file = get_rfp_excel_file_path(rfp_id, selected_company)
-        
-        # If not found in new structure, try old structure (backward compatibility)
-        if not os.path.exists(found_file):
-            rfp_folder = os.path.join(BASE_DIR, "ALLRFPs")
-            if not os.path.exists(rfp_folder):
-                raise HTTPException(status_code=404, detail=f"RFP folder not found: {rfp_folder}")
-            
-            # Search for the Excel file matching the RFP ID in old structure
-            search_patterns = [
-                f"*{rfp_id}*.xls",
-                f"*{rfp_id}*.xlsx",
-            ]
-            
-            found_file = None
-            for pattern in search_patterns:
-                matches = glob.glob(os.path.join(rfp_folder, pattern))
-                # Filter out already unprotected files
-                matches = [f for f in matches if not f.endswith('_unprotected.xls') and not f.endswith('_unprotected.xlsx')]
-                if matches:
-                    # If multiple matches, prefer the one with exact RFP ID
-                    for match in matches:
-                        if rfp_id in os.path.basename(match):
-                            found_file = match
-                            break
-                    if not found_file:
-                        found_file = matches[0]
-                    break
-        
-        if not found_file or not os.path.exists(found_file):
+        # Connect to SharePoint and find the Excel file
+        graph_client = GraphClient(CLIENT_ID, CLIENT_SECRET, TENANT_ID, SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME)
+        graph_client.auth()
+        graph_client.resolve_site_and_drive()
+
+        sp_file_info = None
+        # Strategy 1: Look in exact RFP folder path
+        sp_material_path = get_sharepoint_rfp_material_path(rfp_id, selected_company)
+        sp_files = graph_client.list_files_in_directory(sp_material_path, ['.xls', '.xlsx'])
+        if sp_files:
+            sp_file_info = sp_files[0]
+
+        # Strategy 2: Search company folder for any file/folder matching the RFP ID
+        if not sp_file_info:
+            import re as _re
+            safe_company = _re.sub(r'[<>:"/\\|?*]', '_', selected_company).strip().rstrip('.')
+            sp_company_path = f"{SP_BASE_FOLDER}/ALLRFPs/{safe_company}"
+            sp_all_files = graph_client.list_files_in_directory(sp_company_path, ['.xls', '.xlsx'])
+            matching = [f for f in sp_all_files if rfp_id in f.get('path', '')]
+            if matching:
+                sp_file_info = matching[0]
+
+        if not sp_file_info:
             raise HTTPException(
-                status_code=404, 
-                detail=f"Excel file not found for RFP ID: {rfp_id}. Please ensure the file exists in ALLRFPs folder."
+                status_code=404,
+                detail=f"Excel file not found on SharePoint for RFP: {rfp_id}"
             )
-        
-        # Check if unprotected version already exists
-        # Store unprotected file in same folder as original
-        base_name = os.path.basename(found_file)
-        name_without_ext, ext = os.path.splitext(base_name)
-        unprotected_filename = f"{name_without_ext}_unprotected{ext}"
-        unprotected_path = os.path.join(os.path.dirname(found_file), unprotected_filename)
-        
-        # If unprotected version doesn't exist, create it
-        if not os.path.exists(unprotected_path):
-            try:
-                unprotected_path = unprotect_excel_file(found_file, unprotected_path)
-                if not unprotected_path:
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Failed to unprotect Excel file. File may not be a valid Excel format."
-                    )
-            except RuntimeError as e:
-                # Handle case where Excel/pywin32 is not available
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Error unprotecting file: {str(e)}. Make sure Microsoft Excel and pywin32 are installed."
-                )
-            except Exception as e:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Error processing Excel file: {str(e)}"
-                )
-        
-        # Serve the unprotected file
-        return FileResponse(
-            path=unprotected_path,
-            filename=unprotected_filename,
-            media_type="application/vnd.ms-excel" if unprotected_path.endswith('.xls') else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+
+        # Download file content from SharePoint into memory
+        file_content = graph_client.get_file_content_from_sharepoint(sp_file_info['path'])
+        raw_bytes = file_content.read()
+        original_filename = sp_file_info.get('name', f'{rfp_id}.xlsx')
+
+        # Unprotect in memory
+        unprotected_bytes, out_filename = unprotect_excel_bytes(raw_bytes, original_filename)
+
+        # Determine media type
+        media_type = "application/vnd.ms-excel" if out_filename.endswith('.xls') else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+        return Response(
+            content=unprotected_bytes,
+            media_type=media_type,
             headers={
-                "Content-Disposition": f'attachment; filename="{unprotected_filename}"',
+                "Content-Disposition": f'attachment; filename="{out_filename}"',
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",
                 "Expires": "0"
             }
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -598,40 +568,31 @@ async def save_rfp_excel(request: Request, rfp_id: str, file: UploadFile = File(
 
         # Use new folder structure: ALLRFPs/Company/RFP_title/downloaded-rfp/RFP_title.xls
         found_file = get_rfp_excel_file_path(rfp_id, selected_company)
-        
-        # If not found in new structure, try old structure (backward compatibility)
+
+        # If not found in new structure, try searching recursively
         if not os.path.exists(found_file):
-            rfp_folder = os.path.join(BASE_DIR, "ALLRFPs")
-            if not os.path.exists(rfp_folder):
-                raise HTTPException(status_code=404, detail=f"RFP folder not found: {rfp_folder}")
-            
-            # Search for the Excel file matching the RFP ID in old structure
-            search_patterns = [
-                f"*{rfp_id}*.xls",
-                f"*{rfp_id}*.xlsx",
-            ]
-            
             found_file = None
-            for pattern in search_patterns:
-                matches = glob.glob(os.path.join(rfp_folder, pattern))
-                # Filter out already unprotected files
-                matches = [f for f in matches if not f.endswith('_unprotected.xls') and not f.endswith('_unprotected.xlsx')]
-                if matches:
-                    # If multiple matches, prefer the one with exact RFP ID
-                    for match in matches:
-                        if rfp_id in os.path.basename(match):
-                            found_file = match
-                            break
-                    if not found_file:
+            company_folder = os.path.join(OUTPUT_DIR, selected_company)
+            search_dirs = [company_folder, OUTPUT_DIR] if os.path.isdir(company_folder) else [OUTPUT_DIR]
+
+            for search_dir in search_dirs:
+                if not os.path.isdir(search_dir):
+                    continue
+                for pattern in [f"**/*{rfp_id}*.xls", f"**/*{rfp_id}*.xlsx"]:
+                    matches = glob.glob(os.path.join(search_dir, pattern), recursive=True)
+                    matches = [f for f in matches if '_unprotected' not in os.path.basename(f)]
+                    if matches:
                         found_file = matches[0]
+                        break
+                if found_file:
                     break
-        
+
         if not found_file or not os.path.exists(found_file):
             raise HTTPException(
-                status_code=404, 
+                status_code=404,
                 detail=f"Original Excel file not found for RFP ID: {rfp_id}"
             )
-        
+
         # Determine the unprotected file path (in same folder as original)
         base_name = os.path.basename(found_file)
         name_without_ext, ext = os.path.splitext(base_name)
