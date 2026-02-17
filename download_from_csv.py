@@ -1,23 +1,41 @@
 """
-Download RFPs from Portal — CSV-driven, Local Only
-====================================================
-Reads a CSV with RFP_ID and Company_Name.
-Logs into the Ariba portal, scrapes each company's RFP list to find
-the portal links automatically, then downloads only the RFPs listed in
-the CSV that don't already exist locally.
+Download RFPs from Portal — Two-File, Local Only
+=================================================
+Uses TWO input files:
+
+  File 1 — RFP ID list  (provided via --file argument)
+      CSV or Excel with columns:  RFP_ID,  Company_Name  [, Link]
+      Example: ALLRFPs/Portal-Rfps/cr673_requestforproposals.csv
+
+  File 2 — Master links file  (hardcoded path, always the same)
+      Excel (.xls) with columns:  Title,  ID,  End Time,  Event Type,  Participated
+      Path: ALLRFPs/Portal-Rfps/All-RFPs.xls
+      The Title column matches the RFP_ID from File 1.
+      The ID column (e.g. "Doc134918839") is used to build the Ariba portal URL.
+
+How it works:
+  1. Load RFP IDs from File 1  (your download list)
+  2. Look up each RFP_ID in the Master links file (File 2) by matching Title
+  3. Build an Ariba portal URL from the Doc ID found in the master file
+  4. If a match is found → use that URL to download directly (no portal scraping needed)
+  5. If no match    → fall back to portal login + company-page scraping
 
 No SharePoint. No Dataverse. Just local.
 
-CSV Format (minimum required columns):
-    RFP_ID,Company_Name
-    Aramco_4202775785,Aramco e-Marketplace
-    SEC_12345,Saudi Electricity Company
+Input file formats supported:
+    CSV  (.csv)   – RFP_ID, Company_Name [, Link]
+    Excel (.xlsx / .xls) – same columns, any sheet name (first sheet used)
+
+Minimum required columns in File 1:
+    RFP_ID       – must match the Title in the master links file
+    Company_Name – used for folder structure and portal navigation fallback
 
 Usage:
-    python download_from_csv.py --csv rfps.csv
-    python download_from_csv.py --csv rfps.csv --username user@example.com --password MyPass
-    python download_from_csv.py --csv rfps.csv --output "D:/CustomFolder"
-    python download_from_csv.py --csv rfps.csv --headless
+    python download_from_csv.py --file rfps.csv
+    python download_from_csv.py --file rfps.xlsx
+    python download_from_csv.py --file rfps.xlsx --username user@example.com --password MyPass
+    python download_from_csv.py --file rfps.xlsx --output "D:/CustomFolder"
+    python download_from_csv.py --file rfps.xlsx --headless
 
 Credentials (priority order):
     1. --username / --password CLI flags
@@ -51,8 +69,13 @@ STATUS_DOWNLOAD_FAILED  = "Download Failed"
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-PORTAL_URL     = "https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&dard=1#b0"
-DEFAULT_OUTPUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ALLRFPs")
+PORTAL_URL        = "https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&dard=1#b0"
+ARIBA_BASE_URL    = "https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&dard=1"
+DEFAULT_OUTPUT    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ALLRFPs")
+MASTER_LINKS_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "ALLRFPs", "Portal-Rfps", "All-RFPs.xls",
+)
 
 MAX_DOWNLOAD_ATTEMPTS = 3    # total attempts per RFP before giving up
 RETRY_WAIT_SEC        = 10   # seconds to wait between error retries
@@ -95,54 +118,219 @@ def file_exists_locally(rfp_id: str, company_name: str, output_dir: str) -> tupl
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CSV loader
+# Master links file  (All-RFPs.xls)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _normalize_for_match(s: str) -> str:
+    """Strip all non-alphanumeric chars for fuzzy RFP ID matching.
+
+    Handles variations like:
+        'SEC RFP-C001718985'  →  'secrfpc001718985'
+        'SEC RFP C001718985'  →  'secrfpc001718985'
+        'SEC RFPC001718985'   →  'secrfpc001718985'
+    """
+    return re.sub(r'[^a-z0-9]', '', s.lower())
+
+
+def load_master_rfp_links(master_file: str) -> dict:
+    """
+    Read the master All-RFPs.xls file and build a lookup dict.
+
+    Expected columns: Title, ID  (plus optional End Time / Event Type / Participated)
+    The Title column cells contain embedded hyperlinks — those are the real portal URLs.
+    The ID column (e.g. 'Doc134918839') is only used as a fallback if no hyperlink exists.
+
+    Returns:
+        { normalized_title : {'id': DocID, 'link': URL, 'title': original_title} }
+        Empty dict if the file cannot be read.
+    """
+    if not os.path.isfile(master_file):
+        _log(f"[WARN] Master links file not found: {master_file}")
+        return {}
+
+    try:
+        import xlrd
+        wb = xlrd.open_workbook(master_file)
+        ws = wb.sheet_by_index(0)
+        headers = [str(v).strip() for v in ws.row_values(0)]
+
+        title_col = next((i for i, h in enumerate(headers) if h.lower() == 'title'), None)
+        id_col    = next((i for i, h in enumerate(headers) if h.lower() == 'id'),    None)
+
+        if title_col is None or id_col is None:
+            _log(f"[WARN] Master file missing 'Title' or 'ID' column. Found: {headers}")
+            return {}
+
+        # Build hyperlink lookup from the sheet: (row, col) → URL
+        hyperlink_map = getattr(ws, 'hyperlink_map', {})
+
+        result = {}
+        no_link_count = 0
+        for row_i in range(1, ws.nrows):
+            row    = ws.row_values(row_i)
+            title  = str(row[title_col] if title_col < len(row) else "").strip()
+            doc_id = str(row[id_col]    if id_col    < len(row) else "").strip()
+            if not title or not doc_id:
+                continue
+
+            # Prefer the real hyperlink embedded in the Title cell
+            hl = hyperlink_map.get((row_i, title_col))
+            if hl and getattr(hl, 'url_or_path', ''):
+                link = hl.url_or_path.strip()
+            else:
+                # Fallback: construct from Doc ID (less reliable but better than nothing)
+                link = f"{ARIBA_BASE_URL}&an={doc_id}"
+                no_link_count += 1
+
+            norm = _normalize_for_match(title)
+            result[norm] = {"id": doc_id, "link": link, "title": title}
+
+        _log(
+            f"Master links file loaded: {len(result)} RFPs indexed from '{master_file}' "
+            f"({len(result) - no_link_count} with real hyperlinks, {no_link_count} fallback URLs)."
+        )
+        return result
+
+    except ImportError:
+        _log("[WARN] 'xlrd' package not installed. Run: pip install xlrd==1.2.0")
+        return {}
+    except Exception as exc:
+        _log(f"[WARN] Could not read master links file '{master_file}': {exc}")
+        return {}
+
+
+def enrich_with_master_links(rows: list, master_links: dict) -> list:
+    """
+    For each row in the download list that has no link yet, look it up in the
+    master links dict and fill in the portal URL.
+
+    Matching is fuzzy: strips all non-alphanumeric chars before comparing.
+    Rows that already carry a link are left untouched.
+
+    Returns the same list (mutated in-place) for convenience.
+    """
+    enriched  = 0
+    not_found = []
+
+    for row in rows:
+        if row["link"]:
+            continue  # already has a direct link
+
+        norm = _normalize_for_match(row["rfp_id"])
+        if norm in master_links:
+            row["link"] = master_links[norm]["link"]
+            enriched += 1
+        else:
+            not_found.append(row["rfp_id"])
+
+    if enriched:
+        _log(f"Master file lookup: {enriched} RFP(s) enriched with portal links.")
+    if not_found:
+        _log(
+            f"Master file lookup: {len(not_found)} RFP(s) NOT found in master file "
+            f"— will fall back to portal scraping:"
+        )
+        for nf in not_found:
+            _log(f"  - {nf}")
+
+    return rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Input file loader  (CSV  or  Excel .xlsx / .xls)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _resolve_col(headers: list[str], target: str) -> str | None:
-    """Case-insensitive column lookup."""
+    """Case-insensitive column lookup (spaces and underscores treated the same)."""
     for h in headers:
         if h.strip().lower().replace(" ", "_") == target.lower():
             return h
     return None
 
 
-def load_csv(csv_path: str) -> list[dict]:
+def _parse_rows(raw_rows: list[dict], source_label: str) -> list[dict]:
     """
-    Return list of dicts: [{'rfp_id': ..., 'company_name': ...}, ...]
-    Only RFP_ID and Company_Name columns are required.
+    Validate and normalise a list of raw header→value dicts.
+    Returns cleaned rows: [{'rfp_id', 'company_name', 'link'}, ...]
+    'link' is an empty string when the column is absent or blank.
     """
-    if not os.path.isfile(csv_path):
-        _die(f"CSV file not found: {csv_path}")
+    if not raw_rows:
+        _die(f"No data rows found in {source_label}")
+
+    headers = list(raw_rows[0].keys())
+    col_id   = _resolve_col(headers, "rfp_id")
+    col_co   = _resolve_col(headers, "company_name")
+    col_link = _resolve_col(headers, "link")   # optional
+
+    if not col_id:
+        _die(f"Input file must have a 'RFP_ID' column. Found: {headers}")
+    if not col_co:
+        _die(f"Input file must have a 'Company_Name' column. Found: {headers}")
 
     rows: list[dict] = []
-    with open(csv_path, newline='', encoding='utf-8-sig') as fh:
-        reader = csv.DictReader(fh)
-        headers = list(reader.fieldnames or [])
+    for lineno, raw in enumerate(raw_rows, start=2):
+        rfp_id  = str(raw.get(col_id)  or "").strip()
+        company = str(raw.get(col_co)  or "").strip()
+        link    = str(raw.get(col_link) or "").strip() if col_link else ""
 
-        col_id  = _resolve_col(headers, "rfp_id")
-        col_co  = _resolve_col(headers, "company_name")
+        # Treat "nan" (pandas empty cell string) as blank
+        if link.lower() in ("nan", "none", "n/a", "-"):
+            link = ""
 
-        if not col_id:
-            _die(f"CSV must have a 'RFP_ID' column.  Found: {headers}")
-        if not col_co:
-            _die(f"CSV must have a 'Company_Name' column.  Found: {headers}")
+        if not rfp_id or not company:
+            print(f"  [WARN] Row {lineno}: missing rfp_id or company_name — skipped")
+            continue
 
-        for lineno, row in enumerate(reader, start=2):
-            rfp_id  = (row.get(col_id)  or "").strip()
-            company = (row.get(col_co)  or "").strip()
-            if not rfp_id or not company:
-                print(f"  [WARN] Row {lineno}: missing rfp_id or company_name — skipped")
-                continue
-            rows.append({"rfp_id": rfp_id, "company_name": company})
+        rows.append({"rfp_id": rfp_id, "company_name": company, "link": link})
 
     return rows
 
 
-def group_by_company(rows: list[dict]) -> dict[str, list[str]]:
-    """Return {company_name: [rfp_id, ...], ...}"""
-    groups: dict[str, list[str]] = {}
+def load_input_file(file_path: str) -> list[dict]:
+    """
+    Load RFP rows from a CSV or Excel file.
+    Returns list of dicts: [{'rfp_id', 'company_name', 'link'}, ...]
+    'link' is empty string when not provided.
+    """
+    if not os.path.isfile(file_path):
+        _die(f"Input file not found: {file_path}")
+
+    ext = os.path.splitext(file_path)[1].lower()
+
+    if ext in (".xlsx", ".xls"):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            ws = wb.active
+            raw_headers = [str(c.value or "").strip() for c in next(ws.iter_rows(min_row=1, max_row=1))]
+            raw_rows = []
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                raw_rows.append(dict(zip(raw_headers, [str(v or "").strip() for v in row])))
+            wb.close()
+        except Exception as exc:
+            _die(f"Could not read Excel file '{file_path}': {exc}")
+
+    elif ext == ".csv":
+        raw_rows = []
+        with open(file_path, newline="", encoding="utf-8-sig") as fh:
+            for row in csv.DictReader(fh):
+                raw_rows.append(dict(row))
+
+    else:
+        _die(f"Unsupported file type '{ext}'. Use .csv, .xlsx, or .xls")
+
+    return _parse_rows(raw_rows, file_path)
+
+
+def group_by_company(rows: list[dict]) -> dict[str, list[dict]]:
+    """
+    Group rows by company_name.
+    Returns {company_name: [{'rfp_id', 'company_name', 'link'}, ...], ...}
+    Preserves the full row dict so the link travels with each RFP.
+    """
+    groups: dict[str, list[dict]] = {}
     for r in rows:
-        groups.setdefault(r['company_name'], []).append(r['rfp_id'])
+        groups.setdefault(r["company_name"], []).append(r)
     return groups
 
 
@@ -637,25 +825,42 @@ def _report_row(
 # Main runner
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def run(csv_path: str, output_dir: str, username: str, password: str, headless: bool):
+async def run(input_file: str, output_dir: str, username: str, password: str, headless: bool):
     from playwright.async_api import async_playwright
 
     run_started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    rows = load_csv(csv_path)
+
+    # ── Step 1: Load download list (File 1) ────────────────────────────────
+    rows = load_input_file(input_file)
     if not rows:
-        _die("No valid rows in CSV.")
+        _die("No valid rows in input file.")
+
+    # ── Step 2: Load master links (File 2) and enrich rows ─────────────────
+    print()
+    _log(f"Loading master links file: {MASTER_LINKS_FILE}")
+    master_links = load_master_rfp_links(MASTER_LINKS_FILE)
+    if master_links:
+        rows = enrich_with_master_links(rows, master_links)
+    else:
+        _log("[WARN] Master links file could not be loaded — all RFPs will use portal scraping.")
 
     os.makedirs(output_dir, exist_ok=True)
     company_groups = group_by_company(rows)
 
+    rows_with_link    = sum(1 for r in rows if r["link"])
+    rows_without_link = len(rows) - rows_with_link
+
     print()
     print("=" * 65)
-    print("  Portal RFP Downloader  —  CSV-driven, Local Only")
+    print("  Portal RFP Downloader  —  Two-File Mode")
     print("=" * 65)
-    print(f"  CSV file  : {csv_path}")
-    print(f"  Output    : {output_dir}")
-    print(f"  Total RFPs: {len(rows)}  across  {len(company_groups)} companies")
-    print(f"  Headless  : {headless}")
+    print(f"  Download list : {input_file}")
+    print(f"  Master links  : {MASTER_LINKS_FILE}")
+    print(f"  Output        : {output_dir}")
+    print(f"  Total RFPs    : {len(rows)}  across  {len(company_groups)} companies")
+    print(f"  Link found    : {rows_with_link}  (direct download via master file)")
+    print(f"  No link       : {rows_without_link}  (will scrape portal for link)")
+    print(f"  Headless      : {headless}")
     print("=" * 65)
     print()
 
@@ -713,35 +918,92 @@ async def run(csv_path: str, output_dir: str, username: str, password: str, head
             _die("Initial login failed. Check your credentials.")
 
         # ── Process each company ───────────────────────────────────────────
-        for company_name, csv_ids in company_groups.items():
+        for company_name, company_rows in company_groups.items():
 
-            # Only work on IDs that aren't already downloaded
-            pending_ids = [
-                rid for rid in csv_ids
-                if not file_exists_locally(rid, company_name, output_dir)[0]
+            # Only work on rows that aren't already downloaded
+            pending_rows = [
+                r for r in company_rows
+                if not file_exists_locally(r['rfp_id'], company_name, output_dir)[0]
             ]
-            if not pending_ids:
+            if not pending_rows:
                 _log(f"[{company_name}] All RFPs already downloaded — skipping company.")
                 continue
 
             print()
             print(f"  {'─'*60}")
-            _log(f"Company: {company_name}  ({len(pending_ids)} RFP(s) to download)")
+            _log(f"Company: {company_name}  ({len(pending_rows)} RFP(s) to download)")
             print(f"  {'─'*60}")
 
-            # ── Ensure session before navigating ──────────────────────────
+            # Split: rows that already carry a link vs rows that need portal scraping
+            direct_rows = [r for r in pending_rows if r["link"]]
+            scrape_rows = [r for r in pending_rows if not r["link"]]
+
+            if direct_rows:
+                _log(f"  {len(direct_rows)} RFP(s) have a direct link — downloading without portal scrape")
+            if scrape_rows:
+                _log(f"  {len(scrape_rows)} RFP(s) have no link — will scrape portal to find them")
+
+            # ── Ensure session before any work ──────────────────────────
             if not await ensure_logged_in(page, username, password):
-                _log(f"Cannot log in — skipping all {len(pending_ids)} RFP(s) for '{company_name}'.")
-                for rid in pending_ids:
+                _log(f"Cannot log in — skipping all {len(pending_rows)} RFP(s) for '{company_name}'.")
+                for r in pending_rows:
                     report_rows.append(_report_row(
-                        rfp_id=rid, company_name=company_name,
+                        rfp_id=r['rfp_id'], company_name=company_name,
                         status=STATUS_PORTAL_ERROR,
                         reason="Could not log in to portal before processing this company",
                     ))
-                stats["portal_err"] += len(pending_ids)
+                stats["portal_err"] += len(pending_rows)
                 continue
 
-            # ── Navigate to company & scrape RFP list ─────────────────────
+            # ── DIRECT DOWNLOAD (link provided in Excel/CSV) ───────────────
+            for r in direct_rows:
+                rfp_id = _clean_id(r['rfp_id'])
+                print()
+                _log(f"[DIRECT]  {rfp_id}  |  {company_name}")
+                _log(f"  Link: {r['link']}")
+
+                exists, path = file_exists_locally(rfp_id, company_name, output_dir)
+                if exists:
+                    _log(f"  [SKIP] Already exists: {path}")
+                    report_rows.append(_report_row(
+                        rfp_id=rfp_id, company_name=company_name,
+                        status=STATUS_SKIPPED_EXISTS,
+                        reason="File appeared locally during run",
+                        local_file=path or "",
+                    ))
+                    continue
+
+                # Build a minimal rfp dict that _download_single understands
+                rfp_dict = {"Title": rfp_id, "Link": r["link"]}
+                success = await download_with_retry(
+                    page, rfp_dict, company_name, output_dir, username, password
+                )
+                if success:
+                    _, saved_path = file_exists_locally(rfp_id, company_name, output_dir)
+                    report_rows.append(_report_row(
+                        rfp_id=rfp_id, company_name=company_name,
+                        status=STATUS_DOWNLOADED,
+                        reason="Downloaded using link provided in input file",
+                        local_file=saved_path or "",
+                    ))
+                    stats["downloaded"] += 1
+                else:
+                    report_rows.append(_report_row(
+                        rfp_id=rfp_id, company_name=company_name,
+                        status=STATUS_DOWNLOAD_FAILED,
+                        reason=(
+                            f"Download failed after {MAX_DOWNLOAD_ATTEMPTS} attempts using provided link. "
+                            "Possible causes: link expired, no Excel on portal, download button unavailable, "
+                            "or network timeout."
+                        ),
+                    ))
+                    stats["failed"] += 1
+
+            # ── PORTAL SCRAPE + DOWNLOAD (no link provided) ────────────────
+            if not scrape_rows:
+                continue
+
+            # Navigate to company & scrape RFP list
             nav_ok = False
             for nav_attempt in range(1, 3):   # 2 navigation attempts
                 try:
@@ -756,35 +1018,36 @@ async def run(csv_path: str, output_dir: str, username: str, password: str, head
                         await ensure_logged_in(page, username, password)
 
             if not nav_ok:
-                _log(f"Could not navigate to '{company_name}' — skipping company.")
-                for rid in pending_ids:
+                _log(f"Could not navigate to '{company_name}' — skipping {len(scrape_rows)} RFP(s).")
+                for r in scrape_rows:
                     report_rows.append(_report_row(
-                        rfp_id=rid, company_name=company_name,
+                        rfp_id=r['rfp_id'], company_name=company_name,
                         status=STATUS_PORTAL_ERROR,
                         reason="Company page could not be reached on portal after 2 attempts",
                     ))
-                stats["portal_err"] += len(pending_ids)
+                stats["portal_err"] += len(scrape_rows)
                 continue
 
             portal_rfps = await scrape_rfps_for_company(page, company_name)
 
             if not portal_rfps:
-                _log(f"No RFPs found on portal for '{company_name}' after retries — skipping.")
-                for rid in pending_ids:
+                _log(f"No RFPs found on portal for '{company_name}' after retries — skipping {len(scrape_rows)} RFP(s).")
+                for r in scrape_rows:
                     report_rows.append(_report_row(
-                        rfp_id=rid, company_name=company_name,
+                        rfp_id=r['rfp_id'], company_name=company_name,
                         status=STATUS_PORTAL_ERROR,
                         reason="Portal returned no RFP list for this company after 2 scrape attempts",
                     ))
-                stats["portal_err"] += len(pending_ids)
+                stats["portal_err"] += len(scrape_rows)
                 continue
 
-            # ── Match CSV IDs against portal data ─────────────────────────
-            matched_rfps, unmatched_ids = match_rfp_ids(pending_ids, portal_rfps)
+            # Match input IDs against scraped portal data
+            scrape_ids   = [r['rfp_id'] for r in scrape_rows]
+            matched_rfps, unmatched_ids = match_rfp_ids(scrape_ids, portal_rfps)
 
-            # Record not-found-on-portal RFPs
+            # Record RFPs not found on portal
             if unmatched_ids:
-                _log(f"[WARN] {len(unmatched_ids)} CSV ID(s) not found in portal list for '{company_name}':")
+                _log(f"[WARN] {len(unmatched_ids)} ID(s) not found in portal list for '{company_name}':")
                 for uid in unmatched_ids:
                     _log(f"       - {uid}")
                     report_rows.append(_report_row(
@@ -798,15 +1061,14 @@ async def run(csv_path: str, output_dir: str, username: str, password: str, head
                     ))
                 stats["no_match"] += len(unmatched_ids)
 
-            _log(f"Matched {len(matched_rfps)} RFP(s) on portal — starting downloads …")
+            _log(f"Matched {len(matched_rfps)} RFP(s) on portal — downloading …")
 
-            # ── Download each matched RFP ─────────────────────────────────
+            # Download each scraped+matched RFP
             for idx, rfp in enumerate(matched_rfps, start=1):
                 title = _clean_id(rfp.get("Title", ""))
                 print()
-                _log(f"[{idx}/{len(matched_rfps)}]  {title}  |  {company_name}")
+                _log(f"[{idx}/{len(matched_rfps)}] SCRAPED  {title}  |  {company_name}")
 
-                # Final local-existence guard
                 exists, path = file_exists_locally(title, company_name, output_dir)
                 if exists:
                     _log(f"  [SKIP] Already exists: {path}")
@@ -821,13 +1083,12 @@ async def run(csv_path: str, output_dir: str, username: str, password: str, head
                 success = await download_with_retry(
                     page, rfp, company_name, output_dir, username, password
                 )
-
                 if success:
                     _, saved_path = file_exists_locally(title, company_name, output_dir)
                     report_rows.append(_report_row(
                         rfp_id=title, company_name=company_name,
                         status=STATUS_DOWNLOADED,
-                        reason="",
+                        reason="Downloaded after scraping portal for link",
                         local_file=saved_path or "",
                     ))
                     stats["downloaded"] += 1
@@ -846,12 +1107,11 @@ async def run(csv_path: str, output_dir: str, username: str, password: str, head
         await browser.close()
 
     # ── Final summary (console) ────────────────────────────────────────────
-    total_no_file = stats["no_match"] + stats["portal_err"]
     print()
     print("=" * 65)
     print("  Download Run Complete")
     print("=" * 65)
-    print(f"  Total RFPs in CSV         : {len(rows)}")
+    print(f"  Total RFPs in file        : {len(rows)}")
     print(f"  Skipped (already existed) : {stats['skipped_pre']}")
     print(f"  Not found on portal       : {stats['no_match']}")
     print(f"  Portal unavailable        : {stats['portal_err']}")
@@ -873,19 +1133,25 @@ async def run(csv_path: str, output_dir: str, username: str, password: str, head
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Download RFPs from Ariba portal using a CSV file (no SharePoint, no Dataverse)",
+        description="Download RFPs from Ariba portal using a CSV or Excel file (no SharePoint, no Dataverse)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-CSV must have at minimum: RFP_ID, Company_Name
-No 'Link' column needed — links are scraped from the portal automatically.
+Supported input formats:   .csv   .xlsx   .xls
+
+Required columns:   RFP_ID,  Company_Name
+Optional column:    Link   (direct portal URL — skips portal scraping when provided)
+
+When Link is present   -> navigates directly to that URL and downloads.
+When Link is blank     -> logs in to portal, scrapes company RFP list, finds the link, then downloads.
 
 Examples:
-  python download_from_csv.py --csv my_rfps.csv
-  python download_from_csv.py --csv my_rfps.csv --headless
-  python download_from_csv.py --csv my_rfps.csv --username me@co.com --password secret
+  python download_from_csv.py --file my_rfps.xlsx
+  python download_from_csv.py --file my_rfps.csv  --headless
+  python download_from_csv.py --file my_rfps.xlsx --username me@co.com --password secret
+  python download_from_csv.py --file my_rfps.xlsx --output "D:/MyRFPs"
         """,
     )
-    parser.add_argument("--csv",      required=True, help="Path to the input CSV file")
+    parser.add_argument("--file",     required=True, help="Path to input file (.csv / .xlsx / .xls)")
     parser.add_argument("--output",   default=DEFAULT_OUTPUT, help=f"Local ALLRFPs folder (default: {DEFAULT_OUTPUT})")
     parser.add_argument("--username", default=None, help="Portal username (or set BAHRA_SAP_USERNAME)")
     parser.add_argument("--password", default=None, help="Portal password (or set BAHRA_SAP_PASSWORD)")
@@ -905,7 +1171,7 @@ Examples:
         )
 
     asyncio.run(run(
-        csv_path=args.csv,
+        input_file=args.file,
         output_dir=args.output,
         username=username,
         password=password,

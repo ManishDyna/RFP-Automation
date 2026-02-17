@@ -34,7 +34,8 @@
       "Bash(wc:*)",
       "Bash(del:*)",
       "Bash(npx vite build:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(c:/python/RFP-automation/env/Scripts/python.exe:*)"
     ]
   }
 }
