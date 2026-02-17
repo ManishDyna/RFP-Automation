@@ -191,18 +191,13 @@ def trigger_email(
 
     elif email_flag == "error_in_rfp_submission":
         subject = subject or f"RFP {rfp_id} Processing Failed"
-        # Check if attachments are provided
-        has_attachments = attachments and len(attachments) > 0
-        attachment_note = ""
-        if has_attachments:
-            attachment_note = "<p><b>Error details are included in the attached log file.</b></p>"
-        body_html = f"""
-        <p>Dear Team,</p>
-        <p>The RFP with ID <b>{rfp_id}</b> encountered an error during processing.</p>
-        {attachment_note}
-        <p>Please check the automation logs for details.</p>
-        <p>Best Regards,<br>Automation System</p>
-        """
+        if not body_html:
+            body_html = f"""
+            <p>Dear Team,</p>
+            <p>The RFP with ID <b>{rfp_id}</b> encountered an error during processing.</p>
+            <p>Please check the automation logs for details.</p>
+            <p>Best Regards,<br>Automation System</p>
+            """
         email_to = EMAIL_TO_RFP_ERROR_IN_SUBMISSION
     
     elif email_flag == "rfp_decline":
@@ -216,18 +211,13 @@ def trigger_email(
 
     elif email_flag == "error_in_rfp_decline":
         subject = subject or f"RFP {rfp_id} Decline Failed"
-        # Check if attachments are provided
-        has_attachments = attachments and len(attachments) > 0
-        attachment_note = ""
-        if has_attachments:
-            attachment_note = "<p><b>Error details are included in the attached log file.</b></p>"
-        body_html = f"""
-        <p>Dear Team,</p>
-        <p>The RFP with ID <b>{rfp_id}</b> encountered an error during processing.</p>
-        {attachment_note}
-        <p>Please check the automation logs for details.</p>
-        <p>Best Regards,<br>Automation System</p>
-        """
+        if not body_html:
+            body_html = f"""
+            <p>Dear Team,</p>
+            <p>The RFP with ID <b>{rfp_id}</b> encountered an error during decline.</p>
+            <p>Please check the automation logs for details.</p>
+            <p>Best Regards,<br>Automation System</p>
+            """
         email_to = EMAIL_TO_RFP_ERROR_IN_DECLINE
 
     elif email_flag == "automation_failure":

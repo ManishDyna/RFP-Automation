@@ -64,26 +64,24 @@ def _format_context_html(context: dict | None) -> str:
 
 def _notify_failure_via_email(automation_label: str, failure_info: dict, graph_client):
     """
-    Send failure notification email with detailed log file attached.
-    Email body uses the default simple message; all details are in the attached log file.
+    Send failure notification email with error log path in the body.
     """
-    attachments = []
-    sharepoint_full_path = failure_info.get("sharepoint_full_path")
+    sharepoint_full_path = failure_info.get("sharepoint_full_path", "")
+    path_html = ""
     if sharepoint_full_path:
-        attachments.append(
-            {
-                "name": failure_info.get("file_name"),
-                "path": sharepoint_full_path,
-            }
-        )
-    # Use default simple email body - all details are in the attached log file
+        path_html = f"<p><b>Error Log Path:</b> {sharepoint_full_path}</p>"
+    body_html = f"""
+    <p>Dear Team,</p>
+    <p>The automation <b>{automation_label}</b> encountered an unexpected error.</p>
+    {path_html}
+    <p>Best Regards,<br>Automation System</p>
+    """
     trigger_email(
         csv_file=None,
         graph_client=graph_client,
         subject=f"[Automation Failure] {automation_label}",
-        body_html=None,  # Use default simple message from email_helper
+        body_html=body_html,
         email_flag="automation_failure",
-        attachments=attachments,
     )
 
 
@@ -409,10 +407,10 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
 
     # Download RFP files (filtering already done in scrape_open_rfps)
     log_event("RFP", "Download", "Start", f"Downloading {len(open_rfps)}")
-    new_download_count = await download_rfp_files(page, open_rfps, company_name, graph_client)
+    new_rfp_titles = await download_rfp_files(page, open_rfps, company_name, graph_client)
 
-    # Skip processing if no new RFPs were downloaded (all were already in Dataverse)
-    if new_download_count == 0:
+    # Skip processing if no new RFPs were downloaded
+    if not new_rfp_titles:
         log_event("RFP", "Process", "Skip", "No new RFPs downloaded - skipping process_folder")
         trigger_email(
             subject=f"No New RFP Available - {company_name} ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})",
@@ -428,9 +426,9 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
         log_event("SYSTEM", "DownloadRFP", "Success", "Download flow finished (all RFPs already existed)")
         return
 
-    # Process matched materials (uses local ALLRFPs folder)
+    # Process only the newly downloaded RFPs
     matched_df, matched_csv_path, not_mateched_files = process_folder(
-        graph_client, None, None, company_name=company_name
+        graph_client, None, None, company_name=company_name, new_rfp_titles=new_rfp_titles
     )
     print(f"✅ Matched materials processed: {matched_csv_path}")
 
@@ -617,19 +615,23 @@ async def run_automation_submit(rfp_id: str, company: str | None = None):
                     graph_client=graph_client,
                     screenshot_path=submit_screenshot,
                 )
-                attachments = []
-                if error_log_info.get("sharepoint_full_path"):
-                    attachments.append({
-                        "name": error_log_info.get("file_name", "error_log.json"),
-                        "path": error_log_info.get("sharepoint_full_path"),
-                    })
+                error_path = error_log_info.get("sharepoint_full_path", "")
+                path_html = ""
+                if error_path:
+                    path_html = f"<p><b>Error Log Path:</b> {error_path}</p>"
+                error_body = f"""
+                <p>Dear Team,</p>
+                <p>The RFP with ID <b>{rfp_id}</b> encountered an error during submission.</p>
+                {path_html}
+                <p>Best Regards,<br>Automation System</p>
+                """
                 try:
                     trigger_email(
                         rfp_id=rfp_id,
                         email_flag="error_in_rfp_submission",
                         graph_client=graph_client,
                         rfp_link=rfp_link,
-                        attachments=attachments
+                        body_html=error_body,
                     )
                 except Exception as email_err:
                     print(f"⚠️ Submit error email failed (non-critical): {email_err}")
@@ -711,19 +713,23 @@ async def run_automation_decline(rfp_id: str, company: str | None = None):
                     graph_client=graph_client,
                     screenshot_path=decline_screenshot,
                 )
-                attachments = []
-                if error_log_info.get("sharepoint_full_path"):
-                    attachments.append({
-                        "name": error_log_info.get("file_name", "error_log.json"),
-                        "path": error_log_info.get("sharepoint_full_path"),
-                    })
+                error_path = error_log_info.get("sharepoint_full_path", "")
+                path_html = ""
+                if error_path:
+                    path_html = f"<p><b>Error Log Path:</b> {error_path}</p>"
+                error_body = f"""
+                <p>Dear Team,</p>
+                <p>The RFP with ID <b>{rfp_id}</b> encountered an error during decline.</p>
+                {path_html}
+                <p>Best Regards,<br>Automation System</p>
+                """
                 try:
                     trigger_email(
                         rfp_id=rfp_id,
                         email_flag="error_in_rfp_decline",
                         graph_client=graph_client,
                         rfp_link=rfp_link,
-                        attachments=attachments
+                        body_html=error_body,
                     )
                 except Exception as email_err:
                     print(f"⚠️ Decline error email failed (non-critical): {email_err}")

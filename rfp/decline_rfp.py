@@ -140,21 +140,21 @@ async def flow_of_process_according_to_step(page, current_position, title='-'):
         pass
 
     # Click "Decline to Respond" button
-    decline_button_clicked = await safe_click(page, "//button[span[contains(text(),'Decline to Respond')]]")
-    if not decline_button_clicked:
-        print("❌ Failed to click 'Decline to Respond' button")
-        try:
-            from core.log_events import log_event
-            log_event("RFP", "Decline", "Fail", "Decline to Respond button not clickable", title)
-        except Exception:
-            pass
-        return False
-    else:
-        try:
-            from core.log_events import log_event
-            log_event("RFP", "Decline", "Click", "Clicked 'Decline to Respond'", title)
-        except Exception:
-            pass
+    # decline_button_clicked = await safe_click(page, "//button[span[contains(text(),'Decline to Respond')]]")
+    # if not decline_button_clicked:
+    #     print("❌ Failed to click 'Decline to Respond' button")
+    #     try:
+    #         from core.log_events import log_event
+    #         log_event("RFP", "Decline", "Fail", "Decline to Respond button not clickable", title)
+    #     except Exception:
+    #         pass
+    #     return False
+    # else:
+    #     try:
+    #         from core.log_events import log_event
+    #         log_event("RFP", "Decline", "Click", "Clicked 'Decline to Respond'", title)
+    #     except Exception:
+    #         pass
     
     await page.wait_for_timeout(5000)
 

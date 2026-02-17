@@ -183,12 +183,11 @@ async def extract_rfp_details_inner_text(page):
         return {'owner': None, 'publish_time': None}
 
 
-def process_folder(graph_client, folder, master_csv, company_name: str = None):
+def process_folder(graph_client, folder, master_csv, company_name: str = None, new_rfp_titles: list = None):
     """
     Process downloaded RFP Excel files, match materials with master CSV,
     and generate/upload a matched materials CSV.
-    Fetches RFP activity log from Dataverse.
-    Uses local ALLRFPs folder for RFP files (no SharePoint download needed).
+    If new_rfp_titles is provided, only process those specific RFPs.
     """
     log_event("RFP", "Process Folder", "Start", f"Processing RFPs for company: {company_name}")
 
@@ -196,8 +195,27 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
     temp_process_dir = tempfile.mkdtemp(prefix="rfp_process_")
     excel_files = []
 
-    # Use local ALLRFPs folder to find RFP Excel files
-    if company_name:
+    # Find Excel files for only the newly downloaded RFPs
+    if company_name and new_rfp_titles:
+        local_company_dir = os.path.join(OUTPUT_DIR, company_name)
+        clean_titles = {clean_rfp_title(t) for t in new_rfp_titles}
+        print(f"🔄 Looking for {len(new_rfp_titles)} newly downloaded RFPs in: {local_company_dir}")
+        log_event("RFP", "Process Folder", "Scanning", f"Looking for {len(new_rfp_titles)} new RFP files")
+        if os.path.exists(local_company_dir):
+            for root, dirs, files in os.walk(local_company_dir):
+                for f in files:
+                    if f.lower().endswith(('.xls', '.xlsx')):
+                        file_id = os.path.splitext(f)[0]
+                        if file_id in clean_titles:
+                            excel_files.append(os.path.join(root, f))
+            if excel_files:
+                log_event("RFP", "Process Folder", "Success", f"Found {len(excel_files)} new RFP files to process")
+            else:
+                log_event("RFP", "Process Folder", "Warning", "No matching Excel files found for new RFPs")
+        else:
+            log_event("RFP", "Process Folder", "Warning", f"Local folder not found: {local_company_dir}")
+    elif company_name:
+        # Fallback: scan all local files if no specific titles provided
         local_company_dir = os.path.join(OUTPUT_DIR, company_name)
         print(f"🔄 Looking for RFP files in local folder: {local_company_dir}")
         log_event("RFP", "Process Folder", "Scanning", "Scanning local ALLRFPs folder for Excel files")
@@ -272,24 +290,33 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
         log_event("RFP", "Download Keywords", "Warning", error_msg)
         keywords_list = []  # Continue without keywords if file not found
 
-    # 🔹 Load RFP activity log=
-    print("🔄 Fetching RFP activity log from Dataverse...")
-    log_event("RFP", "Fetch Activity Log", "Downloading", "Fetching RFP activity log from Dataverse")
+    # 🔹 Load RFP activity log — only for the RFPs we found locally
+    rfp_ids = [os.path.splitext(os.path.basename(f))[0] for f in excel_files]
+    print(f"🔄 Fetching activity log for {len(rfp_ids)} RFPs from Dataverse...")
+    log_event("RFP", "Fetch Activity Log", "Downloading", f"Fetching activity log for {len(rfp_ids)} RFPs")
     try:
-        rows = get_rfp_activity_data_from_db()
-        print("rows:-",rows)
+        # Build OData filter: RFP_ID eq 'X' or RFP_ID eq 'Y' ...
+        filter_parts = [f"RFP_ID eq '{sanitize_filter_value(rid)}'" for rid in rfp_ids]
+        filter_expr = " or ".join(filter_parts)
+        result = DATAVERSE.query_rows(
+            RFP_ACTIVITY_LOG_TABLE_API,
+            filter_expr=filter_expr,
+            select="RFP_ID,Email_Status,RFP_End_Date,owner_name,publish_time,Company_Name,participated,Link,Material_Matched,Keyword_Matched,Matched_Data",
+            top=len(rfp_ids),
+            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            use_display_names=True
+        )
+        rows = result.get("value", []) if isinstance(result, dict) else result if isinstance(result, list) else []
         log_df = pd.DataFrame(rows)
         if log_df.empty:
             log_df = pd.DataFrame(columns=["RFP_ID", "Email_Status", "RFP_End_Date"])
-        print(f"✅ Loaded {len(log_df)} rows from Dataverse")
-        log_event("RFP", "Fetch Activity Log", "Success", f"Loaded {len(log_df)} rows from Dataverse")
+        print(f"✅ Loaded {len(log_df)} rows from Dataverse (for {len(rfp_ids)} RFPs)")
+        log_event("RFP", "Fetch Activity Log", "Success", f"Loaded {len(log_df)} rows for {len(rfp_ids)} RFPs")
     except Exception as e:
         error_msg = f"Could not fetch RFP log from Dataverse: {e}"
         print(f"⚠ {error_msg}")
         log_event("RFP", "Fetch Activity Log", "Fail", error_msg)
         log_df = pd.DataFrame(columns=["RFP_ID", "Email_Status", "RFP_End_Date"])
-    
-    print("log_df:-",log_df)
     
     all_matches = []
     not_mateched_files = []
@@ -303,12 +330,11 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
         file_name = os.path.basename(excel_path)
         rfp_id = os.path.splitext(file_name)[0]
 
-        # Skip already emailed RFPs
-        if not log_df.empty and rfp_id in log_df["RFP_ID"].astype(str).values:
+        # Skip already emailed RFPs (only relevant when processing all local files)
+        if not new_rfp_titles and not log_df.empty and rfp_id in log_df["RFP_ID"].astype(str).values:
             email_status = log_df.loc[log_df["RFP_ID"].astype(str) == rfp_id, "Email_Status"].values
             if email_status.size > 0 and str(email_status[0]).lower() == "sent":
                 print(f"⏩ Skipping {rfp_id}, email already sent.")
-                # log_event("RFP", "Process File", "Skip", f"Email already sent for RFP: {rfp_id}", rfp_id)
                 files_skipped += 1
                 continue
 
@@ -317,14 +343,32 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None):
 
         try:
             df = pd.read_excel(excel_path, sheet_name="Other Content")
-            log_event("RFP", "Process File", "Success", f"Successfully read Excel file: {file_name}", rfp_id)
+            log_event("RFP", "Process File", "Success", f"Read sheet 'Other Content' from: {file_name}", rfp_id)
             files_processed += 1
-        except Exception as e:
-            error_msg = f"Could not read {excel_path}: {e}"
-            print(f"⚠ {error_msg}")
-            log_event("RFP", "Process File", "Fail", error_msg, rfp_id)
-            files_failed += 1
-            continue
+        except Exception:
+            # Fallback: find sheet containing expected columns
+            EXPECTED_COLUMNS = ["intend to respond", "currency", "material number", "price", "quantity"]
+            df = None
+            try:
+                all_sheets = pd.ExcelFile(excel_path).sheet_names
+                for sheet in all_sheets:
+                    sheet_df = pd.read_excel(excel_path, sheet_name=sheet)
+                    sheet_cols_lower = [str(c).lower().strip() for c in sheet_df.columns]
+                    matches = sum(1 for ec in EXPECTED_COLUMNS if any(ec in sc for sc in sheet_cols_lower))
+                    if matches >= 2:
+                        df = sheet_df
+                        log_event("RFP", "Process File", "Success", f"Found matching sheet '{sheet}' ({matches} columns matched) in: {file_name}", rfp_id)
+                        files_processed += 1
+                        break
+            except Exception as e2:
+                log_event("RFP", "Process File", "Fail", f"Could not read {file_name}: {e2}", rfp_id)
+                files_failed += 1
+                continue
+
+            if df is None:
+                log_event("RFP", "Process File", "Fail", f"No sheet with expected columns found in: {file_name} (sheets: {all_sheets})", rfp_id)
+                files_failed += 1
+                continue
 
         col_name = find_column_name(df.columns, "name")
         if not col_name:
@@ -563,33 +607,22 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                 sp_material_path = get_sharepoint_rfp_material_path(title, company_name=company_name)
                 sp_file_full_path = f"{sp_material_path}/{os.path.basename(local_file_path)}"
                 sp_check = graph_client._get_item_by_path(sp_file_full_path)
-                if sp_check.status_code == 404:
-                    log_event("Sharepoint", "Upload", "Uploading", "File missing in SharePoint, uploading from local", title)
+                sp_json = sp_check.json() if sp_check.status_code == 200 else {}
+                file_exists = sp_check.status_code == 200 and "folder" not in sp_json
+                if file_exists:
+                    log_event("Sharepoint", "Upload", "Skip", "File already exists in SharePoint", title)
+                else:
+                    reason = "folder exists but file missing" if sp_check.status_code == 200 else f"not found ({sp_check.status_code})"
+                    log_event("Sharepoint", "Upload", "Uploading", f"File missing in SharePoint ({reason}), uploading from local", title)
                     graph_client.upload_file_as(local_file_path, sp_material_path, os.path.basename(local_file_path))
                     log_event("Sharepoint", "Upload", "Success", "Uploaded local file to SharePoint", title)
-                else:
-                    log_event("Sharepoint", "Upload", "Skip", "File already exists in SharePoint", title)
             except Exception as e:
                 log_event("Sharepoint", "Upload", "Warning", f"SharePoint check/upload failed: {e}", title)
 
         return "skipped"
 
-    # 2. File does NOT exist locally — check Dataverse before downloading from portal
-    try:
-        safe_rfp_id = sanitize_filter_value(title)
-        safe_company = sanitize_filter_value(company_name)
-        existing_result = DATAVERSE.query_rows(
-            RFP_ACTIVITY_LOG_TABLE_API,
-            filter_expr=f"RFP_ID eq '{safe_rfp_id}' and Company_Name eq '{safe_company}'",
-            top=1,
-            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
-            use_display_names=True
-        )
-        if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
-            log_event("RFP", "Download", "Skip", f"Already exists in Dataverse", title)
-            return "skipped"
-    except Exception as e:
-        log_event("RFP", "Download", "Warning", f"Dataverse check failed: {e}", title)
+    # 2. File does NOT exist locally — always download, then ensure SharePoint + Dataverse
+    log_event("RFP", "Download", "Proceed", "File not found locally — downloading from portal", title)
 
     success = False
     new_page = await page.context.new_page()
@@ -690,12 +723,15 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                 sp_material_path = get_sharepoint_rfp_material_path(title, company_name=company_name)
                 sp_file_full_path = f"{sp_material_path}/{os.path.basename(local_file_path)}"
                 sp_check = graph_client._get_item_by_path(sp_file_full_path)
-                if sp_check.status_code == 404:
-                    log_event("Sharepoint", "Upload", "Uploading", f"Uploading {final_filename} to SharePoint", title)
+                sp_json = sp_check.json() if sp_check.status_code == 200 else {}
+                file_exists = sp_check.status_code == 200 and "folder" not in sp_json
+                if file_exists:
+                    log_event("Sharepoint", "Upload", "Skip", "File already exists in SharePoint", title)
+                else:
+                    reason = "folder exists but file missing" if sp_check.status_code == 200 else f"not found ({sp_check.status_code})"
+                    log_event("Sharepoint", "Upload", "Uploading", f"Uploading {final_filename} to SharePoint ({reason})", title)
                     graph_client.upload_file_as(local_file_path, sp_material_path, os.path.basename(local_file_path))
                     log_event("Sharepoint", "Upload", "Success", f"Successfully uploaded {final_filename} to SharePoint", title)
-                else:
-                    log_event("Sharepoint", "Upload", "Skip", "File already exists in SharePoint", title)
             except Exception as e:
                 error_msg = f"Failed to upload {final_filename} to SharePoint: {str(e)}"
                 log_event("Sharepoint", "Upload", "Fail", error_msg, title)
@@ -739,12 +775,15 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                         sp_material_path = get_sharepoint_rfp_material_path(title, company_name)
                         sp_file_full_path = f"{sp_material_path}/{os.path.basename(local_file_path)}"
                         sp_check = graph_client._get_item_by_path(sp_file_full_path)
-                        if sp_check.status_code == 404:
-                            log_event("Sharepoint", "Upload", "Uploading", f"Uploading fallback file to SharePoint", title)
+                        sp_json = sp_check.json() if sp_check.status_code == 200 else {}
+                        file_exists = sp_check.status_code == 200 and "folder" not in sp_json
+                        if file_exists:
+                            log_event("Sharepoint", "Upload", "Skip", "File already exists in SharePoint", title)
+                        else:
+                            reason = "folder exists but file missing" if sp_check.status_code == 200 else f"not found ({sp_check.status_code})"
+                            log_event("Sharepoint", "Upload", "Uploading", f"Uploading fallback file to SharePoint ({reason})", title)
                             graph_client.upload_file_as(local_file_path, sp_material_path, os.path.basename(local_file_path))
                             log_event("Sharepoint", "Upload", "Success", f"Successfully uploaded fallback file to SharePoint", title)
-                        else:
-                            log_event("Sharepoint", "Upload", "Skip", "File already exists in SharePoint", title)
                     except Exception as e:
                         error_msg = f"Failed to upload fallback file to SharePoint: {str(e)}"
                         log_event("Sharepoint", "Upload", "Fail", error_msg, title)
@@ -779,7 +818,7 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
 
 
 async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
-    """Returns the number of newly downloaded RFPs (excludes skipped ones)."""
+    """Returns the list of newly downloaded RFP titles (excludes skipped ones)."""
     log_event("RFP", "Download Batch", "Start", f"Starting download for {len(rfps)} RFPs")
     missing = []
     successful = []
@@ -824,5 +863,5 @@ async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
     summary_msg = f"Download batch complete. Total: {total_rfps}, New: {new_download_count}, Skipped: {skipped_count}, Failed: {failed_count}"
     log_event("RFP", "Download Batch", "Complete", summary_msg)
 
-    return new_download_count
+    return successful
    
