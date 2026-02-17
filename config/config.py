@@ -178,3 +178,8 @@ IDLE_TIMEOUT_SECONDS = 1800
 SESSION_WARNING_SECONDS = 300
 # Session refresh interval in seconds (5 minutes)
 SESSION_REFRESH_INTERVAL = 300
+
+
+
+# ===== Temp data for testing =====
+# python download_from_csv.py --csv C:\python\RFP-automation\ALLRFPs\Portal-Rfps\cr673_requestforproposals.csv --username Loai.Albar@bahra-cables.com --password Bahra@2026
