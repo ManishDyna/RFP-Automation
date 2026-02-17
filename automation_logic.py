@@ -7,7 +7,7 @@ if sys.platform == "win32":
 # === Your existing imports ===
 from rfp.submit_rfp import submit_rfp
 from core.common_imports import *
-from config.config import SP_BASE_FOLDER, OUTPUT_DIR, URL, resolve_company_name
+from config.config import SP_BASE_FOLDER, OUTPUT_DIR, URL, resolve_company_name, COMPANY_OPTIONS
 from config.runtime_config import USERNAME, PASSWORD
 from rfp.download_rfp import *
 from core.common_process import *
@@ -541,6 +541,80 @@ async def run_automation_download(company: str | None = None):
                 except Exception as e:
                     print(f"Error closing browser: {str(e)}")
             log_event("SYSTEM", "EndRun", "Success", "Automation Finished")
+
+
+async def run_automation_download_open_rfps():
+    """Download RFPs automation for ALL companies (iterates through COMPANY_OPTIONS)."""
+    start_new_run()
+    log_event("SYSTEM", "StartRun", "Success", f"Download Open RFPs automation started for all {len(COMPANY_OPTIONS)} companies")
+
+    graph_client = GraphClient(
+        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
+        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+    )
+    graph_client.auth()
+    graph_client.resolve_site_and_drive()
+
+    summary = {
+        "total_companies": len(COMPANY_OPTIONS),
+        "processed": 0,
+        "failed": 0,
+        "companies": [],
+    }
+
+    for idx, company in enumerate(COMPANY_OPTIONS, 1):
+        print(f"\n{'='*70}")
+        print(f"[Download Open] Processing company {idx}/{len(COMPANY_OPTIONS)}: {company}")
+        print(f"{'='*70}")
+        log_event("RFP", "ProcessCompany", "Start", f"Processing company {idx}/{len(COMPANY_OPTIONS)}: {company}")
+        update_progress("download", current=idx, total=len(COMPANY_OPTIONS), current_item=company, message=f"Processing {company}")
+
+        async with async_playwright() as p:
+            browser = None
+            page = None
+            try:
+                # Login + scrape RFPs for this company
+                open_rfps, page, browser = await common_flow(
+                    p,
+                    graph_client,
+                    profile_label=f"download-open-{idx}",
+                    company=company,
+                )
+                print(f"[Download Open] Company '{company}' - Found {len(open_rfps)} RFPs")
+                log_event("RFP", "Scrape", "Success", f"Company '{company}': Found {len(open_rfps)} RFPs")
+
+                # Download RFPs for this company
+                await download_rfp(page, open_rfps, graph_client, company_name=company)
+
+                summary["processed"] += 1
+                summary["companies"].append({"company": company, "status": "success", "rfps_found": len(open_rfps)})
+                log_event("RFP", "ProcessCompany", "Success", f"Company '{company}' completed successfully")
+
+            except Exception as e:
+                print(f"[Download Open] Error for company '{company}': {str(e)}")
+                log_event("SYSTEM", "RunError", "Fail", f"Company '{company}' error: {str(e)}")
+                screenshot_path = await _take_error_screenshot(page, f"download_open_{company}")
+                failure_info = record_failure_log(
+                    e,
+                    context={"automation": "download_open_rfps", "company": company},
+                    graph_client=graph_client,
+                    screenshot_path=screenshot_path,
+                )
+                _notify_failure_via_email(f"Download Open RFPs - {company}", failure_info, graph_client)
+                summary["failed"] += 1
+                summary["companies"].append({"company": company, "status": "failed", "error": str(e)})
+            finally:
+                if browser:
+                    try:
+                        await browser.close()
+                    except Exception as e:
+                        print(f"Error closing browser: {str(e)}")
+
+    summary_msg = f"Download Open RFPs complete. Processed: {summary['processed']}/{summary['total_companies']}, Failed: {summary['failed']}"
+    print(f"\n{summary_msg}")
+    log_event("SYSTEM", "EndRun", "Success", summary_msg)
+    return {"status": "success", "message": summary_msg, "summary": summary}
+
 
 async def run_automation_submit(rfp_id: str, company: str | None = None):
     start_new_run()  # Generate new unique RUN_ID for this automation run

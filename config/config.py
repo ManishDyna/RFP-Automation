@@ -139,16 +139,16 @@ SP_FAILURE_LOGS_FOLDER = "RFP-logs/automation-error-logs"
 
 
 # Email Config
-EMAIL_TO_RFP_SUBMITTED = "Manish.Soni@dynatechconsultancy.com"  # When RFP is submitted successfully
-EMAIL_TO_RFP_DECLINED = "Manish.Soni@dynatechconsultancy.com"  # When RFP is declined successfully
-EMAIL_TO_RFP_ERROR_IN_SUBMISSION = "Manish.Soni@dynatechconsultancy.com"  # When RFP is submission failed
-EMAIL_TO_RFP_ERROR_IN_DECLINE = "Manish.Soni@dynatechconsultancy.com"  # When RFP is decline failed or error in decline
-EMAIL_TO_AUTOMATION_FAILURE = "Manish.Soni@dynatechconsultancy.com"  # When Automation is failed
+EMAIL_TO_RFP_SUBMITTED = "ksatenders@bahra-cables.com"  # When RFP is submitted successfully
+EMAIL_TO_RFP_DECLINED = "ksatenders@bahra-cables.com"  # When RFP is declined successfully
+EMAIL_TO_RFP_ERROR_IN_SUBMISSION = "ksatenders@bahra-cables.com"  # When RFP is submission failed
+EMAIL_TO_RFP_ERROR_IN_DECLINE = "ksatenders@bahra-cables.com"  # When RFP is decline failed or error in decline
+EMAIL_TO_AUTOMATION_FAILURE = "ksatenders@bahra-cables.com"  # When Automation is failed
 
-EMAIL_TO_RFP_SAVED_DRAFT = "Manish.Soni@dynatechconsultancy.com"  # When RFP is saved as draft successfully
-EMAIL_TO_NO_MATCHED_DATA = "Manish.Soni@dynatechconsultancy.com"  # When No matched data IN DOWNLOAD RFP
+EMAIL_TO_RFP_SAVED_DRAFT = "ksatenders@bahra-cables.com"  # When RFP is saved as draft successfully
+EMAIL_TO_NO_MATCHED_DATA = "ksatenders@bahra-cables.com"  # When No matched data IN DOWNLOAD RFP
 
-EMAIL_TO_RFP_REMINDER = "Manish.Soni@dynatechconsultancy.com;shubham.kumbhar@dynatechconsultancy.com"
+EMAIL_TO_RFP_REMINDER = "ksatenders@bahra-cables.com;shubham.kumbhar@dynatechconsultancy.com"
 # RFP REMINDER EMAIL
 
 # ===== Dashboard / Logs Settings =====

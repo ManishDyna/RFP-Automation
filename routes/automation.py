@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Form, Query
-from automation_logic import run_automation_download, run_automation_submit, run_automation_decline, run_automation_reminder, run_automation_sync_portal, run_sync_sharepoint_dataverse
+from automation_logic import run_automation_download, run_automation_download_open_rfps, run_automation_submit, run_automation_decline, run_automation_reminder, run_automation_sync_portal, run_sync_sharepoint_dataverse
 
 # Import shared progress helper
 from helpers.progress_helper import update_progress as _update_progress, get_progress as _get_progress, reset_progress as _reset_progress
@@ -204,6 +204,23 @@ async def download_rfp_endpoint(company: str = Query("", alias="company")):
     # Run in separate thread with ProactorEventLoop for Windows Playwright compatibility
     _run_async_in_thread(_task)
     return JSONResponse({"ok": True, "started": True}, status_code=202)
+
+@router.get("/download-rfps-automation")
+async def download_rfps_automation_endpoint():
+    """Download RFPs automation for ALL companies (iterates through all configured companies)."""
+    # Thread-safe atomic check-and-set
+    if not _try_start_operation("download"):
+        return JSONResponse({"ok": False, "message": "Download already running"}, status_code=409)
+
+    async def _task():
+        try:
+            await run_automation_download_open_rfps()
+        finally:
+            _finish_operation("download")
+
+    # Run in separate thread with ProactorEventLoop for Windows Playwright compatibility
+    _run_async_in_thread(_task)
+    return JSONResponse({"ok": True, "started": True, "mode": "all_companies"}, status_code=202)
 
 ## moved /dashboard/rfp-preview endpoint to routes/dashboard.py
 

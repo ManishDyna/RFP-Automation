@@ -248,7 +248,29 @@ class DataverseClient:
         if resp.status_code != 200:
             error_text = resp.text.encode('ascii', 'replace').decode('ascii')
             raise Exception(f"[ERROR] Query failed for '{table_api_name}': {resp.status_code}, {error_text}")
-        return resp.json()
+        result = resp.json()
+
+        # Remap logical column names back to display names if needed
+        if use_display_names and table_logical_name:
+            try:
+                column_map = self.get_column_mapping(table_logical_name)
+                logical_to_display = {logical: display for display, logical in column_map.items()}
+                rows = result.get("value", []) if isinstance(result, dict) else result if isinstance(result, list) else []
+                display_rows = []
+                for row in rows:
+                    display_row = {}
+                    for logical_col, value in row.items():
+                        display_col = logical_to_display.get(logical_col, logical_col)
+                        display_row[display_col] = value
+                    display_rows.append(display_row)
+                if isinstance(result, dict):
+                    result["value"] = display_rows
+                else:
+                    result = display_rows
+            except Exception:
+                pass
+
+        return result
 
 
     # Get display name → logical name mapping for a table (cached)

@@ -45,8 +45,9 @@ app.add_middleware(
 # Main API router for React frontend (prefixed with /api)
 app.include_router(api_routes.router)
 
-# Automation API router (prefixed with /api)
+# Automation API router (prefixed with /api and also at root)
 app.include_router(automation.router, prefix="/api")
+app.include_router(automation.router)
 
 # Dashboard API router for Excel/Material/RFP endpoints (prefixed with /dashboard)
 app.include_router(dashboard.router)

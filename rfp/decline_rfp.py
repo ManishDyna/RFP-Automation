@@ -232,6 +232,45 @@ async def decline_rfps(page, data, company_name: str, rfp_id=""):
         print(f"⚠ No RFP found matching ID '{rfp_id}'")
         return []
 
+    # --- Fix 1: Skip RFPs already declined in Dataverse ---
+    try:
+        from helpers.core_helper import get_rfp_activity_data_from_db
+        from core.log_events import log_event
+        db_rows = get_rfp_activity_data_from_db()
+        for row in filtered_data[:]:  # iterate over copy
+            title = (row.get("Title") or "").strip()
+            for db_row in db_rows:
+                if db_row.get("RFP_ID") == title:
+                    participated = (db_row.get("participated") or "").lower().strip()
+                    if participated == "declined":
+                        print(f"⏩ Skipping already-declined RFP: {title}")
+                        log_event("RFP", "Decline", "Skip", f"Already declined: {title}", title)
+                        filtered_data.remove(row)
+                    break
+    except Exception as db_err:
+        print(f"⚠ Could not check Dataverse for decline status: {db_err}")
+
+    if not filtered_data:
+        print(f"⚠ All matching RFPs are already declined")
+        return []
+
+    # --- Fix 2: Skip RFPs already participated on the portal ---
+    for row in filtered_data[:]:  # iterate over copy
+        portal_status = (row.get("Status") or "").strip().lower()
+        title = (row.get("Title") or "").strip()
+        if portal_status in ("declined", "submitted", "yes"):
+            print(f"⏩ Skipping RFP with portal status '{portal_status}': {title}")
+            try:
+                from core.log_events import log_event
+                log_event("RFP", "Decline", "Skip", f"Portal status is '{portal_status}'", title)
+            except Exception:
+                pass
+            filtered_data.remove(row)
+
+    if not filtered_data:
+        print(f"⚠ No eligible RFPs to decline after filtering")
+        return []
+
     async def attempt_decline_rfps(row):
         title = (row.get("Title") or "").strip()
         link = (row.get("Link") or "").strip()

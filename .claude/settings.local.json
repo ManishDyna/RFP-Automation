@@ -33,7 +33,8 @@
       "Bash(pip install:*)",
       "Bash(wc:*)",
       "Bash(del:*)",
-      "Bash(npx vite build:*)"
+      "Bash(npx vite build:*)",
+      "Bash(xargs:*)"
     ]
   }
 }
