@@ -10,6 +10,7 @@ _PROGRESS = {
     "submit": {"current": 0, "total": 0, "current_item": "", "message": ""},
     "decline": {"current": 0, "total": 0, "current_item": "", "message": ""},
     "sync": {"current": 0, "total": 0, "current_item": "", "message": ""},
+    "sync_all": {"current": 0, "total": 0, "current_item": "", "message": ""},
 }
 
 

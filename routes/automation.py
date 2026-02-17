@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Form, Query
 from automation_logic import run_automation_download, run_automation_download_open_rfps, run_automation_submit, run_automation_decline, run_automation_reminder, run_automation_sync_portal, run_sync_sharepoint_dataverse
+from rfp_sync import run_three_way_sync_async
 
 # Import shared progress helper
 from helpers.progress_helper import update_progress as _update_progress, get_progress as _get_progress, reset_progress as _reset_progress
@@ -77,6 +78,7 @@ _RUN_STATE = {
     "decline": False,
     "sync": False,
     "sync_sp_dv": False,  # SharePoint-Dataverse sync
+    "sync_all": False,    # 3-way sync (Dataverse + SharePoint + Local)
     "last": None,
     "submitting_rfps": set(),  # Track specific RFP IDs being submitted
 }
@@ -134,6 +136,7 @@ def _get_state_snapshot() -> dict:
             "decline": _RUN_STATE.get("decline", False),
             "sync": _RUN_STATE.get("sync", False),
             "sync_sp_dv": _RUN_STATE.get("sync_sp_dv", False),
+            "sync_all": _RUN_STATE.get("sync_all", False),
             "last": _RUN_STATE.get("last"),
             "submitting_rfps": list(_RUN_STATE.get("submitting_rfps", set())),
         }
@@ -149,7 +152,8 @@ async def automation_status():
         state["submit"] or
         state["decline"] or
         state["sync"] or
-        state["sync_sp_dv"]
+        state["sync_sp_dv"] or
+        state["sync_all"]
     )
     status = "Running" if is_running else "Ready"
 
@@ -165,6 +169,8 @@ async def automation_status():
         overall_progress = _get_progress("sync")["percentage"]
     elif state["sync_sp_dv"]:
         overall_progress = _get_progress("sync_sp_dv")["percentage"]
+    elif state["sync_all"]:
+        overall_progress = _get_progress("sync_all")["percentage"]
 
     return {
         "ok": True,
@@ -175,6 +181,7 @@ async def automation_status():
         "decline_running": state["decline"],
         "sync_running": state["sync"],
         "sync_sp_dv_running": state["sync_sp_dv"],
+        "sync_all_running": state["sync_all"],
         "last": state["last"],
         "submitting_rfps": state["submitting_rfps"],
         # Detailed progress for each operation
@@ -184,6 +191,7 @@ async def automation_status():
             "decline": _get_progress("decline") if state["decline"] else None,
             "sync": _get_progress("sync") if state["sync"] else None,
             "sync_sp_dv": _get_progress("sync_sp_dv") if state["sync_sp_dv"] else None,
+            "sync_all": _get_progress("sync_all") if state["sync_all"] else None,
         }
     }
 
@@ -498,4 +506,24 @@ async def decline_rfp_endpoint(payload: dict = Body(...)):
 async def rfp_reminder_endpoint():
     return await run_automation_reminder()
 
+
+@router.get("/sync-all")
+async def sync_all_endpoint(company: str = Query("", alias="company")):
+    """
+    3-way sync: Dataverse <-> SharePoint <-> Local Host.
+    Ensures RFP records and files are consistent across all three locations.
+    """
+    selected_company = (company or "").strip()
+
+    if not _try_start_operation("sync_all"):
+        return JSONResponse({"ok": False, "message": "3-way sync already running"}, status_code=409)
+
+    async def _task():
+        try:
+            await run_three_way_sync_async(selected_company or None)
+        finally:
+            _finish_operation("sync_all")
+
+    _run_async_in_thread(_task)
+    return JSONResponse({"ok": True, "started": True, "message": "3-way sync started"}, status_code=202)
 
