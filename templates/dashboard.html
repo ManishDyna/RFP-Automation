@@ -219,9 +219,11 @@
                                                                     {{ r.RFP_ID }} <i class="fas fa-external-link-alt ms-1" style="font-size: 0.75em;"></i>
                                                                 </a>
                                                                 {% else %}
-                                                                {{ r.RFP_ID }}
+                                                                <span class="fw-bold">{{ r.RFP_ID }}</span>
                                                                 {% endif %}
-                                                                <i class="fas fa-copy copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID" style="font-size:13px;color:#212529;cursor:pointer;margin-left:8px;vertical-align:middle;"></i>
+                                                                <i class="fas fa-copy ms-2 copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID"
+                                                                   style="font-size:12px;color:#495057;cursor:pointer;vertical-align:middle;"
+                                                                   onclick="event.stopPropagation();var el=this;navigator.clipboard.writeText(el.dataset.rfpId).then(function(){el.classList.replace('fa-copy','fa-check');el.style.color='#198754';setTimeout(function(){el.classList.replace('fa-check','fa-copy');el.style.color='#495057';},1500);});"></i>
                                                             </td>
                                                             <td class="text-nowrap">{{ r.Owner_Name }}</td>
                                                             <td class="text-nowrap">{{ r.Publish_Time }}</td>
@@ -285,9 +287,11 @@
                                                                     {{ r.RFP_ID }} <i class="fas fa-external-link-alt ms-1" style="font-size: 0.75em;"></i>
                                                                 </a>
                                                                 {% else %}
-                                                                {{ r.RFP_ID }}
+                                                                <span class="fw-bold">{{ r.RFP_ID }}</span>
                                                                 {% endif %}
-                                                                <i class="fas fa-copy copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID" style="font-size:13px;color:#212529;cursor:pointer;margin-left:8px;vertical-align:middle;"></i>
+                                                                <i class="fas fa-copy ms-2 copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID"
+                                                                   style="font-size:12px;color:#495057;cursor:pointer;vertical-align:middle;"
+                                                                   onclick="event.stopPropagation();var el=this;navigator.clipboard.writeText(el.dataset.rfpId).then(function(){el.classList.replace('fa-copy','fa-check');el.style.color='#198754';setTimeout(function(){el.classList.replace('fa-check','fa-copy');el.style.color='#495057';},1500);});"></i>
                                                             </td>
                                                             <td class="text-nowrap">{{ r.Owner_Name }}</td>
                                                             <td class="text-nowrap">{{ r.Publish_Time }}</td>
@@ -337,9 +341,11 @@
                                                                     {{ r.RFP_ID }} <i class="fas fa-external-link-alt ms-1" style="font-size: 0.75em;"></i>
                                                                 </a>
                                                                 {% else %}
-                                                                {{ r.RFP_ID }}
+                                                                <span class="fw-bold">{{ r.RFP_ID }}</span>
                                                                 {% endif %}
-                                                                <i class="fas fa-copy copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID" style="font-size:13px;color:#212529;cursor:pointer;margin-left:8px;vertical-align:middle;"></i>
+                                                                <i class="fas fa-copy ms-2 copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID"
+                                                                   style="font-size:12px;color:#495057;cursor:pointer;vertical-align:middle;"
+                                                                   onclick="event.stopPropagation();var el=this;navigator.clipboard.writeText(el.dataset.rfpId).then(function(){el.classList.replace('fa-copy','fa-check');el.style.color='#198754';setTimeout(function(){el.classList.replace('fa-check','fa-copy');el.style.color='#495057';},1500);});"></i>
                                                             </td>
                                                             <td class="text-nowrap">{{ r.Owner_Name }}</td>
                                                             <td class="text-nowrap">{{ r.Publish_Time }}</td>
@@ -393,9 +399,11 @@
                                                                     {{ r.RFP_ID }} <i class="fas fa-external-link-alt ms-1" style="font-size: 0.75em;"></i>
                                                                 </a>
                                                                 {% else %}
-                                                                {{ r.RFP_ID }}
+                                                                <span class="fw-bold">{{ r.RFP_ID }}</span>
                                                                 {% endif %}
-                                                                <i class="fas fa-copy copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID" style="font-size:13px;color:#212529;cursor:pointer;margin-left:8px;vertical-align:middle;"></i>
+                                                                <i class="fas fa-copy ms-2 copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID"
+                                                                   style="font-size:12px;color:#495057;cursor:pointer;vertical-align:middle;"
+                                                                   onclick="event.stopPropagation();var el=this;navigator.clipboard.writeText(el.dataset.rfpId).then(function(){el.classList.replace('fa-copy','fa-check');el.style.color='#198754';setTimeout(function(){el.classList.replace('fa-check','fa-copy');el.style.color='#495057';},1500);});"></i>
                                                             </td>
                                                             <td class="text-nowrap">{{ r.Owner_Name }}</td>
                                                             <td class="text-nowrap">{{ r.Publish_Time }}</td>

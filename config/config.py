@@ -159,8 +159,8 @@ EMAIL_TO_NEW_RFP_NO_MATCH = "ksatenders@bahra-cables.com"
 # When a new RFP is found AND materials are matched — receives the RFP file itself (in addition to
 # Sales/Technical who receive the matched materials CSV)
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_NEW_RFP_WITH_MATCH = "ksatenders@bahra-cables.com"
-EMAIL_TO_NO_MATCHED_DATA = "ksatenders@bahra-cables.com"  # When No matched data IN DOWNLOAD RFP
+# EMAIL_TO_NEW_RFP_WITH_MATCH = "ksatenders@bahra-cables.com"
+# EMAIL_TO_NO_MATCHED_DATA = "ksatenders@bahra-cables.com"  # When No matched data IN DOWNLOAD RFP
 # EMAIL_TO_RFP_SUBMITTED = "arawah@bahra-cables.com" 
 # EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
 
@@ -173,8 +173,8 @@ EMAIL_TO_RFP_REMINDER = "ksatenders@bahra-cables.com;shubham.kumbhar@dynatechcon
 
 
 
-# EMAIL_TO_NEW_RFP_WITH_MATCH = "sec.tenderteam@bahra-cables.com"
-# EMAIL_TO_NO_MATCHED_DATA = "ksatenders@bahra-cables.com" 
+EMAIL_TO_NEW_RFP_WITH_MATCH = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"
+EMAIL_TO_NO_MATCHED_DATA = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com" 
 # EMAIL_TO_NEW_RFP_NO_MATCH = "sec.tenderteam@bahra-cables.com"
 
 
