@@ -133,7 +133,7 @@ OUTPUT_DIR = os.path.join(os.getcwd(), "ALLRFPs")
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
-FAILURE_LOGS_DIR = os.path.join(os.getcwd(), "LOGS")
+FAILURE_LOGS_DIR = os.path.join(os.getcwd(), "LOGS") 
 os.makedirs(FAILURE_LOGS_DIR, exist_ok=True)
 SP_FAILURE_LOGS_FOLDER = "RFP-logs/automation-error-logs"
 
@@ -153,17 +153,10 @@ EMAIL_TO_RFP_DECLINED = "ksatenders@bahra-cables.com"  # When RFP is declined su
 EMAIL_TO_RFP_ERROR_IN_SUBMISSION = "ksatenders@bahra-cables.com"  # When RFP is submission failed
 EMAIL_TO_RFP_ERROR_IN_DECLINE = "ksatenders@bahra-cables.com"  # When RFP is decline failed or error in decline
 EMAIL_TO_AUTOMATION_FAILURE = "ksatenders@bahra-cables.com"  # When Automation is failed
-# When a new RFP is found on the portal but no material match was found for it
-# Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
 EMAIL_TO_NEW_RFP_NO_MATCH = "ksatenders@bahra-cables.com"
 # When a new RFP is found AND materials are matched — receives the RFP file itself (in addition to
 # Sales/Technical who receive the matched materials CSV)
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-# EMAIL_TO_NEW_RFP_WITH_MATCH = "ksatenders@bahra-cables.com"
-# EMAIL_TO_NO_MATCHED_DATA = "ksatenders@bahra-cables.com"  # When No matched data IN DOWNLOAD RFP
-# EMAIL_TO_RFP_SUBMITTED = "arawah@bahra-cables.com" 
-# EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
-
 EMAIL_TO_RFP_SUBMITTED = "ksatenders@bahra-cables.com" 
 EMAIL_TO_RFP_SAVED_DRAFT = "ksatenders@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
 
@@ -171,11 +164,12 @@ EMAIL_TO_RFP_SAVED_DRAFT = "ksatenders@bahra-cables.com"  # Abdullah Alrawah(  W
 EMAIL_TO_RFP_REMINDER = "ksatenders@bahra-cables.com;shubham.kumbhar@dynatechconsultancy.com"
 # RFP REMINDER EMAIL
 
-
-
-EMAIL_TO_NEW_RFP_WITH_MATCH = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"
-EMAIL_TO_NO_MATCHED_DATA = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com" 
-# EMAIL_TO_NEW_RFP_NO_MATCH = "sec.tenderteam@bahra-cables.com"
+# EMAIL_TO_NEW_RFP_WITH_MATCH = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"
+# EMAIL_TO_NO_MATCHED_DATA = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com" 
+EMAIL_TO_NEW_RFP_WITH_MATCH = "ksatenders@bahra-cables.com"
+EMAIL_TO_NO_MATCHED_DATA = "ksatenders@bahra-cables.com"  # When No matched data IN DOWNLOAD RFP"
+# EMAIL_TO_RFP_SUBMITTED = "arawah@bahra-cables.com" 
+# EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
 
 
 # ===== RFP Notification Email — Team Assignment Table =====

@@ -110,6 +110,9 @@
                             {% else %}
                             {{ r.RFP_ID }}
                             {% endif %}
+                            <i class="fas fa-copy ms-2 copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID"
+                               style="font-size:12px;color:#495057;cursor:pointer;vertical-align:middle;"
+                               onclick="event.stopPropagation();var el=this;navigator.clipboard.writeText(el.dataset.rfpId).then(function(){el.classList.replace('fa-copy','fa-check');el.style.color='#198754';setTimeout(function(){el.classList.replace('fa-check','fa-copy');el.style.color='#495057';},1500);});"></i>
                         </td>
                         <td class="text-nowrap">{{ r.Company_Name or 'Saudi Electricity Company' }}</td>
                         <td class="text-nowrap">{{ r.Owner_Name or '-' }}</td>

@@ -184,6 +184,10 @@ def trigger_email(
             matched_material_file_name = os.path.basename(csv_file)
             material_file_name = matched_material_file_name
             email_to = ";".join(unique_emails)
+            # Include the matched materials CSV itself in the attachment list
+            # so Power Automate can find it in SharePoint and attach it to the email
+            file_names.append(material_file_name)
+            source_files.append(f"/Shared Documents/{SP_BASE_FOLDER}/ALLRFPs/{material_file_name}")
         else:
             # Nothing to send
             return rfp_titles
