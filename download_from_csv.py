@@ -364,14 +364,34 @@ async def _wait_ready(page, timeout: int = 30000):
         pass
 
 
+async def _page_has_login_form(page) -> bool:
+    """Return True if the page is showing a login form (any platform/domain)."""
+    LOGIN_SELECTORS = [
+        'xpath=//*[@id="_boebpb"]/div[1]/input',  # Ariba standard
+        'input[name="UserName"]',
+        'input[id="UserName"]',
+        '#UserName',
+        'input[name="username"]',
+        'input[type="password"]',                  # any password field = login page
+    ]
+    for sel in LOGIN_SELECTORS:
+        try:
+            if await page.locator(sel).count() > 0:
+                return True
+        except Exception:
+            pass
+    return False
+
+
 async def is_logged_in(page) -> bool:
     """Return True if the current page looks like an authenticated portal page."""
     try:
         url = page.url.lower()
-        if "login" in url or "signin" in url:
+        # URL-based check (covers most cases)
+        if any(kw in url for kw in ("login", "signin", "logon", "sso", "auth?")):
             return False
-        # Presence of the username input means we are on the login page
-        if await page.locator('xpath=//*[@id="_boebpb"]/div[1]/input').count() > 0:
+        # Form-based check (catches login redirects with non-standard URLs)
+        if await _page_has_login_form(page):
             return False
         return True
     except Exception:
@@ -381,41 +401,107 @@ async def is_logged_in(page) -> bool:
 async def do_login(page, username: str, password: str) -> bool:
     """
     Navigate to the portal home and log in.
+    Tries multiple selectors for username, password, and submit button.
     Returns True on success, False otherwise.
     """
+    # Selector lists tried in priority order
+    USER_SELECTORS = [
+        'xpath=//*[@id="_boebpb"]/div[1]/input',
+        '#UserName',
+        'input[name="UserName"]',
+        'input[id="UserName"]',
+        'input[type="email"]',
+        'input[type="text"]',
+    ]
+    PASS_SELECTORS = [
+        '#Password',
+        'input[name="Password"]',
+        'input[id="Password"]',
+        'input[type="password"]',
+    ]
+    SUBMIT_SELECTORS = [
+        'input[type="submit"]',
+        'button[type="submit"]',
+        '#loginButton',
+        'button:has-text("Log in")',
+        'button:has-text("Sign in")',
+    ]
+
     for attempt in range(1, LOGIN_MAX_RETRIES + 1):
         try:
             _log(f"Login attempt {attempt}/{LOGIN_MAX_RETRIES} …")
             await page.goto(PORTAL_URL, wait_until="domcontentloaded", timeout=60000)
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
+            await _wait_ready(page, 30000)
 
-            # Username field
-            user_input = page.locator('xpath=//*[@id="_boebpb"]/div[1]/input')
-            if await user_input.count() == 0:
-                user_input = page.locator('input[type="text"]').first
-            await user_input.fill(username)
+            # If already logged in after navigation (SSO auto-login), done
+            if await is_logged_in(page):
+                _log("Already authenticated after navigation.")
+                return True
 
-            # Password field
-            await page.locator('#Password').fill(password)
+            # ── Find username field ───────────────────────────────────────
+            user_loc = None
+            for sel in USER_SELECTORS:
+                loc = page.locator(sel)
+                if await loc.count() > 0:
+                    user_loc = loc.first
+                    _log(f"  Username field found: {sel}")
+                    break
 
-            # Submit
-            try:
-                async with page.expect_navigation(wait_until="networkidle", timeout=60000):
-                    await page.click('input[type="submit"]')
-            except Exception:
-                await page.click('input[type="submit"]')
-                await _wait_ready(page, 60000)
+            if user_loc is None:
+                _log(f"  Attempt {attempt}: username field not found on page — retrying.")
+                await asyncio.sleep(5)
+                continue
 
-            await asyncio.sleep(2)
+            await user_loc.click()
+            await user_loc.fill(username)
+
+            # ── Find password field ───────────────────────────────────────
+            pass_loc = None
+            for sel in PASS_SELECTORS:
+                loc = page.locator(sel)
+                if await loc.count() > 0:
+                    pass_loc = loc.first
+                    break
+
+            if pass_loc is None:
+                _log(f"  Attempt {attempt}: password field not found — retrying.")
+                await asyncio.sleep(5)
+                continue
+
+            await pass_loc.click()
+            await pass_loc.fill(password)
+
+            # ── Submit ───────────────────────────────────────────────────
+            submitted = False
+            for sel in SUBMIT_SELECTORS:
+                loc = page.locator(sel)
+                if await loc.count() > 0:
+                    try:
+                        async with page.expect_navigation(wait_until="networkidle", timeout=60000):
+                            await loc.first.click()
+                    except Exception:
+                        await loc.first.click()
+                        await _wait_ready(page, 60000)
+                    submitted = True
+                    break
+
+            if not submitted:
+                _log(f"  Attempt {attempt}: submit button not found — retrying.")
+                await asyncio.sleep(5)
+                continue
+
+            await asyncio.sleep(3)
 
             if await is_logged_in(page):
                 _log("Logged in successfully.")
                 return True
 
-            _log(f"Login attempt {attempt} failed — still on login page.")
+            _log(f"  Attempt {attempt}: still on login page after submit.")
+            await asyncio.sleep(5)
 
         except Exception as exc:
-            _log(f"Login attempt {attempt} error: {exc}")
+            _log(f"  Login attempt {attempt} error: {exc}")
             if attempt < LOGIN_MAX_RETRIES:
                 await asyncio.sleep(5)
 
@@ -596,10 +682,15 @@ async def _download_single(page, rfp: dict, company_name: str, output_dir: str) 
     try:
         _log(f"  Opening RFP page …")
         await new_page.goto(link, wait_until="domcontentloaded", timeout=60000)
+        await asyncio.sleep(2)
 
-        # Check for redirect to login (session drop mid-download)
-        if "login" in new_page.url.lower() or "signin" in new_page.url.lower():
-            _log("  Session expired mid-download (redirected to login).")
+        # Check for redirect to login — both URL and form-element based
+        url_lower = new_page.url.lower()
+        url_is_login = any(kw in url_lower for kw in ("login", "signin", "logon", "sso", "auth?"))
+        form_is_login = await _page_has_login_form(new_page)
+        if url_is_login or form_is_login:
+            reason = "URL" if url_is_login else "login form detected"
+            _log(f"  Session expired mid-download ({reason}). Will re-login.")
             await new_page.close()
             return None  # Signal: needs re-login
 
@@ -667,18 +758,20 @@ async def download_with_retry(
 ) -> bool:
     """
     Wrap _download_single with:
-      - auto re-login on session expiry
+      - auto re-login on session expiry  (session drops do NOT count as real attempts)
       - 10-second wait + retry on any network/system error
     Returns True on success.
     """
-    title = _clean_id(rfp.get("Title", ""))
+    title           = _clean_id(rfp.get("Title", ""))
+    real_attempts   = 0   # counts actual download failures only
+    session_retries = 0   # counts mid-download session drops
+    MAX_SESSION_RETRIES = 5  # give up if session keeps dropping
 
-    for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
-        _log(f"  Attempt {attempt}/{MAX_DOWNLOAD_ATTEMPTS} for: {title}")
+    while real_attempts < MAX_DOWNLOAD_ATTEMPTS:
+        _log(f"  Attempt {real_attempts + 1}/{MAX_DOWNLOAD_ATTEMPTS} for: {title}")
 
         # Always ensure we're logged in before each attempt
-        logged_in = await ensure_logged_in(page, username, password)
-        if not logged_in:
+        if not await ensure_logged_in(page, username, password):
             _log("  Cannot log in — skipping this RFP.")
             return False
 
@@ -688,17 +781,24 @@ async def download_with_retry(
             return True
 
         if result is None:
-            # Session dropped inside _download_single → re-login then retry
-            _log("  Re-logging in after mid-download session drop …")
+            # Session dropped inside _download_single — re-login then retry
+            # (this does NOT increment real_attempts so no attempt is wasted)
+            session_retries += 1
+            if session_retries > MAX_SESSION_RETRIES:
+                _log(f"  Session dropped {session_retries} times in a row — giving up on this RFP.")
+                return False
+            _log(f"  Session drop #{session_retries} — re-logging in …")
             ok = await do_login(page, username, password)
             if not ok:
                 _log("  Re-login failed — skipping.")
                 return False
-            # Don't count this as a real attempt; next iteration will retry
-            continue
+            await asyncio.sleep(3)
+            continue  # retry WITHOUT incrementing real_attempts
 
-        # result is False → a download error occurred
-        if attempt < MAX_DOWNLOAD_ATTEMPTS:
+        # result is False → an actual download error (network / button / timeout)
+        real_attempts += 1
+        session_retries = 0   # reset session-drop counter on a real attempt
+        if real_attempts < MAX_DOWNLOAD_ATTEMPTS:
             _log(f"  Waiting {RETRY_WAIT_SEC}s before retry …")
             await asyncio.sleep(RETRY_WAIT_SEC)
 
@@ -822,6 +922,73 @@ def _report_row(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Progress bar
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ProgressTracker:
+    """
+    Prints a live progress bar to stdout after every RFP is processed.
+
+    Example output:
+      +-----------------------------------------------------------------------+
+      | Progress  [####################--------------------]   80 / 200  40.0%|
+      |           OK: 75    Skip: 3    Fail: 2    NotFound: 0    Pending: 120 |
+      +-----------------------------------------------------------------------+
+    """
+
+    BAR_WIDTH = 40
+
+    def __init__(self, total: int):
+        self.total      = total
+        self.done       = 0
+        self.downloaded = 0
+        self.skipped    = 0
+        self.failed     = 0
+        self.not_found  = 0
+
+    @property
+    def pending(self) -> int:
+        return max(0, self.total - self.done)
+
+    def update(self, status: str, count: int = 1):
+        """Record `count` RFPs finishing with the given status and redraw."""
+        self.done += count
+        if   status == STATUS_DOWNLOADED:       self.downloaded += count
+        elif status == STATUS_SKIPPED_EXISTS:   self.skipped    += count
+        elif status == STATUS_DOWNLOAD_FAILED:  self.failed     += count
+        else:                                   self.not_found  += count
+        self._draw()
+
+    def _draw(self):
+        total  = self.total or 1
+        filled = int(self.BAR_WIDTH * min(self.done, total) / total)
+        bar    = "#" * filled + "-" * (self.BAR_WIDTH - filled)
+        pct    = 100.0 * min(self.done, total) / total
+        w      = 71   # inner width of the box
+
+        line1 = f"[{bar}]  {self.done:>4} / {self.total}   ({pct:5.1f}%)"
+        line2 = (
+            f"OK: {self.downloaded:<5} "
+            f"Skip: {self.skipped:<5} "
+            f"Fail: {self.failed:<5} "
+            f"NotFound: {self.not_found:<5} "
+            f"Pending: {self.pending}"
+        )
+
+        # Build lines, then derive border width from the longest line
+        prefix1 = "  | Progress  "
+        prefix2 = "  |           "
+        content_w = max(len(line1), len(line2))
+        inner_w   = len("Progress  ") + content_w + 2   # "| Progress  <content> |"
+
+        print()
+        print(f"  +-{'-' * inner_w}-+")
+        print(f"{prefix1}{line1:<{content_w}} |")
+        print(f"{prefix2}{line2:<{content_w}} |")
+        print(f"  +-{'-' * inner_w}-+")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main runner
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -889,6 +1056,11 @@ async def run(input_file: str, output_dir: str, username: str, password: str, he
     _log(f"Pre-flight: {len(pre_skipped)} already exist, {len(to_process)} to download.")
     print()
 
+    # ── Progress tracker (covers the entire list, pre-skipped included) ────
+    progress = ProgressTracker(total=len(rows))
+    if pre_skipped:
+        progress.update(STATUS_SKIPPED_EXISTS, len(pre_skipped))
+
     if not to_process:
         _log("Nothing to download — all files already exist locally.")
         report_path = write_report_csv(report_rows, output_dir, run_started_at)
@@ -953,6 +1125,7 @@ async def run(input_file: str, output_dir: str, username: str, password: str, he
                         reason="Could not log in to portal before processing this company",
                     ))
                 stats["portal_err"] += len(pending_rows)
+                progress.update(STATUS_PORTAL_ERROR, len(pending_rows))
                 continue
 
             # ── DIRECT DOWNLOAD (link provided in Excel/CSV) ───────────────
@@ -971,6 +1144,7 @@ async def run(input_file: str, output_dir: str, username: str, password: str, he
                         reason="File appeared locally during run",
                         local_file=path or "",
                     ))
+                    progress.update(STATUS_SKIPPED_EXISTS)
                     continue
 
                 # Build a minimal rfp dict that _download_single understands
@@ -987,6 +1161,7 @@ async def run(input_file: str, output_dir: str, username: str, password: str, he
                         local_file=saved_path or "",
                     ))
                     stats["downloaded"] += 1
+                    progress.update(STATUS_DOWNLOADED)
                 else:
                     report_rows.append(_report_row(
                         rfp_id=rfp_id, company_name=company_name,
@@ -998,6 +1173,7 @@ async def run(input_file: str, output_dir: str, username: str, password: str, he
                         ),
                     ))
                     stats["failed"] += 1
+                    progress.update(STATUS_DOWNLOAD_FAILED)
 
             # ── PORTAL SCRAPE + DOWNLOAD (no link provided) ────────────────
             if not scrape_rows:
@@ -1026,6 +1202,7 @@ async def run(input_file: str, output_dir: str, username: str, password: str, he
                         reason="Company page could not be reached on portal after 2 attempts",
                     ))
                 stats["portal_err"] += len(scrape_rows)
+                progress.update(STATUS_PORTAL_ERROR, len(scrape_rows))
                 continue
 
             portal_rfps = await scrape_rfps_for_company(page, company_name)
@@ -1039,6 +1216,7 @@ async def run(input_file: str, output_dir: str, username: str, password: str, he
                         reason="Portal returned no RFP list for this company after 2 scrape attempts",
                     ))
                 stats["portal_err"] += len(scrape_rows)
+                progress.update(STATUS_PORTAL_ERROR, len(scrape_rows))
                 continue
 
             # Match input IDs against scraped portal data
@@ -1060,6 +1238,7 @@ async def run(input_file: str, output_dir: str, username: str, password: str, he
                         ),
                     ))
                 stats["no_match"] += len(unmatched_ids)
+                progress.update(STATUS_NOT_FOUND_PORTAL, len(unmatched_ids))
 
             _log(f"Matched {len(matched_rfps)} RFP(s) on portal — downloading …")
 
@@ -1078,6 +1257,7 @@ async def run(input_file: str, output_dir: str, username: str, password: str, he
                         reason="File appeared locally during run (added by another process or previous attempt)",
                         local_file=path or "",
                     ))
+                    progress.update(STATUS_SKIPPED_EXISTS)
                     continue
 
                 success = await download_with_retry(
@@ -1092,6 +1272,7 @@ async def run(input_file: str, output_dir: str, username: str, password: str, he
                         local_file=saved_path or "",
                     ))
                     stats["downloaded"] += 1
+                    progress.update(STATUS_DOWNLOADED)
                 else:
                     report_rows.append(_report_row(
                         rfp_id=title, company_name=company_name,
@@ -1103,6 +1284,7 @@ async def run(input_file: str, output_dir: str, username: str, password: str, he
                         ),
                     ))
                     stats["failed"] += 1
+                    progress.update(STATUS_DOWNLOAD_FAILED)
 
         await browser.close()
 

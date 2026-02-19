@@ -462,20 +462,28 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
         if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
             # Existing record found
             existing_row = existing_result["value"][0]
-            record_id = existing_row[f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"]
-            
-            # Get old status before updating (row keys are LOGICAL names)
+            # NOTE: query used use_display_names=True, so row keys are DISPLAY names, not logical
+            # Build reverse map (logical -> display) to look up primary key and participated field
             try:
                 colmap = DATAVERSE.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)  # display -> logical
             except Exception:
                 colmap = {}
-            # Prefer exact display key, else fuzzy match
-            participated_logical = (
-                colmap.get("participated")
-                or next((v for k, v in colmap.items() if "participated" in k.lower().replace(" ", "").replace("_", "")), None)
-                or "participated"  # last resort
+            logical_to_display = {v: k for k, v in colmap.items()}
+
+            # Get record_id: primary key may have been remapped to its display name
+            pk_logical = f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"
+            pk_display = logical_to_display.get(pk_logical)
+            record_id = (existing_row.get(pk_display) if pk_display else None) or existing_row.get(pk_logical)
+            if not record_id:
+                logger.error(f"Could not find primary key for RFP {rfp_id} (tried '{pk_display}' and '{pk_logical}')")
+                return False
+
+            # Get old status using display name key (row uses display names)
+            participated_display = next(
+                (k for k in colmap if "participated" in k.lower().replace(" ", "").replace("_", "")),
+                "participated"  # last resort
             )
-            old_status = existing_row.get(participated_logical, "") or ""
+            old_status = existing_row.get(participated_display, "") or ""
             # Update only the participated field
             update_data = {
                 "participated": status
@@ -560,7 +568,18 @@ def update_sync_timestamp(rfp_id: str, company_name: str = None) -> bool:
 
         if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
             existing_row = existing_result["value"][0]
-            record_id = existing_row[f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"]
+            # Row keys are display names (use_display_names=True) — resolve primary key via reverse map
+            try:
+                colmap = DATAVERSE.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)
+                logical_to_display = {v: k for k, v in colmap.items()}
+            except Exception:
+                logical_to_display = {}
+            pk_logical = f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"
+            pk_display = logical_to_display.get(pk_logical)
+            record_id = (existing_row.get(pk_display) if pk_display else None) or existing_row.get(pk_logical)
+            if not record_id:
+                logger.error(f"Could not find primary key for RFP {rfp_id} in update_sync_timestamp")
+                return False
 
             # Update Downloaded_At timestamp
             update_data = {

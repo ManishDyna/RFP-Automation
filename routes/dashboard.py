@@ -63,6 +63,15 @@ import base64
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
+
+@router.get("/clear-cache")
+async def clear_cache_and_refresh():
+    """Clear all dashboard caches and redirect to dashboard with fresh data."""
+    from fastapi.responses import RedirectResponse
+    invalidate_dashboard_caches()
+    return RedirectResponse(url="/dashboard?refresh=1", status_code=303)
+
+
 # ===== RFP details helpers =====
 _RFP_STATUS_META = {
     "open": {"label": "Open", "badge": "bg-warning"},

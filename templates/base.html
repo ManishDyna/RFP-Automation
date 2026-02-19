@@ -81,7 +81,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" id="submitRfpSubmitBtn" class="btn btn-success">
+                    <button type="button" id="submitRfpSubmitBtn" class="btn btn-success" disabled title="Please upload an Excel file to enable submission">
                         <span class="btn-text"><i class="fas fa-paper-plane me-2"></i>Submit RFP</span>
                         <span class="btn-loading d-none">
                             <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
@@ -348,5 +348,132 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/config.js"></script>
     <script src="/static/js/script.js"></script>
+
+    <!-- Copilot Studio Chatbot Widget -->
+    <style>
+        #chatbot-toggle-btn {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: #0d6efd;
+            color: #fff;
+            border: none;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+            cursor: pointer;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            transition: background 0.2s, transform 0.2s;
+        }
+        #chatbot-toggle-btn:hover {
+            background: #0b5ed7;
+            transform: scale(1.08);
+        }
+        #chatbot-panel {
+            position: fixed;
+            bottom: 90px;
+            right: 24px;
+            width: 380px;
+            height: 560px;
+            border-radius: 14px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+            overflow: hidden;
+            z-index: 9998;
+            display: none;
+            flex-direction: column;
+            border: 1px solid #dee2e6;
+            background: #fff;
+        }
+        #chatbot-panel.open {
+            display: flex;
+        }
+        #chatbot-panel-header {
+            background: #0d6efd;
+            color: #fff;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-weight: 600;
+            font-size: 15px;
+            flex-shrink: 0;
+        }
+        #chatbot-panel-header .chatbot-header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #chatbot-close-btn {
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 18px;
+            cursor: pointer;
+            line-height: 1;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: background 0.15s;
+        }
+        #chatbot-close-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        #chatbot-iframe {
+            flex: 1;
+            width: 100%;
+            border: none;
+        }
+    </style>
+
+    <!-- Chat Toggle Button -->
+    <button id="chatbot-toggle-btn" title="Chat with AI Agent" aria-label="Open AI Assistant">
+        <i class="fas fa-comment-dots"></i>
+    </button>
+
+    <!-- Chat Panel -->
+    <div id="chatbot-panel" role="dialog" aria-label="AI Assistant">
+        <div id="chatbot-panel-header">
+            <div class="chatbot-header-left">
+                <i class="fas fa-robot"></i>
+                <span>AI Assistant</span>
+            </div>
+            <button id="chatbot-close-btn" aria-label="Close chat" title="Close">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <iframe
+            id="chatbot-iframe"
+            src="https://copilotstudio.microsoft.com/environments/dab4cde8-58ca-eaa0-b535-f6dbd4b6cfa6/bots/cr673_agent2/webchat?__version__=2"
+            frameborder="0"
+            allow="microphone">
+        </iframe>
+    </div>
+
+    <script>
+        (function () {
+            var btn = document.getElementById('chatbot-toggle-btn');
+            var panel = document.getElementById('chatbot-panel');
+            var closeBtn = document.getElementById('chatbot-close-btn');
+
+            btn.addEventListener('click', function () {
+                panel.classList.toggle('open');
+                var icon = btn.querySelector('i');
+                if (panel.classList.contains('open')) {
+                    icon.className = 'fas fa-times';
+                } else {
+                    icon.className = 'fas fa-comment-dots';
+                }
+            });
+
+            closeBtn.addEventListener('click', function () {
+                panel.classList.remove('open');
+                btn.querySelector('i').className = 'fas fa-comment-dots';
+            });
+        })();
+    </script>
 </body>
 </html>

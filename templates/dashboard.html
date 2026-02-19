@@ -221,6 +221,7 @@
                                                                 {% else %}
                                                                 {{ r.RFP_ID }}
                                                                 {% endif %}
+                                                                <i class="fas fa-copy copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID" style="font-size:13px;color:#212529;cursor:pointer;margin-left:8px;vertical-align:middle;"></i>
                                                             </td>
                                                             <td class="text-nowrap">{{ r.Owner_Name }}</td>
                                                             <td class="text-nowrap">{{ r.Publish_Time }}</td>
@@ -286,6 +287,7 @@
                                                                 {% else %}
                                                                 {{ r.RFP_ID }}
                                                                 {% endif %}
+                                                                <i class="fas fa-copy copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID" style="font-size:13px;color:#212529;cursor:pointer;margin-left:8px;vertical-align:middle;"></i>
                                                             </td>
                                                             <td class="text-nowrap">{{ r.Owner_Name }}</td>
                                                             <td class="text-nowrap">{{ r.Publish_Time }}</td>
@@ -337,6 +339,7 @@
                                                                 {% else %}
                                                                 {{ r.RFP_ID }}
                                                                 {% endif %}
+                                                                <i class="fas fa-copy copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID" style="font-size:13px;color:#212529;cursor:pointer;margin-left:8px;vertical-align:middle;"></i>
                                                             </td>
                                                             <td class="text-nowrap">{{ r.Owner_Name }}</td>
                                                             <td class="text-nowrap">{{ r.Publish_Time }}</td>
@@ -392,6 +395,7 @@
                                                                 {% else %}
                                                                 {{ r.RFP_ID }}
                                                                 {% endif %}
+                                                                <i class="fas fa-copy copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID" style="font-size:13px;color:#212529;cursor:pointer;margin-left:8px;vertical-align:middle;"></i>
                                                             </td>
                                                             <td class="text-nowrap">{{ r.Owner_Name }}</td>
                                                             <td class="text-nowrap">{{ r.Publish_Time }}</td>
@@ -550,6 +554,33 @@
     </div>
 </div>
 
+<script>
+// Copy RFP ID to clipboard
+document.addEventListener('click', function(e) {
+    const icon = e.target.closest('.copy-rfp-id');
+    if (!icon) return;
+    const rfpId = icon.dataset.rfpId;
+    navigator.clipboard.writeText(rfpId).then(function() {
+        icon.classList.remove('fa-copy');
+        icon.classList.add('fa-check');
+        icon.style.color = '#198754';
+        setTimeout(function() {
+            icon.classList.remove('fa-check');
+            icon.classList.add('fa-copy');
+            icon.style.color = '#212529';
+        }, 1500);
+    });
+});
+
+window.DASHBOARD_RFP_IDS = [
+    {% for company in data.unique_companies %}
+        {% set cr = data.companies_rfps[company] %}
+        {% for r in cr.open %}"{{ r.RFP_ID }}",{% endfor %}
+        {% for r in cr.submitted %}"{{ r.RFP_ID }}",{% endfor %}
+        {% for r in cr.saved_draft %}"{{ r.RFP_ID }}",{% endfor %}
+        {% for r in cr.declined %}"{{ r.RFP_ID }}",{% endfor %}
+    {% endfor %}
+];
+</script>
+
 {% endblock %}
-
-

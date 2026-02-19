@@ -215,15 +215,30 @@ function initializeEventListeners() {
         });
     }
 
-    // Sync Portal Data button handler
+    // Sync Portal Data button handler (Dashboard — scoped to visible RFPs only)
     const syncPortalBtn = document.getElementById('syncPortalBtn');
     if (syncPortalBtn) {
         syncPortalBtn.addEventListener('click', function(e) {
             e.preventDefault();
-            // Confirmation before starting Sync Portal Data
-            const ok = window.confirm('Do you want to run Sync Portal Data now?');
+            const rfpIds = window.DASHBOARD_RFP_IDS || [];
+            if (rfpIds.length === 0) {
+                showAlert('No RFPs to sync on the dashboard.', 'warning');
+                return;
+            }
+            const ok = window.confirm('Sync portal data for dashboard RFPs only?');
             if (!ok) return;
-            runSyncPortal();
+            runSyncPortal(rfpIds, 'syncPortalBtn');
+        });
+    }
+
+    // Sync ALL Portal Data button handler (RFP Insights page — full sync)
+    const syncAllPortalBtn = document.getElementById('syncAllPortalBtn');
+    if (syncAllPortalBtn) {
+        syncAllPortalBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const ok = window.confirm('Sync portal data for ALL RFPs? This may take longer.');
+            if (!ok) return;
+            runSyncPortal([], 'syncAllPortalBtn');
         });
     }
 
@@ -378,18 +393,67 @@ function initializeEventListeners() {
 
 
 
-    // File input change handler
+    // File input change handler - enable/disable Submit button based on file selection
     const excelFileInput = document.getElementById('excelFile');
     if (excelFileInput) {
         excelFileInput.addEventListener('change', function(e) {
             const fileInfo = document.getElementById('submitRfpFileInfo');
             const fileName = document.getElementById('submitRfpFileName');
-            if (e.target.files && e.target.files[0]) {
-                if (fileName) fileName.textContent = `Selected file: ${e.target.files[0].name}`;
-                if (fileInfo) fileInfo.classList.remove('d-none');
+            const submitBtn = document.getElementById('submitRfpSubmitBtn');
+            const file = e.target.files && e.target.files[0];
+
+            if (file) {
+                const ext = file.name.split('.').pop().toLowerCase();
+                const validExts = ['xls', 'xlsx'];
+                if (!validExts.includes(ext)) {
+                    // Wrong file type — keep button disabled, show error
+                    if (fileName) fileName.textContent = `❌ Invalid file type: .${ext} — only .xls or .xlsx allowed`;
+                    if (fileInfo) {
+                        fileInfo.classList.remove('d-none', 'alert-info');
+                        fileInfo.classList.add('alert-danger');
+                    }
+                    if (submitBtn) {
+                        submitBtn.disabled = true;
+                        submitBtn.title = 'Invalid file type. Upload a .xls or .xlsx file.';
+                    }
+                    e.target.value = '';
+                } else {
+                    const sizeKb = (file.size / 1024).toFixed(1);
+                    if (fileName) fileName.textContent = `✅ ${file.name} (${sizeKb} KB) — will upload to rfp-upload-file`;
+                    if (fileInfo) {
+                        fileInfo.classList.remove('d-none', 'alert-danger');
+                        fileInfo.classList.add('alert-info');
+                    }
+                    // Enable Submit button only when valid Excel is selected
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.title = '';
+                    }
+                }
             } else {
+                // No file selected — disable button
                 if (fileInfo) fileInfo.classList.add('d-none');
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.title = 'Please upload an Excel file to enable submission';
+                }
             }
+        });
+    }
+
+    // Also reset Submit button when the modal is hidden (so it resets for next use)
+    const submitRfpModalEl = document.getElementById('submitRfpModal');
+    if (submitRfpModalEl) {
+        submitRfpModalEl.addEventListener('hidden.bs.modal', function () {
+            const submitBtn = document.getElementById('submitRfpSubmitBtn');
+            const excelInput = document.getElementById('excelFile');
+            const fileInfo = document.getElementById('submitRfpFileInfo');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.title = 'Please upload an Excel file to enable submission';
+            }
+            if (excelInput) excelInput.value = '';
+            if (fileInfo) fileInfo.classList.add('d-none');
         });
     }
 }
@@ -1036,8 +1100,8 @@ async function runDownloadAllRfps() {
 }
 
 // Run Sync Portal function
-async function runSyncPortal() {
-    const button = document.getElementById('syncPortalBtn');
+async function runSyncPortal(rfpIds, buttonId) {
+    const button = document.getElementById(buttonId || 'syncPortalBtn');
     if (!button) return;
     const btnText = button.querySelector('.btn-text');
     const btnLoading = button.querySelector('.btn-loading');
@@ -1051,7 +1115,11 @@ async function runSyncPortal() {
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), (window.APP_CONFIG && APP_CONFIG.AUTOMATION_TIMEOUT_MS) || 300000);
-        const response = await fetch((window.APP_CONFIG && APP_CONFIG.API_SYNC_PORTAL) || '/sync_portal_data', { method: 'GET', signal: controller.signal });
+        let syncUrl = (window.APP_CONFIG && APP_CONFIG.API_SYNC_PORTAL) || '/sync_portal_data';
+        if (rfpIds && rfpIds.length > 0) {
+            syncUrl += '?rfp_ids=' + encodeURIComponent(rfpIds.join(','));
+        }
+        const response = await fetch(syncUrl, { method: 'GET', signal: controller.signal });
         clearTimeout(timeoutId);
 
         const j = await response.json().catch(() => ({}));
@@ -1060,9 +1128,9 @@ async function runSyncPortal() {
         }
 
         // Poll status until sync completes (unified poller)
-        await pollAutomationUntilIdle('sync');
+        await pollAutomationUntilIdle('sync', { autoRefresh: false });
         showAlert('Portal sync completed successfully', 'success');
-        // hidePageLoader();
+        setTimeout(() => { window.location.reload(); }, 500);
     } catch (e) {
         showAlert(`Sync failed: ${e.message || e}`, 'danger');
         // hidePageLoader();

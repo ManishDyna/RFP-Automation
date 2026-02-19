@@ -334,7 +334,7 @@ async def build_materials_dict_from_excel_reuse(excel_local_path: str, graph_cli
 
 
 # 🔹 Main process flow
-async def flow_of_process_according_to_step(page, current_position: int, graph_client: Any, title: str, company_name: str) -> bool:
+async def flow_of_process_according_to_step(page, current_position: int, graph_client: Any, title: str, company_name: str, rfp_id: str = None) -> bool:
     # Log start of submit flow for this RFP
     try:
         log_event("RFP", "Submit", "Start", f"Begin submit flow for '{title}'", title)
@@ -432,56 +432,81 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
         except Exception:
             pass
     
-    print("Before Fetching RFP file title:-",title)
+    # Determine the lookup title — user's rfp_id is what was used during upload
+    lookup_title = rfp_id if rfp_id else title
+    print(f"🔍 Fetching Excel for submission | rfp_id='{rfp_id}' | portal title='{title}'")
 
-    # Try savedrfp folder first (filled Excel), then downloaded-rfp folder, then old structure
-    clean_title = clean_rfp_title(title)
-    
+    # Build all folder paths to try (in priority order)
+    # Priority 1: rfp-upload-file folder using rfp_id (matches upload path exactly)
+    # Priority 2: rfp-upload-file folder using portal title (fallback)
+    # Priority 3: downloaded-rfp folder using rfp_id
+    # Priority 4: downloaded-rfp folder using portal title
     upload_path = None
-    # Try savedrfp folder first (contains filled data) - try both .xls and .xlsx
-    for ext in ['.xls', '.xlsx']:
+    upload_filename = None
+
+    titles_to_try = []
+    if rfp_id and clean_rfp_title(rfp_id) != clean_rfp_title(title):
+        titles_to_try.append(rfp_id)
+    titles_to_try.append(title)
+
+    # ── Step 1: Try rfp-upload-file folder (latest uploaded file) ──
+    for try_title in titles_to_try:
+        folder_sp = get_sharepoint_rfp_savedrfp_path(try_title, company_name)
+        print(f"📂 Looking for latest Excel in rfp-upload-file: '{folder_sp}'")
         try:
-            sp_path_savedrfp = get_sharepoint_rfp_savedrfp_path(title, company_name, f"{clean_title}{ext}")
-            print(f"sp_path (savedrfp):- {sp_path_savedrfp}")
-            upload_path = fetch_from_sharepoint_temp(graph_client, sp_path_savedrfp)
-            print(f"📂 Upload path (savedrfp - filled Excel): {upload_path}")
+            content, filename = graph_client.get_latest_excel_from_folder(folder_sp)
+            temp_path = Path(tempfile.gettempdir()) / filename
+            data = content.read()
+            if not data:
+                raise RuntimeError("Empty file")
+            with open(temp_path, "wb") as f:
+                f.write(data)
+            upload_path = str(temp_path)
+            upload_filename = filename
+            print(f"✅ Latest Excel from rfp-upload-file: '{filename}' → {upload_path}")
             break
         except Exception as e:
-            print(f"⚠️ Savedrfp {ext} not found: {e}")
+            print(f"⚠️ rfp-upload-file lookup failed for '{try_title}': {e}")
             continue
-    
-    # If not found in rfp-upload-file, try downloaded-rfp folder (original Excel)
+
+    # ── Step 2: Fallback to downloaded-rfp folder ──
     if not upload_path:
-        for ext in ['.xls', '.xlsx']:
+        for try_title in titles_to_try:
+            folder_sp = get_sharepoint_rfp_material_path(try_title, company_name)
+            print(f"📂 Fallback: looking for latest Excel in downloaded-rfp: '{folder_sp}'")
             try:
-                sp_path_material = get_sharepoint_rfp_material_path(title, company_name, f"{clean_title}{ext}")
-                print(f"sp_path (material):- {sp_path_material}")
-                upload_path = fetch_from_sharepoint_temp(graph_client, sp_path_material)
-                print(f"📂 Upload path (downloaded-rfp - original): {upload_path}")
+                content, filename = graph_client.get_latest_excel_from_folder(folder_sp)
+                temp_path = Path(tempfile.gettempdir()) / filename
+                data = content.read()
+                if not data:
+                    raise RuntimeError("Empty file")
+                with open(temp_path, "wb") as f:
+                    f.write(data)
+                upload_path = str(temp_path)
+                upload_filename = filename
+                print(f"✅ Latest Excel from downloaded-rfp: '{filename}' → {upload_path}")
                 break
             except Exception as e:
-                print(f"⚠️ downloaded-rfp {ext} not found: {e}")
+                print(f"⚠️ downloaded-rfp lookup failed for '{try_title}': {e}")
                 continue
-    
-    # If still not found, try old structure as last resort
+
     if not upload_path:
-        for ext in ['.xls', '.xlsx']:
-            try:
-                sp_path_old = f"{SP_BASE_FOLDER_RFP_UPLOAD_FILES}/{title}{ext}"
-                print(f"sp_path (old):- {sp_path_old}")
-                upload_path = fetch_from_sharepoint_temp(graph_client, sp_path_old)
-                print(f"📂 Upload path (old structure): {upload_path}")
-                break
-            except Exception as e:
-                print(f"⚠️ Old structure {ext} not found: {e}")
-                continue
-    
-    if not upload_path:
-        raise RuntimeError(f"Could not find RFP file in rfp-upload-file, downloaded-rfp, or old structure for '{title}'")
+        raise RuntimeError(
+            f"❌ Could not find any Excel file in rfp-upload-file or downloaded-rfp "
+            f"for '{lookup_title}' (company: '{company_name}'). "
+            f"Please upload the filled Excel file first."
+        )
 
     await page.locator("input[type='file']").set_input_files(upload_path)
     await page.wait_for_timeout(9000)
-    await safe_click(page, "button[title*='Import Excel Bidding']")
+    import_clicked = await safe_click(page, "button[title*='Import Excel Bidding']")
+    if not import_clicked:
+        print("❌ Failed to click 'Import Excel Bidding' button - Excel import may not work")
+        try:
+            log_event("RFP", "Submit", "Fail", "Could not click 'Import Excel Bidding' button", title)
+        except Exception:
+            pass
+        return False
     print("Clicked Upload button")
     try:
         log_event("RFP", "Submit", "Upload", f"Imported Excel bidding from {Path(upload_path).name}", title)
@@ -489,31 +514,71 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
         pass
 
     await page.wait_for_timeout(5000)
-    await page.locator("button[title*='Use selected lots']").click()
+
+    # Click "Use selected lots" - use safe_click with error handling
+    lots_clicked = await safe_click(page, "button[title*='Use selected lots']")
+    if lots_clicked:
+        print("✅ Clicked 'Use selected lots'")
+    else:
+        print("⚠️ 'Use selected lots' button not found or not clickable - may not be required for this RFP")
     await page.wait_for_timeout(5000)
     try:
-        log_event("RFP", "Submit", "Click", "Clicked 'Use selected lots'", title)
+        log_event("RFP", "Submit", "Click", f"'Use selected lots' clicked: {lots_clicked}", title)
     except Exception:
         pass
 
-    await safe_click(page, '#currencyChangeWarningConfirmationId button[title="OK"]')
+    # Handle currency change warning (may or may not appear — check twice with delay)
+    currency_confirmed = False
+    for attempt in range(2):
+        try:
+            currency_dialog = page.locator('#currencyChangeWarningConfirmationId:visible')
+            if await currency_dialog.count() > 0:
+                await safe_click(page, '#currencyChangeWarningConfirmationId button[title="OK"]')
+                print("✅ Currency change warning confirmed")
+                currency_confirmed = True
+                break
+            elif attempt == 0:
+                print("ℹ️ Currency dialog not visible yet, waiting 3s and retrying...")
+                await page.wait_for_timeout(3000)
+            else:
+                print("ℹ️ No currency change warning dialog appeared")
+        except Exception as e:
+            print(f"⚠️ Currency change warning handling (attempt {attempt + 1}): {e}")
+            if attempt == 0:
+                await page.wait_for_timeout(3000)
 
     # Click the correct OK inside the visible import confirmation dialog
-    dialog = page.locator('#importConfirmationId:visible')
-    await dialog.wait_for(state='visible', timeout=15000)
+    try:
+        dialog = page.locator('#importConfirmationId:visible')
+        await dialog.wait_for(state='visible', timeout=15000)
 
-    ok_btn = dialog.get_by_role('button', name='OK').locator(':visible').first
-    await expect(ok_btn).to_be_visible()
-    await expect(ok_btn).to_be_enabled()
-    await ok_btn.click()
+        ok_btn = dialog.get_by_role('button', name='OK').locator(':visible').first
+        await expect(ok_btn).to_be_visible()
+        await expect(ok_btn).to_be_enabled()
+        await ok_btn.click()
+        print("✅ Import confirmation dialog confirmed")
+    except Exception as e:
+        print(f"⚠️ Import confirmation dialog not found or already dismissed: {e}")
+        # Try alternate approach - click any visible OK button in the import confirmation
+        try:
+            await safe_click(page, '#importConfirmationId button[title="OK"]')
+        except Exception:
+            pass
     try:
         log_event("RFP", "Submit", "Success", "Confirmed import dialog", title)
     except Exception:
         pass
 
     # Attached Files after uploading excel file with their respective sections
-    materials_files = await build_materials_dict_from_excel_reuse(upload_path, graph_client, title, company_name=company_name)
+    # Use rfp_id for TDS lookup since that's how files were uploaded
+    tds_title = rfp_id if rfp_id else title
+    materials_files = await build_materials_dict_from_excel_reuse(upload_path, graph_client, tds_title, company_name=company_name)
     print("materials_files:-",materials_files)
+    # If no materials found with rfp_id, try with portal title as fallback
+    if not materials_files and rfp_id and rfp_id != title:
+        print(f"🔄 No TDS files found with rfp_id '{rfp_id}', trying portal title '{title}'...")
+        materials_files = await build_materials_dict_from_excel_reuse(upload_path, graph_client, title, company_name=company_name)
+        print("materials_files (fallback):-",materials_files)
 
     await upload_attachments_via_bidding_console(page, materials_files)
     try:
@@ -570,7 +635,7 @@ async def submit_rfp(page, data: List[Dict[str, str]], rfp_id: str, graph_client
             await new_page.wait_for_load_state()
 
             current_position = await get_wizstep_position(new_page)
-            if await flow_of_process_according_to_step(new_page, current_position, graph_client=graph_client, title=title, company_name=company_name):
+            if await flow_of_process_according_to_step(new_page, current_position, graph_client=graph_client, title=title, company_name=company_name, rfp_id=rfp_id):
                 
                 print(f"✅ RFP '{title}' processed successfully.")
                 # Update participation status to "saved_draft"

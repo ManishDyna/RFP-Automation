@@ -409,43 +409,51 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
     log_event("RFP", "Download", "Start", f"Downloading {len(open_rfps)}")
     new_rfp_titles = await download_rfp_files(page, open_rfps, company_name, graph_client)
 
-    # Skip processing if no new RFPs were downloaded
+    # Build end-date lookup (title → end date) from the scraped RFP list
+    rfp_end_dates = {
+        (row.get("Title") or "").strip(): (row.get("RFP_End_Date") or "-").strip()
+        for row in open_rfps
+    }
+
+    # ── CASE 2: No new RFP found ──────────────────────────────────────────────
     if not new_rfp_titles:
         log_event("RFP", "Process", "Skip", "No new RFPs downloaded - skipping process_folder")
         trigger_email(
+            email_flag="no_new_rfp",
             subject=f"No New RFP Available - {company_name} ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})",
             body_html=f"""
             <p>Dear Team,</p>
-            <p>The automation ran successfully for <b>{company_name}</b>, but <b>no new RFPs</b> were found to download.</p>
+            <p>The automation ran successfully for <b>{company_name}</b>, but <b>no new RFPs</b> were found.</p>
             <p>All <b>{len(open_rfps)}</b> open RFPs already exist in the database.</p>
             <p>Best Regards,<br>Automation System</p>
             """,
-            email_flag="automation_failure",
             company_name=company_name,
         )
         log_event("SYSTEM", "DownloadRFP", "Success", "Download flow finished (all RFPs already existed)")
         return
 
-    # Process only the newly downloaded RFPs
+    # ── CASE 1: New RFP(s) found — send reference format email ───────────────
+    trigger_email(
+        email_flag="new_rfp_found",
+        rfp_titles=new_rfp_titles,
+        company_name=company_name,
+        rfp_end_dates=rfp_end_dates,
+    )
+    log_event("EMAIL", "Sent", "Success", message=f"New-RFP email triggered for {len(new_rfp_titles)} RFP(s)", rfp_id=new_rfp_titles)
+
+    # ── Process material matching and notify Sales/Technical if any match ─────
     matched_df, matched_csv_path, not_mateched_files = process_folder(
         graph_client, None, None, company_name=company_name, new_rfp_titles=new_rfp_titles
     )
     print(f"✅ Matched materials processed: {matched_csv_path}")
 
-    # Only trigger email if there are results to send
-    if not matched_df.empty or not_mateched_files:
+    if not matched_df.empty:
         trigger_email_rfps = trigger_email(
-            csv_file=matched_csv_path, graph_client=graph_client, not_mateched_files=not_mateched_files, company_name=company_name
+            csv_file=matched_csv_path, graph_client=graph_client, company_name=company_name,
         )
-        log_event(
-            "EMAIL",
-            "Sent",
-            "Success",
-            message=f"Email triggered with {len(matched_df)} matches",
-            rfp_id=trigger_email_rfps,
-        )
+        log_event("EMAIL", "Sent", "Success", message=f"Matched-materials email triggered for {len(matched_df)} matches", rfp_id=trigger_email_rfps)
     else:
-        log_event("RFP", "Process", "Info", "No new matches or files to process - skipping email")
+        log_event("RFP", "Process", "Info", "No matched materials — skipping matched-materials email")
 
     log_event("SYSTEM", "DownloadRFP", "Success", "Download flow finished")
 
@@ -969,7 +977,11 @@ def _build_scraped_index(rfp_data: list[dict]) -> list[dict]:
     for r in rfp_data or []:
         title = r.get("Title", "")
         link = r.get("Link", "")
-        rfp_id = r.get("RFP_ID") or _derive_rfp_id(title, link)
+        raw_rfp_id = r.get("RFP_ID", "")
+        # Always attempt to derive a clean ID (e.g. "C001697262") from title/link
+        derived_id = _derive_rfp_id(title, link)
+        # Prefer derived clean ID; fall back to raw value
+        rfp_id = derived_id or raw_rfp_id
         desired_status = _desired_status_from_portal_row(r)
         enriched.append({
             **r,
@@ -1037,7 +1049,8 @@ def sync_participation_with_db(rfp_data: list[dict], rfp_ids: list[str] | None =
             continue
 
         current_status = (matched_db.get("participated") or "").strip().lower()
-        if target_status and current_status != target_status:
+        # Only update for valid participation statuses (skip "no"/empty from open RFPs)
+        if target_status and target_status in ("submitted", "declined", "saved_draft") and current_status != target_status:
             try:
                 # Update only if there is a clear target
                 record_id = s_id or matched_db.get("RFP_ID") or ""
@@ -1094,7 +1107,7 @@ async def run_automation_sync_portal(rfp_ids: list[str] | None = None):
             open_rfps, page, browser = await common_flow(p, graph_client, profile_label="sync")
             log_event("SYNC", "Login", "Success", f"Logged in and selected company. Found {len(open_rfps)} open RFPs")
 
-            # Export all RFPs visible for the selected company
+            # Export ALL RFPs from portal (all sections: open, submitted, declined, etc.)
             log_event("SYNC", "Export", "Start", "Starting RFP export from portal")
             exported_path = await export_rfps(page, "SaudiAriba")
             log_event("SYNC", "Export", "Success", f"Export completed: {os.path.basename(exported_path)}")
@@ -1109,7 +1122,7 @@ async def run_automation_sync_portal(rfp_ids: list[str] | None = None):
                 shutil.rmtree(os.path.dirname(exported_path), ignore_errors=True)
             except Exception:
                 pass
-            
+
             # Compare against DB and update mismatches
             log_event("SYNC", "Database", "Start", "Starting database sync" +
                      (f" (filtered to {len(rfp_ids)} dashboard RFPs)" if rfp_ids else " (all RFPs)"))
@@ -1117,12 +1130,12 @@ async def run_automation_sync_portal(rfp_ids: list[str] | None = None):
             log_event("SYNC", "Database", "Success",
                      f"Database sync completed: {sync_summary.get('updated', 0)} updated, "
                      f"{sync_summary.get('checked', 0)} checked")
-            
+
             # Save sync data to JSON file
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             sync_data = {
                 "sync_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "exported_file": exported_path,
+                "exported_file": exported_path or "scraped_directly",
                 "total_rfps_extracted": len(rfp_data),
                 "rfp_data": rfp_data,
                 "sync_summary": sync_summary

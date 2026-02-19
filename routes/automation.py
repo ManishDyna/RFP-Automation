@@ -21,6 +21,7 @@ from config.config import (
     DRIVE_NAME,
     COMPANY_NAME,
 )
+from services.dashboard_service import invalidate_dashboard_caches
 from helpers.sharepoint_helper import GraphClient
 import tempfile
 import os
@@ -377,6 +378,7 @@ async def dashboard_submit_rfp_endpoint(
                 await run_automation_submit(rfp_id, selected_company or None)
             finally:
                 _finish_operation("submit")
+                invalidate_dashboard_caches()  # Flush cache so Draft tab reflects immediately
 
         # Run in separate thread with ProactorEventLoop for Windows Playwright compatibility
         _run_async_in_thread(_task)

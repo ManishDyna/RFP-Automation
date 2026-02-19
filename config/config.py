@@ -139,17 +139,56 @@ SP_FAILURE_LOGS_FOLDER = "RFP-logs/automation-error-logs"
 
 
 # Email Config
-EMAIL_TO_RFP_SUBMITTED = "ksatenders@bahra-cables.com"  # When RFP is submitted successfully
+
+# ── Case 1: New RFP found on portal (matched or not matched — same email) ──
+# Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
+EMAIL_TO_NEW_RFP = "ksatenders@bahra-cables.com"
+
+# ── Case 2: Automation ran but NO new RFP was found on portal ──
+# Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
+EMAIL_TO_NO_NEW_RFP = "ksatenders@bahra-cables.com"
+
+ # When RFP is submitted successfully
 EMAIL_TO_RFP_DECLINED = "ksatenders@bahra-cables.com"  # When RFP is declined successfully
 EMAIL_TO_RFP_ERROR_IN_SUBMISSION = "ksatenders@bahra-cables.com"  # When RFP is submission failed
 EMAIL_TO_RFP_ERROR_IN_DECLINE = "ksatenders@bahra-cables.com"  # When RFP is decline failed or error in decline
 EMAIL_TO_AUTOMATION_FAILURE = "ksatenders@bahra-cables.com"  # When Automation is failed
-
-EMAIL_TO_RFP_SAVED_DRAFT = "ksatenders@bahra-cables.com"  # When RFP is saved as draft successfully
+# When a new RFP is found on the portal but no material match was found for it
+# Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
+EMAIL_TO_NEW_RFP_NO_MATCH = "ksatenders@bahra-cables.com"
+# When a new RFP is found AND materials are matched — receives the RFP file itself (in addition to
+# Sales/Technical who receive the matched materials CSV)
+# Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
+EMAIL_TO_NEW_RFP_WITH_MATCH = "ksatenders@bahra-cables.com"
 EMAIL_TO_NO_MATCHED_DATA = "ksatenders@bahra-cables.com"  # When No matched data IN DOWNLOAD RFP
+# EMAIL_TO_RFP_SUBMITTED = "arawah@bahra-cables.com" 
+# EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
+
+EMAIL_TO_RFP_SUBMITTED = "ksatenders@bahra-cables.com" 
+EMAIL_TO_RFP_SAVED_DRAFT = "ksatenders@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
+
 
 EMAIL_TO_RFP_REMINDER = "ksatenders@bahra-cables.com;shubham.kumbhar@dynatechconsultancy.com"
 # RFP REMINDER EMAIL
+
+
+
+# EMAIL_TO_NEW_RFP_WITH_MATCH = "sec.tenderteam@bahra-cables.com"
+# EMAIL_TO_NO_MATCHED_DATA = "ksatenders@bahra-cables.com" 
+# EMAIL_TO_NEW_RFP_NO_MATCH = "sec.tenderteam@bahra-cables.com"
+
+
+# ===== RFP Notification Email — Team Assignment Table =====
+# Shown in every new-RFP email so recipients know who handles each product.
+# Each entry: {"product": "Category", "name": "Person Name"}
+# A product can have multiple rows (one per person).
+RFP_TEAM_TABLE = [
+    {"product": "Cables",             "name": "Lotfy Idrees"},
+    {"product": "Cable Accessories",  "name": "Ahmed Ebeed"},
+    {"product": "Non-Cables",         "name": "Karim Nour"},
+    {"product": "TBS and BED",        "name": "Intikhab Ali"},
+    {"product": "TBS and BED",        "name": "Mohammad Ariff"},
+]
 
 # ===== Dashboard / Logs Settings =====
 # Backend cache TTLs (seconds)
@@ -183,3 +222,7 @@ SESSION_REFRESH_INTERVAL = 300
 
 # ===== Temp data for testing =====
 # python download_from_csv.py --csv C:\python\RFP-automation\ALLRFPs\Portal-Rfps\cr673_requestforproposals.csv --username Loai.Albar@bahra-cables.com --password Bahra@2026
+
+
+
+# python download_from_csv.py --file C:\python\RFP-automation\ALLRFPs\Portal-Rfps\cr673_requestforproposals.csv --username Loai.Albar@bahra-cables.com --password Bahra@2026

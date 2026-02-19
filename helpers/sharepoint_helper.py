@@ -211,6 +211,67 @@ class GraphClient:
         print(f"☑️ Downloaded {sp_path} → {local_path}")
         return local_path
 
+    def get_latest_excel_from_folder(self, sp_folder_path: str) -> tuple:
+        """
+        List all Excel files in a SharePoint folder, sorted by lastModifiedDateTime descending.
+        Returns (file_content_BytesIO, filename) of the most recently modified Excel file.
+        Raises RuntimeError if no Excel found.
+        """
+        url = (
+            f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}"
+            f"/root:/{sp_folder_path}:/children"
+            f"?$select=name,lastModifiedDateTime,file,size"
+        )
+        response = requests.get(url, headers=self.headers)
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"❌ Cannot list folder '{sp_folder_path}': HTTP {response.status_code} {response.text[:200]}"
+            )
+
+        items = response.json().get('value', [])
+        excel_files = [
+            item for item in items
+            if 'file' in item and item.get('name', '').lower().endswith(('.xls', '.xlsx'))
+        ]
+
+        if not excel_files:
+            raise RuntimeError(f"❌ No Excel files (.xls/.xlsx) found in '{sp_folder_path}'")
+
+        # Sort by lastModifiedDateTime descending → latest first
+        excel_files.sort(
+            key=lambda x: x.get('lastModifiedDateTime', ''),
+            reverse=True
+        )
+
+        latest = excel_files[0]
+        filename = latest['name']
+        modified_at = latest.get('lastModifiedDateTime', 'unknown')
+        size = latest.get('size', 0)
+
+        print(f"📋 Files in '{sp_folder_path}' ({len(excel_files)} Excel):")
+        for i, f in enumerate(excel_files[:5]):
+            marker = " ← latest" if i == 0 else ""
+            print(f"   {i+1}. {f['name']} | {f.get('lastModifiedDateTime','?')}{marker}")
+
+        file_path = f"{sp_folder_path}/{filename}"
+        print(f"📥 Fetching latest Excel: '{filename}' (modified: {modified_at}, size: {size} bytes)")
+
+        content_url = (
+            f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}"
+            f"/root:/{file_path}:/content"
+        )
+        content_resp = requests.get(content_url, headers=self.headers)
+        if content_resp.status_code != 200:
+            raise RuntimeError(
+                f"❌ Failed to download '{filename}': HTTP {content_resp.status_code}"
+            )
+
+        from io import BytesIO
+        content = BytesIO(content_resp.content)
+        content.seek(0)
+        print(f"✅ Latest Excel fetched: '{filename}' ({len(content_resp.content)} bytes)")
+        return content, filename
+
     def list_files_in_directory(self, sp_directory_path: str, file_extensions: list = None) -> list:
         """
         List all files in a SharePoint directory.

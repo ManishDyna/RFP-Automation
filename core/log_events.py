@@ -231,6 +231,15 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
             if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
                 # Existing record found
                 existing_row = existing_result["value"][0]
+                # Row keys are display names (use_display_names=True) — resolve primary key via reverse map
+                try:
+                    _colmap = DATAVERSE.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)
+                    _logical_to_display = {v: k for k, v in _colmap.items()}
+                except Exception:
+                    _logical_to_display = {}
+                _pk_logical = f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"
+                _pk_display = _logical_to_display.get(_pk_logical)
+                existing_record_id = (existing_row.get(_pk_display) if _pk_display else None) or existing_row.get(_pk_logical)
                 existing_downloaded_at = existing_row.get("Downloaded_At", "")
                 
                 # If RFP was already downloaded before, skip re-logging unless there are meaningful updates
@@ -261,7 +270,7 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                     
                     # Only update if there are meaningful changes
                     if has_meaningful_updates:
-                        record_id = existing_row[f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"]
+                        record_id = existing_record_id
                         # Merge: only update fields provided in row_data (don't update Downloaded_At for re-downloads)
                         update_data = {}
                         
@@ -307,7 +316,7 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                         return  # Exit early without logging
                 else:
                     # Record exists but no Downloaded_At, treat as new download
-                    record_id = existing_row[f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"]
+                    record_id = existing_record_id
                     update_data = {k: v for k, v in row_data.items() if v not in [None, ""]}
                     DATAVERSE.update_row(
                         RFP_ACTIVITY_LOG_TABLE_API,

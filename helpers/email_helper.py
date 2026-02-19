@@ -41,6 +41,63 @@ def create_file_names_and_source_files(rfp_titles: list, company_name: str = Non
     }
 
 
+def _build_rfp_notification_html(rfp_titles: list, rfp_end_dates: dict = None) -> tuple:
+    """
+    Build the standard RFP notification email subject and HTML body
+    matching the reference email format:
+      - Subject  : RFP title (single) or "New <N> RFP(s) Found" (multiple)
+      - Body     : Greeting + Products/Name table + due-date note
+    """
+    from config.config import RFP_TEAM_TABLE
+
+    rfp_end_dates = rfp_end_dates or {}
+
+    # Subject
+    if len(rfp_titles) == 1:
+        subject = rfp_titles[0]
+    else:
+        subject = f"New {len(rfp_titles)} RFP(s) Received ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+
+    # Products / Name table rows
+    table_rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:6px 10px;'>{row['product']}</td>"
+        f"<td style='border:1px solid #ccc;padding:6px 10px;'>{row['name']}</td>"
+        f"<td style='border:1px solid #ccc;padding:6px 10px;'></td>"
+        f"<td style='border:1px solid #ccc;padding:6px 10px;'></td></tr>"
+        for row in RFP_TEAM_TABLE
+    )
+    table_html = f"""
+    <table style='border-collapse:collapse;margin:10px 0;'>
+      <tr style='background:#f0f0f0;'>
+        <th style='border:1px solid #ccc;padding:6px 10px;'>Products</th>
+        <th style='border:1px solid #ccc;padding:6px 10px;'>Name</th>
+        <th style='border:1px solid #ccc;padding:6px 10px;'>Results</th>
+        <th style='border:1px solid #ccc;padding:6px 10px;'>Remarks</th>
+      </tr>
+      {table_rows}
+    </table>
+    """
+
+    # Due-date notes (one per RFP)
+    due_date_lines = ""
+    for title in rfp_titles:
+        end_date = rfp_end_dates.get(title, "-")
+        due_date_lines += (
+            f"<p style='background-color:#FFFF00;display:inline-block;padding:4px 8px;margin:2px 0;'>"
+            f"<b>Note: the due date for <u>{title}</u> is {end_date}</b></p><br>"
+        )
+
+    body_html = f"""
+    <p>Dear's,</p>
+    <p>Kindly advise us regarding to the attached file</p>
+    {table_html}
+    {due_date_lines}
+    <br><p>Best Regards,<br>Automation System</p>
+    """
+
+    return subject, body_html
+
+
 def trigger_email(
     csv_file=None,
     rfp_id=None,
@@ -52,6 +109,8 @@ def trigger_email(
     rfp_link=None,
     attachments=None,
     company_name=None,
+    rfp_titles=None,
+    rfp_end_dates=None,
 ):
     """
     Send email via Power Automate (Flow). Supports:
@@ -62,6 +121,9 @@ def trigger_email(
     """
     not_mateched_files = not_mateched_files or []
     attachments = attachments or []
+
+    # Preserve the rfp_titles passed in as a parameter before local variables shadow it
+    incoming_rfp_titles: list[str] = rfp_titles or []
 
     unique_emails: list[str] = []
     rfp_titles: list[str] = []
@@ -126,23 +188,19 @@ def trigger_email(
             # Nothing to send
             return rfp_titles
 
-    # === No matched data ===
+    # === New RFP found but no material match — attach the RFP file(s) ===
     elif csv_file == "not_matched_data":
-        unique_emails = [EMAIL_TO_NO_MATCHED_DATA]
+        unique_emails = [EMAIL_TO_NEW_RFP_NO_MATCH]
         rfp_titles = [Path(f).stem for f in not_mateched_files]
+        auto_subject, auto_body = _build_rfp_notification_html(rfp_titles, rfp_end_dates)
         if not subject:
-            subject = f"Automation Run - No Matched Data ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+            subject = auto_subject
         if not body_html:
-            body_html = """
-            <p>Dear Team,</p>
-            <p>The automation completed successfully, but <b>no new materials</b> were matched.</p>
-            <p>No action required. The system will continue monitoring and notify you of updates.</p>
-            <p>Best Regards,<br>Automation System</p>
-            """
+            body_html = auto_body
         file_data = create_file_names_and_source_files(rfp_titles, company_name)
         file_names = file_data["FileNames"]
         source_files = file_data["SourceFiles"]
-        email_to = EMAIL_TO_NO_MATCHED_DATA
+        email_to = EMAIL_TO_NEW_RFP_NO_MATCH
 
     # === Reminder emails ===
     elif email_flag == "reminder":
@@ -219,6 +277,36 @@ def trigger_email(
             <p>Best Regards,<br>Automation System</p>
             """
         email_to = EMAIL_TO_RFP_ERROR_IN_DECLINE
+
+    # === CASE 1: New RFP found (matched or not) — reference format email ===
+    elif email_flag == "new_rfp_found":
+        rfp_titles = incoming_rfp_titles
+        auto_subject, auto_body = _build_rfp_notification_html(rfp_titles, rfp_end_dates)
+        if not subject:
+            subject = auto_subject
+        if not body_html:
+            body_html = auto_body
+        file_data = create_file_names_and_source_files(rfp_titles, company_name)
+        file_names = file_data["FileNames"]
+        source_files = file_data["SourceFiles"]
+        email_to = EMAIL_TO_NEW_RFP
+
+    # === CASE 2: No new RFP found on portal ===
+    elif email_flag == "no_new_rfp":
+        email_to = EMAIL_TO_NO_NEW_RFP
+
+    # === New RFP found with matched materials — send RFP file to a separate recipient ===
+    elif email_flag == "new_rfp_with_match":
+        rfp_titles = incoming_rfp_titles
+        auto_subject, auto_body = _build_rfp_notification_html(rfp_titles, rfp_end_dates)
+        if not subject:
+            subject = auto_subject
+        if not body_html:
+            body_html = auto_body
+        file_data = create_file_names_and_source_files(rfp_titles, company_name)
+        file_names = file_data["FileNames"]
+        source_files = file_data["SourceFiles"]
+        email_to = EMAIL_TO_NEW_RFP_WITH_MATCH
 
     elif email_flag == "automation_failure":
         if not subject:

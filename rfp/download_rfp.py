@@ -320,6 +320,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
     
     all_matches = []
     not_mateched_files = []
+    files_with_any_match = set()   # track which files had at least one material match
     processed_rfps = set()
     files_processed = 0
     files_skipped = 0
@@ -410,6 +411,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                             break
                 
                 if is_matched:
+                    files_with_any_match.add(file_name)   # mark this file as having at least one match
                     # Get RFP End Date from log if available
                     RFP_End_Date = "-"
                     if not log_df.empty:
@@ -496,11 +498,13 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                             else:
                                 record[f"MissingCol_{col_index}"] = None
                         all_matches.append(record)
-                else:
-                    not_mateched_files.append(file_name)
 
-    # Only Containt Unique RFP_ID in not_mateched_files
-    not_mateched_files = list(set(not_mateched_files))
+    # A file is "not matched" only if NONE of its materials had any match
+    not_mateched_files = [
+        os.path.basename(f)
+        for f in excel_files
+        if os.path.basename(f) not in files_with_any_match
+    ]
     # 🔹 Prepare final DataFrame
     result_df = pd.DataFrame(all_matches)
     print("not_mateched_files:-",not_mateched_files)
