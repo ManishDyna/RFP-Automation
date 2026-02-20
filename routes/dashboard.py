@@ -2330,61 +2330,6 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
-@router.get("/rfp/{rfp_id}/match-percentage")
-async def get_rfp_match_percentage(request: Request, rfp_id: str, company: str = None):
-    """
-    Get matching percentage for a single RFP (uses cache).
-    Returns only the percentage without full material details.
-    """
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    try:
-        # Initialize GraphClient
-        graph_client = GraphClient(
-            CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-            SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
-        )
-        graph_client.auth()
-        graph_client.resolve_site_and_drive()
-
-        # Get cached master data
-        master_csv_local = os.path.join(OUTPUT_DIR, "master_material.csv")
-        master = get_cached_master_data(graph_client, master_csv_local)
-        master_col = find_column_name(master.columns, "material")
-        if not master_col:
-            return JSONResponse({
-                "ok": True,
-                "match_percentage": 0,
-                "error": "No 'material' column found in master CSV"
-            })
-
-        # Get cached keywords
-        keywords_csv_local = os.path.join(OUTPUT_DIR, "unique_keywords.csv")
-        keywords_list = get_cached_keywords(graph_client, keywords_csv_local)
-
-        # Calculate (uses cache if available)
-        result = calculate_match_percentage_optimized(
-            rfp_id, master, master_col, keywords_list,
-            company=company, graph_client=graph_client
-        )
-        
-        return JSONResponse({
-            "ok": True,
-            "match_percentage": result["match_percentage"],
-            "total_materials": result["total_materials"],
-            "matched_count": result["matched_count"]
-        })
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return JSONResponse({
-            "ok": False,
-            "match_percentage": 0,
-            "error": str(e)
-        })
-
 @router.post("/submit-rfp-final")
 async def submit_rfp_final(request: Request):
     """

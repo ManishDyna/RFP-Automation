@@ -74,9 +74,6 @@ def validate_rfp_status(status: str) -> bool:
 TENANT_ID = "46aa82d0-1a4b-4b08-b520-514ccbe1e7ca"
 CLIENT_ID = "97312492-991a-46be-91de-62430026f72d"
 CLIENT_SECRET = "pDN8Q~kLKXRoOmEB5PvLRDo-zVH2o91IjRtaJagr"
-
-
-
 SHAREPOINT_HOSTNAME = "bahracables.sharepoint.com"
 SITE_PATH = "/sites/LiveSite/RFPAutomation"
 DRIVE_NAME = "Documents"
@@ -142,26 +139,26 @@ SP_FAILURE_LOGS_FOLDER = "RFP-logs/automation-error-logs"
 
 # ── Case 1: New RFP found on portal (matched or not matched — same email) ──
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_NEW_RFP = "ksatenders@bahra-cables.com"
+EMAIL_TO_NEW_RFP = "Manish.soni@dynatechconsultancy.com"
 
 # ── Case 2: Automation ran but NO new RFP was found on portal ──
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_NO_NEW_RFP = "ksatenders@bahra-cables.com"
+EMAIL_TO_NO_NEW_RFP = "Manish.soni@dynatechconsultancy.com"
 
  # When RFP is submitted successfully
-EMAIL_TO_RFP_DECLINED = "ksatenders@bahra-cables.com"  # When RFP is declined successfully
-EMAIL_TO_RFP_ERROR_IN_SUBMISSION = "ksatenders@bahra-cables.com"  # When RFP is submission failed
-EMAIL_TO_RFP_ERROR_IN_DECLINE = "ksatenders@bahra-cables.com"  # When RFP is decline failed or error in decline
-EMAIL_TO_AUTOMATION_FAILURE = "ksatenders@bahra-cables.com"  # When Automation is failed
-EMAIL_TO_NEW_RFP_NO_MATCH = "ksatenders@bahra-cables.com"
+EMAIL_TO_RFP_DECLINED = "Manish.soni@dynatechconsultancy.com"  # When RFP is declined successfully
+EMAIL_TO_RFP_ERROR_IN_SUBMISSION = "Manish.soni@dynatechconsultancy.com"  # When RFP is submission failed
+EMAIL_TO_RFP_ERROR_IN_DECLINE = "Manish.soni@dynatechconsultancy.com"  # When RFP is decline failed or error in decline
+EMAIL_TO_AUTOMATION_FAILURE = "Manish.soni@dynatechconsultancy.com"  # When Automation is failed
+EMAIL_TO_NEW_RFP_NO_MATCH = "Manish.soni@dynatechconsultancy.com"
 # When a new RFP is found AND materials are matched — receives the RFP file itself (in addition to
 # Sales/Technical who receive the matched materials CSV)
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_RFP_SUBMITTED = "ksatenders@bahra-cables.com" 
-EMAIL_TO_RFP_SAVED_DRAFT = "ksatenders@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
+EMAIL_TO_RFP_SUBMITTED = "Manish.soni@dynatechconsultancy.com" 
+EMAIL_TO_RFP_SAVED_DRAFT = "Manish.soni@dynatechconsultancy.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
 
 
-EMAIL_TO_RFP_REMINDER = "ksatenders@bahra-cables.com;shubham.kumbhar@dynatechconsultancy.com"
+EMAIL_TO_RFP_REMINDER = "Manish.soni@dynatechconsultancy.com"
 # RFP REMINDER EMAIL
 
 # EMAIL_TO_NEW_RFP_WITH_MATCH = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"

@@ -12,6 +12,7 @@ import {
   FileText,
   Eye,
   AlertTriangle,
+  AlertCircle,
   ArrowRight,
   Filter,
   Loader2,
@@ -89,18 +90,21 @@ const FAILURE_MESSAGE_PATTERNS = [
   'could not', 'unable to', 'cannot', 'crash', 'unexpected error',
 ]
 
+const FAILURE_STATUSES = ['fail', 'failed', 'error', 'critical']
+const SUCCESS_STATUSES = ['success', 'complete', 'completed', 'skip']
+
 function deriveOverallStatus(logs: LogEntry[]): AutomationRun['overall_status'] {
   const statuses = logs.map((l) => l.status?.toLowerCase())
   const lastStatus = statuses[statuses.length - 1]
 
   // 1. Explicit failure status in any step → failed
-  if (statuses.some((s) => ['failed', 'error'].includes(s))) return 'failed'
+  if (statuses.some((s) => FAILURE_STATUSES.includes(s))) return 'failed'
 
   // 2. Warning steps with failure-indicating messages → failed
   const hasFailureMessage = logs.some((log) => {
     const msg = (log.details || '').toLowerCase()
     const s = log.status?.toLowerCase()
-    return (s === 'warning' || s === 'error') &&
+    return (s === 'warning' || FAILURE_STATUSES.includes(s)) &&
       FAILURE_MESSAGE_PATTERNS.some((pattern) => msg.includes(pattern))
   })
 
@@ -161,8 +165,8 @@ function groupLogsByRunId(logs: LogEntry[]): AutomationRun[] {
       end_time: sorted[sorted.length - 1]?.event_time || '-',
       overall_status: deriveOverallStatus(sorted),
       total_steps: sorted.length,
-      success_steps: statuses.filter((s) => ['success', 'complete', 'completed'].includes(s)).length,
-      failed_steps: statuses.filter((s) => ['failed', 'error'].includes(s)).length,
+      success_steps: statuses.filter((s) => SUCCESS_STATUSES.includes(s)).length,
+      failed_steps: statuses.filter((s) => FAILURE_STATUSES.includes(s)).length,
       warning_steps: statuses.filter((s) => s === 'warning').length,
       logs: sorted,
     }
@@ -217,9 +221,9 @@ function StatusBadge({ status }: { status: AutomationRun['overall_status'] }) {
 
 function StepStatusDot({ status }: { status: string }) {
   const s = status?.toLowerCase()
-  if (['success', 'complete', 'completed'].includes(s))
+  if (SUCCESS_STATUSES.includes(s))
     return <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
-  if (['failed', 'error'].includes(s))
+  if (FAILURE_STATUSES.includes(s))
     return <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
   if (s === 'warning')
     return <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
@@ -350,9 +354,9 @@ function RunDetailModal({
                             {log.action}
                           </Badge>
                           <span className={`text-[10px] font-medium px-1.5 py-0 rounded ${
-                            ['success', 'complete', 'completed'].includes(log.status?.toLowerCase())
+                            SUCCESS_STATUSES.includes(log.status?.toLowerCase())
                               ? 'bg-emerald-50 text-emerald-700'
-                              : ['failed', 'error'].includes(log.status?.toLowerCase())
+                              : FAILURE_STATUSES.includes(log.status?.toLowerCase())
                               ? 'bg-rose-50 text-rose-700'
                               : log.status?.toLowerCase() === 'warning'
                               ? 'bg-amber-50 text-amber-700'
@@ -638,7 +642,7 @@ export default function LogsPage() {
   const [selectedRun, setSelectedRun] = useState<AutomationRun | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
-  const { data, isLoading, refetch, isRefetching } = useQuery({
+  const { data, isLoading, isError, error, refetch, isRefetching } = useQuery({
     queryKey: ['automationLogs', page, pageSize],
     queryFn: () => api.getAutomationLogs(page, pageSize),
   })
@@ -761,7 +765,7 @@ export default function LogsPage() {
           onClick={() => setStatusFilter(statusFilter === 'running' ? 'all' : 'running')}
           className={`rounded-xl p-4 text-left transition-all ${
             statusFilter === 'running' ? 'ring-2 ring-blue-400 shadow-md' : ''
-          } stat-card-amber`}
+          } stat-card-blue`}
         >
           <div className="flex items-center justify-between">
             <div>
@@ -836,7 +840,26 @@ export default function LogsPage() {
         </CardHeader>
 
         <CardContent className="p-0">
-          {isLoading ? (
+          {isError ? (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+              <div className="w-16 h-16 rounded-full bg-rose-50 flex items-center justify-center mb-4">
+                <AlertCircle className="h-8 w-8 text-rose-400" />
+              </div>
+              <p className="text-lg font-medium text-slate-600 mb-2">Failed to load logs</p>
+              <p className="text-sm text-slate-400 mb-4">
+                {(error as any)?.message || 'An unexpected error occurred while fetching automation logs.'}
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => refetch()}
+                disabled={isRefetching}
+                className="border-slate-200"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? 'animate-spin' : ''}`} />
+                Retry
+              </Button>
+            </div>
+          ) : isLoading ? (
             <div className="p-6 space-y-3">
               {[...Array(6)].map((_, i) => (
                 <div key={i} className="flex items-center gap-4 p-4 rounded-xl border border-slate-100">
@@ -891,8 +914,18 @@ export default function LogsPage() {
           {totalPages > 0 && (
             <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/50">
               <p className="text-sm text-slate-500">
-                Showing <span className="font-semibold text-slate-700">{filteredRuns.length}</span> runs
-                of <span className="font-semibold text-slate-700">{totalRuns}</span> total
+                {searchTerm || statusFilter !== 'all' ? (
+                  <>
+                    Showing <span className="font-semibold text-slate-700">{filteredRuns.length}</span> of{' '}
+                    <span className="font-semibold text-slate-700">{allRuns.length}</span> runs on this page
+                  </>
+                ) : (
+                  <>
+                    Page <span className="font-semibold text-slate-700">{page}</span> of{' '}
+                    <span className="font-semibold text-slate-700">{totalPages}</span>
+                    {' '}(<span className="font-semibold text-slate-700">{totalRuns}</span> total runs)
+                  </>
+                )}
               </p>
               <div className="flex items-center gap-2">
                 <Button

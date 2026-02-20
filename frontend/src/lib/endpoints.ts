@@ -89,7 +89,6 @@ export const ENDPOINTS = {
     UPDATE_STATUS: `${DASHBOARD_PREFIX}/rfp/status`,
     GET_STATUS: (rfpId: string) => `${DASHBOARD_PREFIX}/rfp-status/${rfpId}`,
     GET_MATERIALS: (rfpId: string) => `${DASHBOARD_PREFIX}/rfp/${rfpId}/materials`,
-    GET_MATCH_PERCENTAGE: (rfpId: string) => `${DASHBOARD_PREFIX}/rfp/${rfpId}/match-percentage`,
     BATCH_MATCH_PERCENTAGES: `${DASHBOARD_PREFIX}/rfp/batch-match-percentages`,
     SUBMIT_FINAL: `${DASHBOARD_PREFIX}/submit-rfp-final`,
     GET_DYNAMIC_FORM: (rfpId: string) => `${DASHBOARD_PREFIX}/rfp/${rfpId}/dynamic-form-structure`,
