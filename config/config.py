@@ -116,6 +116,10 @@ AUTOMATION_SCHEDULE_TABLE_API = "cr673_bahra_automation_scheduleses"     # Datav
 RFP_STATUS_TABLE_LOGICAL = "cr673_bhara_rfp_status"  # singular logical name
 RFP_STATUS_TABLE_API = "cr673_bhara_rfp_statuses"    # pluralized API name
 
+# ===== System Settings (Dataverse) =====
+SETTINGS_TABLE_LOGICAL = "cr673_bahra_system_settings"
+SETTINGS_TABLE_API = "cr673_bahra_system_settingses"
+
 # ===== All RFPs Storage (Dataverse) =====
 #  # pluralized API name
 

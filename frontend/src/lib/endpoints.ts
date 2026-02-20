@@ -113,6 +113,13 @@ export const ENDPOINTS = {
     DOWNLOAD_ALL_RFPS: `${DASHBOARD_PREFIX}/download-all-rfps`,
     RFP_REMINDER: `${API_PREFIX}/rfp-reminder`,
   },
+
+  // ==================== SETTINGS (routes/settings.py with /api/settings prefix) ====================
+  SETTINGS: {
+    ALL: `${API_PREFIX}/settings/all`,
+    SAVE: `${API_PREFIX}/settings/save`,
+    RELOAD: `${API_PREFIX}/settings/reload`,
+  },
 } as const
 
 // Type helper for endpoint values

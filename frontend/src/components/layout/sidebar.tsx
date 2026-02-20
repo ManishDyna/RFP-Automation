@@ -184,6 +184,13 @@ export function Sidebar({
                     active={location.pathname === '/admin/sap-logs'}
                     collapsed={collapsed}
                   />
+                  <NavItem
+                    path="/admin/settings"
+                    icon={Settings}
+                    label="Settings"
+                    active={location.pathname === '/admin/settings'}
+                    collapsed={collapsed}
+                  />
                 </NavSection>
               )}
 

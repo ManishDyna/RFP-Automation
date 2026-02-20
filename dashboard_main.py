@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from routes import dashboard, user_management, auth, automation
+from routes import dashboard, user_management, auth, automation, settings as settings_routes
 from routes import api as api_routes
 from config.config import SESSION_TIMEOUT_SECONDS
 import os
@@ -57,6 +57,9 @@ app.include_router(auth.router)
 
 # User management API router
 app.include_router(user_management.router)
+
+# Settings API router (admin only)
+app.include_router(settings_routes.router)
 
 if __name__ == "__main__":
     import uvicorn

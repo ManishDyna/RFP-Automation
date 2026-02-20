@@ -22,6 +22,13 @@ DATAVERSE = DataverseClient(
     client_secret=CLIENT_SECRET,
     resource_url=RESOURCE_URL
 )
+
+# ==== LOAD SETTINGS FROM DATAVERSE (patches config module) ====
+try:
+    from helpers.settings_helper import load_settings_from_dataverse
+    load_settings_from_dataverse()
+except Exception as _settings_err:
+    logger.warning(f"Could not load settings from Dataverse at startup: {_settings_err}")
 # ===== HELPERS =====
 async def click_if_visible(page, selector, timeout=5000, max_attempts=3):
     """Click element if visible, retry up to max_attempts"""

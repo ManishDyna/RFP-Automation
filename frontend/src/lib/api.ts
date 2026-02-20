@@ -444,4 +444,40 @@ export const api = {
     })
     return handleResponse(response)
   },
+
+  // ==================== Settings ====================
+  getSettings: async () => {
+    const response = await fetch(ENDPOINTS.SETTINGS.ALL, {
+      credentials: 'include',
+    })
+    return handleResponse<{ ok: boolean; data: Record<string, SettingEntry[]> }>(response)
+  },
+
+  saveSettings: async (updates: Record<string, string>) => {
+    const response = await fetch(ENDPOINTS.SETTINGS.SAVE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+      credentials: 'include',
+    })
+    return handleResponse<{ ok: boolean; saved: string[]; failed: { key: string; error: string }[] }>(response)
+  },
+
+  reloadSettings: async () => {
+    const response = await fetch(ENDPOINTS.SETTINGS.RELOAD, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    return handleResponse<{ ok: boolean; loaded: number }>(response)
+  },
+}
+
+export interface SettingEntry {
+  key: string
+  label: string
+  description: string
+  value: string
+  data_type: 'string' | 'json_list' | 'json_table' | 'integer' | 'boolean'
+  is_sensitive: boolean
+  is_editable: boolean
 }
