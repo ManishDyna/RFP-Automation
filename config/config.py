@@ -137,7 +137,8 @@ SP_FAILURE_LOGS_FOLDER = "RFP-logs/automation-error-logs"
 
 # Email Config
 
-# ── Case 1: New RFP found on portal (matched or not matched — same email) ──
+# ── Case 1: New RFP found on portal (one email per RFP with RFP file + matched materials) ──
+# Combined recipients (previously EMAIL_TO_NEW_RFP + EMAIL_TO_NEW_RFP_WITH_MATCH)
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
 EMAIL_TO_NEW_RFP = "Manish.soni@dynatechconsultancy.com"
 
@@ -162,9 +163,10 @@ EMAIL_TO_RFP_REMINDER = "Manish.soni@dynatechconsultancy.com"
 # RFP REMINDER EMAIL
 
 # EMAIL_TO_NEW_RFP_WITH_MATCH = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"
-# EMAIL_TO_NO_MATCHED_DATA = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com" 
-EMAIL_TO_NEW_RFP_WITH_MATCH = "ksatenders@bahra-cables.com"
-EMAIL_TO_NO_MATCHED_DATA = "ksatenders@bahra-cables.com"  # When No matched data IN DOWNLOAD RFP"
+# EMAIL_TO_NO_MATCHED_DATA = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"
+# NOTE: EMAIL_TO_NEW_RFP_WITH_MATCH is now consolidated with EMAIL_TO_NEW_RFP (per-RFP email flow)
+EMAIL_TO_NEW_RFP_WITH_MATCH = "Manish.soni@dynatechconsultancy.com"
+EMAIL_TO_NO_MATCHED_DATA = "Manish.soni@dynatechconsultancy.com"  # When No matched data IN DOWNLOAD RFP"
 # EMAIL_TO_RFP_SUBMITTED = "arawah@bahra-cables.com" 
 # EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
 
@@ -217,3 +219,6 @@ SESSION_REFRESH_INTERVAL = 300
 
 
 # python download_from_csv.py --file C:\python\RFP-automation\ALLRFPs\Portal-Rfps\cr673_requestforproposals.csv --username Loai.Albar@bahra-cables.com --password Bahra@2026
+
+
+# python download_from_csv.py --file C:\python\RFP-automation\missing_rfps_20260220_182001.csv --username Loai.Albar@bahra-cables.com --password Bahra@2026

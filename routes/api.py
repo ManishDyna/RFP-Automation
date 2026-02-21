@@ -337,6 +337,29 @@ async def api_rfp_details(
                 continue
         return None
 
+    def _parse_end_datetime(date_str):
+        """Parse RFP end date string into a naive datetime, trying multiple formats."""
+        if not date_str:
+            return None
+        s = str(date_str).strip()
+        if not s:
+            return None
+        # Try common formats
+        for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S",
+                     "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(s[:len(fmt) + 5].split("+")[0].split("Z")[0].strip(), fmt)
+            except (ValueError, TypeError):
+                continue
+        # Fallback: try dateutil parser
+        try:
+            from dateutil import parser as du_parser
+            dt = du_parser.parse(s)
+            return dt.replace(tzinfo=None)
+        except Exception:
+            pass
+        return None
+
     def _normalize_participation(raw_status, rfp_end_date_str):
         value = (raw_status or "").strip().lower()
         if value in ("submitted", "yes"):
@@ -347,13 +370,9 @@ async def api_rfp_details(
             return "saved_draft"
         if value in ("", "no", "open", "not participated"):
             # Check if end date is in the past - mark as not_participant
-            if rfp_end_date_str:
-                try:
-                    end_dt = datetime.strptime(rfp_end_date_str[:16], "%Y-%m-%d %H:%M")
-                    if end_dt < datetime.now():
-                        return "not_participant"
-                except (ValueError, TypeError):
-                    pass
+            end_dt = _parse_end_datetime(rfp_end_date_str)
+            if end_dt and end_dt < datetime.now():
+                return "not_participant"
             return "open"
         return "other"
 
@@ -605,13 +624,13 @@ async def api_material_insights_grouped(
 
 
 @router.get("/dashboard/view-logs")
-async def api_view_logs(request: Request, page: int = Query(1), page_size: int = Query(50)):
+async def api_view_logs(request: Request, page: int = Query(1), page_size: int = Query(50), force_refresh: bool = Query(False)):
     """Get automation logs as JSON, grouped by run_id and paginated by runs."""
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     # get_logs_data_cached returns a list directly, not a dict
-    logs_list = get_logs_data_cached(force_refresh=False)
+    logs_list = get_logs_data_cached(force_refresh=force_refresh)
     if not isinstance(logs_list, list):
         logs_list = []
 

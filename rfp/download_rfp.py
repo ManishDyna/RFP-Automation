@@ -507,31 +507,42 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
     ]
     # 🔹 Prepare final DataFrame
     result_df = pd.DataFrame(all_matches)
-    print("not_mateched_files:-",not_mateched_files)
-    if not result_df.empty:
-        # ✅ Generate timestamped CSV in local ALLRFPs directory
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_csv = os.path.join(OUTPUT_DIR, f"matched_materials_{timestamp}.csv")
-        try:
-            result_df.to_csv(output_csv, index=False)
-            print(f"✅ Exported matches to {output_csv}")
-            log_event("RFP", "Files Matching", "Success", f"Exported {len(result_df)} matched materials to {output_csv}", '')
-        except Exception as e:
-            error_msg = f"Failed to export CSV: {str(e)}"
-            print(f"⚠ {error_msg}")
-            log_event("RFP", "Files Matching", "Fail", error_msg)
-            output_csv = "export_failed"
+    print("not_mateched_files:-", not_mateched_files)
 
-        # ✅ Upload to SharePoint
-        if output_csv != "export_failed":
+    # Per-RFP matched material CSV map: {rfp_id: csv_path}
+    per_rfp_csv_map = {}
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if not result_df.empty:
+        # ✅ Generate per-RFP matched material CSVs
+        for rfp_id_key in result_df["RFP_Title"].dropna().unique():
+            rfp_matches = result_df[result_df["RFP_Title"] == rfp_id_key]
+            if rfp_matches.empty:
+                continue
+            per_rfp_csv = os.path.join(OUTPUT_DIR, f"matched_materials_{rfp_id_key}_{timestamp}.csv")
             try:
-                log_event("Sharepoint", "Upload", "Uploading", f"Uploading {output_csv} to SharePoint")
-                graph_client.sync_local_to_sharepoint(output_csv, f"{SP_BASE_FOLDER}/ALLRFPs")
-                log_event("Sharepoint", "Upload", "Success", f"File uploaded to SharePoint: {output_csv}")
+                rfp_matches.to_csv(per_rfp_csv, index=False)
+                print(f"✅ Exported per-RFP matches for {rfp_id_key} to {per_rfp_csv}")
+                log_event("RFP", "Files Matching", "Success", f"Exported {len(rfp_matches)} matches for {rfp_id_key}", rfp_id_key)
+
+                # Upload per-RFP CSV to SharePoint
+                try:
+                    sp_folder = f"{SP_BASE_FOLDER}/ALLRFPs/{company_name}/{clean_rfp_title(rfp_id_key)}"
+                    log_event("Sharepoint", "Upload", "Uploading", f"Uploading per-RFP matched CSV for {rfp_id_key}")
+                    graph_client.sync_local_to_sharepoint(per_rfp_csv, sp_folder)
+                    log_event("Sharepoint", "Upload", "Success", f"Per-RFP matched CSV uploaded for {rfp_id_key}")
+                except Exception as e:
+                    error_msg = f"Could not upload per-RFP CSV for {rfp_id_key}: {e}"
+                    print(f"⚠ {error_msg}")
+                    log_event("Sharepoint", "Upload", "Fail", error_msg)
+
+                per_rfp_csv_map[rfp_id_key] = per_rfp_csv
             except Exception as e:
-                error_msg = f"Could not upload {output_csv} to SharePoint: {e}"
+                error_msg = f"Failed to export per-RFP CSV for {rfp_id_key}: {str(e)}"
                 print(f"⚠ {error_msg}")
-                log_event("Sharepoint", "Upload", "Fail", error_msg)
+                log_event("RFP", "Files Matching", "Fail", error_msg)
+
+        log_event("RFP", "Files Matching", "Success", f"Generated {len(per_rfp_csv_map)} per-RFP matched material CSVs")
 
         # ✅ Log activity for new RFPs
         for rfp_id in processed_rfps:
@@ -547,7 +558,6 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
     else:
         print("not_mateched_files:-", not_mateched_files)
         print("✅ No new matched materials found.")
-        output_csv = "not_matched_data"
         log_event("RFP", "Files Matching", "Info", f"No matched materials found. Files processed: {files_processed}, Skipped: {files_skipped}, Failed: {files_failed}")
 
     # Summary log
@@ -557,7 +567,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
     # Clean up temp dir (only held master/keywords CSVs)
     shutil.rmtree(temp_process_dir, ignore_errors=True)
 
-    return result_df, output_csv, not_mateched_files
+    return result_df, per_rfp_csv_map, not_mateched_files
 
 # ===== DOWNLOAD RFP FILES =====
 async def attempt_download(page, row, company_name: str, attempts="Attempt 1", graph_client=None):

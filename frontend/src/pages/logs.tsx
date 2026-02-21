@@ -11,7 +11,6 @@ import {
   Clock,
   FileText,
   Eye,
-  AlertTriangle,
   AlertCircle,
   ArrowRight,
   Filter,
@@ -46,6 +45,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api } from '@/lib/api'
 import { ENDPOINTS } from '@/lib/endpoints'
+import { useAutomationStatus } from '@/hooks/use-automation'
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -67,11 +67,10 @@ interface AutomationRun {
   action: string
   start_time: string
   end_time: string
-  overall_status: 'completed' | 'failed' | 'running' | 'warning' | 'unknown'
+  overall_status: 'completed' | 'failed' | 'running' | 'unknown'
   total_steps: number
   success_steps: number
   failed_steps: number
-  warning_steps: number
   logs: LogEntry[]
 }
 
@@ -84,60 +83,124 @@ interface ErrorFile {
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-// Patterns in messages that indicate a real failure even if status says "Warning"
+// ─── Backend Explicit Markers ────────────────────────────────────
+// The backend logs these actions via log_event() to mark run lifecycle:
+//   StartRun  → run began
+//   EndRun    → run finished (fires in finally block, even after errors)
+//   RunError / SubmitError / DeclineError → fatal error (fires in except block)
+const RUN_START_ACTIONS = ['startrun']
+const RUN_END_ACTIONS = ['endrun']
+const FATAL_ERROR_ACTIONS = ['runerror', 'submiterror', 'declineerror']
+
+// If last log is older than this, a run without EndRun is considered crashed
+const STALE_RUN_THRESHOLD_MS = 30 * 60 * 1000 // 30 minutes
+
+// ─── Step-Level Status Constants (for fallback & step counting) ──
+const FAILURE_STATUSES = ['fail', 'failed', 'error', 'critical']
+const SUCCESS_STATUSES = ['success', 'complete', 'completed', 'skip']
+
 const FAILURE_MESSAGE_PATTERNS = [
   'not found', 'not clickable', 'timeout', 'timed out', 'exception',
   'could not', 'unable to', 'cannot', 'crash', 'unexpected error',
 ]
 
-const FAILURE_STATUSES = ['fail', 'failed', 'error', 'critical']
-const SUCCESS_STATUSES = ['success', 'complete', 'completed', 'skip']
+/** Safely parse a log entry's event_time into a Date. Returns null on failure. */
+function parseLogTime(eventTime: string | undefined | null): Date | null {
+  if (!eventTime || eventTime === '-') return null
+  try {
+    const d = new Date(eventTime)
+    return isNaN(d.getTime()) ? null : d
+  } catch {
+    return null
+  }
+}
 
-function deriveOverallStatus(logs: LogEntry[]): AutomationRun['overall_status'] {
-  const statuses = logs.map((l) => l.status?.toLowerCase())
-  const lastStatus = statuses[statuses.length - 1]
+/**
+ * Derives overall run status using explicit backend markers first,
+ * then falls back to pattern analysis for legacy data.
+ */
+function deriveOverallStatus(
+  logs: LogEntry[],
+  isAutomationRunning: boolean = false,
+): AutomationRun['overall_status'] {
+  if (logs.length === 0) return 'unknown'
 
-  // 1. Explicit failure status in any step → failed
-  if (statuses.some((s) => FAILURE_STATUSES.includes(s))) return 'failed'
+  const actions = logs.map((l) => (l.action ?? '').toLowerCase())
+  const statuses = logs.map((l) => (l.status ?? '').toLowerCase())
 
-  // 2. Warning steps with failure-indicating messages → failed
-  const hasFailureMessage = logs.some((log) => {
-    const msg = (log.details || '').toLowerCase()
-    const s = log.status?.toLowerCase()
-    return (s === 'warning' || FAILURE_STATUSES.includes(s)) &&
-      FAILURE_MESSAGE_PATTERNS.some((pattern) => msg.includes(pattern))
-  })
+  const hasStartRun = actions.some((a) => RUN_START_ACTIONS.includes(a))
+  const hasEndRun = logs.some(
+    (l) =>
+      RUN_END_ACTIONS.includes((l.action ?? '').toLowerCase()) &&
+      (l.status ?? '').toLowerCase() === 'success',
+  )
+  const hasFatalError = actions.some((a) => FATAL_ERROR_ACTIONS.includes(a))
 
-  // 3. Check if the run actually reached a proper completion step
-  const completionStatuses = ['complete', 'completed']
-  const hasCompletionStep = statuses.some((s) => completionStatuses.includes(s))
-  const lastIsTerminal = ['complete', 'completed', 'success', 'skip'].includes(lastStatus)
+  // ── Path A: Explicit markers found → use them ──
+  if (hasStartRun || hasEndRun || hasFatalError) {
+    // EndRun fired (finally block ran). If a fatal error was ALSO logged, run failed.
+    if (hasEndRun) {
+      return hasFatalError ? 'failed' : 'completed'
+    }
 
-  // 4. If run has in-progress steps but no completion → still running
-  const inProgressStatuses = ['running', 'in_progress', 'downloading', 'uploading', 'navigating', 'clicking', 'saving', 'processing']
-  if (statuses.some((s) => inProgressStatuses.includes(s)) && !hasCompletionStep && !hasFailureMessage) {
-    return 'running'
+    // Fatal error but no EndRun → process crashed hard
+    if (hasFatalError) {
+      return 'failed'
+    }
+
+    // StartRun present, no EndRun, no fatal error → run started but hasn't finished
+    // If all non-marker steps succeeded/skipped, the EndRun log was likely lost
+    // (e.g. Dataverse insert failed silently) → treat as completed
+    const nonMarkerLogs = logs.filter(
+      (l) => !RUN_START_ACTIONS.includes((l.action ?? '').toLowerCase()),
+    )
+    if (nonMarkerLogs.length > 0 && nonMarkerLogs.every((l) => SUCCESS_STATUSES.includes((l.status ?? '').toLowerCase()))) {
+      return 'completed'
+    }
+
+    // Check if last log is recent enough that the run could still be active
+    const lastLogTime = parseLogTime(logs[logs.length - 1]?.event_time)
+    const isRecent = lastLogTime !== null && Date.now() - lastLogTime.getTime() < STALE_RUN_THRESHOLD_MS
+
+    if (isAutomationRunning && isRecent) {
+      return 'running'
+    }
+
+    // Started but never ended and no longer active → crashed
+    return 'failed'
   }
 
-  // 5. If there are failure-indicating messages and no proper completion → failed
-  if (hasFailureMessage && !hasCompletionStep) return 'failed'
+  // ── Path B: No explicit markers (legacy/partial data) → pattern fallback ──
+  const lastStatus = statuses[statuses.length - 1] ?? ''
 
-  // 6. If the run has warnings with failure messages but DID complete → warning (it recovered)
-  if (hasFailureMessage && hasCompletionStep) return 'warning'
+  const hasFailureMessage = logs.some((log) => {
+    const msg = (log.details || '').toLowerCase()
+    const s = (log.status ?? '').toLowerCase()
+    return (s === 'warning' || FAILURE_STATUSES.includes(s)) &&
+      FAILURE_MESSAGE_PATTERNS.some((p) => msg.includes(p))
+  })
 
-  // 7. Only "skip" entries with no completion → completed (already processed)
+  const hasCompletionStep = statuses.some((s) => ['complete', 'completed'].includes(s))
+  const lastIsTerminal = ['complete', 'completed', 'success', 'skip'].includes(lastStatus)
+
   if (statuses.every((s) => s === 'skip')) return 'completed'
+  if (hasCompletionStep) return 'completed'
+  if (statuses.some((s) => FAILURE_STATUSES.includes(s))) return 'failed'
+  if (hasFailureMessage) return 'failed'
+  if (lastIsTerminal) return 'completed'
 
-  // 8. Has proper completion step → completed
-  if (hasCompletionStep || lastIsTerminal) return 'completed'
+  // Check if still running
+  const lastLogTime = parseLogTime(logs[logs.length - 1]?.event_time)
+  const isRecent = lastLogTime !== null && Date.now() - lastLogTime.getTime() < STALE_RUN_THRESHOLD_MS
+  if (isAutomationRunning && isRecent) return 'running'
 
-  // 9. Fallback: if last step is not terminal and there are steps, likely incomplete → failed
+  // Not terminal, not running → incomplete/crashed
   if (logs.length > 0 && !lastIsTerminal) return 'failed'
 
   return 'unknown'
 }
 
-function groupLogsByRunId(logs: LogEntry[]): AutomationRun[] {
+function groupLogsByRunId(logs: LogEntry[], isAutomationRunning: boolean = false): AutomationRun[] {
   const groups: Record<string, LogEntry[]> = {}
 
   for (const log of logs) {
@@ -163,11 +226,10 @@ function groupLogsByRunId(logs: LogEntry[]): AutomationRun[] {
       action: [...new Set(sorted.map((l) => l.action))].filter(a => a !== '-').join(', ') || '-',
       start_time: sorted[0]?.event_time || '-',
       end_time: sorted[sorted.length - 1]?.event_time || '-',
-      overall_status: deriveOverallStatus(sorted),
+      overall_status: deriveOverallStatus(sorted, isAutomationRunning),
       total_steps: sorted.length,
       success_steps: statuses.filter((s) => SUCCESS_STATUSES.includes(s)).length,
       failed_steps: statuses.filter((s) => FAILURE_STATUSES.includes(s)).length,
-      warning_steps: statuses.filter((s) => s === 'warning').length,
       logs: sorted,
     }
   }).sort((a, b) => {
@@ -200,8 +262,6 @@ function StatusIcon({ status }: { status: AutomationRun['overall_status'] }) {
       return <XCircle className="h-5 w-5 text-rose-500" />
     case 'running':
       return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
-    case 'warning':
-      return <AlertTriangle className="h-5 w-5 text-amber-500" />
     default:
       return <Clock className="h-5 w-5 text-slate-400" />
   }
@@ -212,7 +272,6 @@ function StatusBadge({ status }: { status: AutomationRun['overall_status'] }) {
     completed: { variant: 'success', label: 'Completed' },
     failed: { variant: 'destructive', label: 'Failed' },
     running: { variant: 'info', label: 'Running' },
-    warning: { variant: 'warning', label: 'Warning' },
     unknown: { variant: 'secondary', label: 'Unknown' },
   }
   const { variant, label } = config[status] || config.unknown
@@ -225,8 +284,6 @@ function StepStatusDot({ status }: { status: string }) {
     return <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
   if (FAILURE_STATUSES.includes(s))
     return <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
-  if (s === 'warning')
-    return <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
   if (['skip'].includes(s))
     return <span className="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0" />
   return <span className="w-2.5 h-2.5 rounded-full bg-blue-400 shrink-0" />
@@ -358,8 +415,6 @@ function RunDetailModal({
                               ? 'bg-emerald-50 text-emerald-700'
                               : FAILURE_STATUSES.includes(log.status?.toLowerCase())
                               ? 'bg-rose-50 text-rose-700'
-                              : log.status?.toLowerCase() === 'warning'
-                              ? 'bg-amber-50 text-amber-700'
                               : 'bg-slate-50 text-slate-600'
                           }`}>
                             {log.status}
@@ -555,7 +610,6 @@ function AutomationRunCard({
     completed: 'bg-emerald-500',
     failed: 'bg-rose-500',
     running: 'bg-blue-500',
-    warning: 'bg-amber-500',
     unknown: 'bg-slate-300',
   }
 
@@ -606,12 +660,6 @@ function AutomationRunCard({
               <span className="text-slate-600">{run.failed_steps}</span>
             </div>
           )}
-          {run.warning_steps > 0 && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="w-2 h-2 rounded-full bg-amber-500" />
-              <span className="text-slate-600">{run.warning_steps}</span>
-            </div>
-          )}
           <span className="text-xs text-slate-400">
             / {run.total_steps} steps
           </span>
@@ -642,9 +690,13 @@ export default function LogsPage() {
   const [selectedRun, setSelectedRun] = useState<AutomationRun | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
+  const { data: automationStatus } = useAutomationStatus()
+  const isAutomationRunning = automationStatus?.status === 'Running'
+
   const { data, isLoading, isError, error, refetch, isRefetching } = useQuery({
     queryKey: ['automationLogs', page, pageSize],
-    queryFn: () => api.getAutomationLogs(page, pageSize),
+    queryFn: () => api.getAutomationLogs(page, pageSize, true),
+    refetchInterval: isAutomationRunning ? 10000 : false,
   })
 
   const logs: LogEntry[] = data?.logs || []
@@ -652,7 +704,7 @@ export default function LogsPage() {
   const totalPages = Math.ceil(totalRuns / pageSize)
 
   // Group logs into automation runs
-  const allRuns = useMemo(() => groupLogsByRunId(logs), [logs])
+  const allRuns = useMemo(() => groupLogsByRunId(logs, isAutomationRunning), [logs, isAutomationRunning])
 
   // Filter runs
   const filteredRuns = useMemo(() => {
@@ -684,7 +736,6 @@ export default function LogsPage() {
     completed: allRuns.filter((r) => r.overall_status === 'completed').length,
     failed: allRuns.filter((r) => r.overall_status === 'failed').length,
     running: allRuns.filter((r) => r.overall_status === 'running').length,
-    warning: allRuns.filter((r) => r.overall_status === 'warning').length,
   }), [allRuns])
 
   const handleViewDetails = (run: AutomationRun) => {
@@ -709,7 +760,7 @@ export default function LogsPage() {
       }
     >
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <button
           onClick={() => setStatusFilter('all')}
           className={`rounded-xl p-4 text-left transition-all ${
@@ -778,22 +829,6 @@ export default function LogsPage() {
           </div>
         </button>
 
-        <button
-          onClick={() => setStatusFilter(statusFilter === 'warning' ? 'all' : 'warning')}
-          className={`rounded-xl p-4 text-left transition-all ${
-            statusFilter === 'warning' ? 'ring-2 ring-amber-400 shadow-md' : ''
-          } stat-card-amber`}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-600">Warnings</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">{stats.warning}</p>
-            </div>
-            <div className="w-10 h-10 rounded-lg bg-white/60 flex items-center justify-center">
-              <AlertTriangle className="h-5 w-5 text-amber-600" />
-            </div>
-          </div>
-        </button>
       </div>
 
       {/* Controls bar */}

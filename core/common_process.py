@@ -124,12 +124,13 @@ async def scrape_open_rfps(page, company=COMPANY_NAME, max_retries=3):
 
                 # Only add non-participated RFPs for downloading
                 # if participant.strip().lower() == "no":
+                from core.log_events import normalize_date_format
                 open_rfps.append({
                     "Title": title.strip(),
                     "Link": rfp_link.strip(),
                     "ID": rfp_id.strip(),
                     "Event Type": rfp_type.strip(),
-                    "RFP_End_Date": RFP_End_Date.strip(),
+                    "RFP_End_Date": normalize_date_format(RFP_End_Date.strip()),
                     "Status": participant.strip(),
                 })
 

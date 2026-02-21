@@ -314,7 +314,7 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
   if (!useVirtual) {
     return (
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10">
           <TableRow className="hover:bg-transparent">
             <TableHead className="text-slate-500 font-medium">RFP ID</TableHead>
             <TableHead className="text-slate-500 font-medium">Owner</TableHead>
@@ -350,7 +350,7 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
   return (
     <div>
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10">
           <TableRow className="hover:bg-transparent">
             <TableHead className="text-slate-500 font-medium">RFP ID</TableHead>
             <TableHead className="text-slate-500 font-medium">Owner</TableHead>

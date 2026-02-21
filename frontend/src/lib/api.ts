@@ -301,9 +301,9 @@ export const api = {
   },
 
   // ==================== Logs ====================
-  getAutomationLogs: async (page: number = 1, pageSize: number = 20) => {
+  getAutomationLogs: async (page: number = 1, pageSize: number = 20, forceRefresh: boolean = false) => {
     const response = await fetch(
-      `${ENDPOINTS.DASHBOARD.VIEW_LOGS}?page=${page}&page_size=${pageSize}`,
+      `${ENDPOINTS.DASHBOARD.VIEW_LOGS}?page=${page}&page_size=${pageSize}&force_refresh=${forceRefresh}`,
       { credentials: 'include' }
     )
     return handleResponse<any>(response)

@@ -98,6 +98,119 @@ def _build_rfp_notification_html(rfp_titles: list, rfp_end_dates: dict = None) -
     return subject, body_html
 
 
+def send_per_rfp_email(
+    rfp_id: str,
+    company_name: str,
+    rfp_end_date: str = "-",
+    matched_csv_path: str = None,
+    graph_client=None,
+):
+    """
+    Send one email per RFP with:
+      - Subject: RFP ID
+      - Body: Team table + due date + matched materials note
+      - Attachments: RFP .xls file + matched material CSV (if exists)
+      - To: EMAIL_TO_NEW_RFP
+    """
+    from helpers.core_helper import clean_rfp_title, get_sharepoint_rfp_material_path
+    from config.config import RFP_TEAM_TABLE, EMAIL_TO_NEW_RFP, FLOW_URL, SP_BASE_FOLDER
+    from core.log_events import log_rfp_activity
+
+    # === Build subject ===
+    subject = rfp_id
+
+    # === Build team table ===
+    table_rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:6px 10px;'>{row['product']}</td>"
+        f"<td style='border:1px solid #ccc;padding:6px 10px;'>{row['name']}</td>"
+        f"<td style='border:1px solid #ccc;padding:6px 10px;'></td>"
+        f"<td style='border:1px solid #ccc;padding:6px 10px;'></td></tr>"
+        for row in RFP_TEAM_TABLE
+    )
+    table_html = f"""
+    <table style='border-collapse:collapse;margin:10px 0;'>
+      <tr style='background:#f0f0f0;'>
+        <th style='border:1px solid #ccc;padding:6px 10px;'>Products</th>
+        <th style='border:1px solid #ccc;padding:6px 10px;'>Name</th>
+        <th style='border:1px solid #ccc;padding:6px 10px;'>Results</th>
+        <th style='border:1px solid #ccc;padding:6px 10px;'>Remarks</th>
+      </tr>
+      {table_rows}
+    </table>
+    """
+
+    # === Combined note section (due date + matched materials) ===
+    if matched_csv_path and os.path.exists(matched_csv_path):
+        matched_line = (
+            "The matched materials file contains system suggested materials that match Bahra offerings. "
+            "It is important that you verify the complete RFP file. Do not rely solely on the matched materials file."
+        )
+    else:
+        matched_line = "No matched materials were found for this RFP."
+
+    combined_note = (
+        f"<div style='background-color:#FFFF00;display:inline-block;padding:8px 12px;margin:8px 0;'>"
+        f"<b>Note: the due date for <u>{rfp_id}</u> is {rfp_end_date}</b><br><br>"
+        f"<b>NOTE:</b> {matched_line}"
+        f"</div>"
+    )
+
+    # === Build body ===
+    body_html = f"""
+    <p>Dear's,</p>
+    <p>Kindly advise us regarding to the attached file</p>
+    {table_html}
+    {combined_note}
+    <br><p>Best Regards,<br>Automation System</p>
+    """
+
+    # === Build attachments: RFP file + matched material CSV (if exists) ===
+    file_data = create_file_names_and_source_files([rfp_id], company_name)
+    file_names = file_data["FileNames"]
+    source_files = file_data["SourceFiles"]
+    material_file_name = ""
+
+    if matched_csv_path and os.path.exists(matched_csv_path):
+        matched_file_name = os.path.basename(matched_csv_path)
+        material_file_name = matched_file_name
+        file_names.append(matched_file_name)
+        clean_title = clean_rfp_title(rfp_id)
+        source_files.append(f"/Shared Documents/{SP_BASE_FOLDER}/ALLRFPs/{company_name}/{clean_title}/{matched_file_name}")
+
+    email_to = EMAIL_TO_NEW_RFP
+
+    payload = {
+        "files": {
+            "MaterialFileName": material_file_name,
+            "FileNames": file_names,
+            "SourceFiles": source_files,
+        },
+        "emailMeta": {
+            "to": email_to,
+            "subject": subject,
+            "body": body_html,
+        },
+    }
+
+    # === Send request to Power Automate ===
+    response = requests.post(FLOW_URL, headers={"Content-Type": "application/json"}, data=json.dumps(payload))
+
+    if response.status_code in [200, 202]:
+        print(f"✅ Per-RFP email sent for: {rfp_id}")
+        log_rfp_activity(
+            rfp_id=rfp_id,
+            Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            email_sent_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            email_to=email_to,
+            email_status="Sent",
+            company_name=company_name,
+        )
+    else:
+        print(f"❌ Per-RFP email failed for {rfp_id}: {response.status_code} - {response.text}")
+
+    return rfp_id
+
+
 def trigger_email(
     csv_file=None,
     rfp_id=None,

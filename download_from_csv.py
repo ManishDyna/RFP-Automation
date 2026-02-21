@@ -603,11 +603,12 @@ async def scrape_rfps_for_company(page, company_name: str) -> list[dict]:
                 end_dt  = (await cells[5].inner_text()).strip() if len(cells) > 5 else ""
                 status  = (await cells[9].inner_text()).strip() if len(cells) > 9 else ""
 
+                from core.log_events import normalize_date_format
                 rfps.append({
                     "Title":       title,
                     "Link":        link,
                     "ID":          rfp_id,
-                    "RFP_End_Date": end_dt,
+                    "RFP_End_Date": normalize_date_format(end_dt),
                     "Status":      status,
                 })
 

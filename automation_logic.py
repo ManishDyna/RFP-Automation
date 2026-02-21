@@ -432,30 +432,27 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
         log_event("SYSTEM", "DownloadRFP", "Success", "Download flow finished (all RFPs already existed)")
         return
 
-    # ── CASE 1: New RFP(s) found — send reference format email ───────────────
-    trigger_email(
-        email_flag="new_rfp_found",
-        rfp_titles=new_rfp_titles,
-        company_name=company_name,
-        rfp_end_dates=rfp_end_dates,
-    )
-    log_event("EMAIL", "Sent", "Success", message=f"New-RFP email triggered for {len(new_rfp_titles)} RFP(s)", rfp_id=new_rfp_titles)
-
-    # ── Process material matching and notify Sales/Technical if any match ─────
-    matched_df, matched_csv_path, not_mateched_files = process_folder(
+    # ── CASE 1: New RFP(s) found — process materials then send 1 email per RFP ─
+    matched_df, per_rfp_csv_map, not_mateched_files = process_folder(
         graph_client, None, None, company_name=company_name, new_rfp_titles=new_rfp_titles
     )
-    print(f"✅ Matched materials processed: {matched_csv_path}")
+    print(f"✅ Matched materials processed: {len(per_rfp_csv_map)} RFPs with matches")
 
-    if not matched_df.empty:
-        trigger_email_rfps = trigger_email(
-            csv_file=matched_csv_path, graph_client=graph_client, company_name=company_name,
+    # Send one email per RFP (with matched material CSV if available, otherwise note "no match")
+    from helpers.email_helper import send_per_rfp_email
+    for rfp_title in new_rfp_titles:
+        rfp_end_date = rfp_end_dates.get(rfp_title, "-")
+        matched_csv = per_rfp_csv_map.get(rfp_title, None)
+        send_per_rfp_email(
+            rfp_id=rfp_title,
+            company_name=company_name,
+            rfp_end_date=rfp_end_date,
+            matched_csv_path=matched_csv,
+            graph_client=graph_client,
         )
-        log_event("EMAIL", "Sent", "Success", message=f"Matched-materials email triggered for {len(matched_df)} matches", rfp_id=trigger_email_rfps)
-    else:
-        log_event("RFP", "Process", "Info", "No matched materials — skipping matched-materials email")
+        log_event("EMAIL", "Sent", "Success", message=f"Per-RFP email sent for {rfp_title}", rfp_id=rfp_title)
 
-    log_event("SYSTEM", "DownloadRFP", "Success", "Download flow finished")
+    log_event("SYSTEM", "DownloadRFP", "Success", f"Download flow finished — {len(new_rfp_titles)} per-RFP emails sent")
 
 async def common_flow(p, graph_client, profile_label: str = "default", company: str | None = None):
     import os
@@ -841,12 +838,18 @@ async def run_automation_decline(rfp_id: str, company: str | None = None):
 
 
 async def run_automation_reminder():
+    start_new_run()
+    log_event("SYSTEM", "StartRun", "Success", "RFP Reminder automation started")
     try:
-        return send_rfp_deadline_reminders()
+        result = send_rfp_deadline_reminders()
+        return result
     except Exception as e:
+        log_event("SYSTEM", "RunError", "Fail", f"RFP Reminder error: {str(e)}")
         failure_info = record_failure_log(e, context={"automation": "rfp_reminder"}, graph_client=None)
         _notify_failure_via_email("RFP Reminder", failure_info, None)
         raise
+    finally:
+        log_event("SYSTEM", "EndRun", "Success", "RFP Reminder automation finished")
 
 
 def _normalize_participated(val: str) -> str:
@@ -1424,9 +1427,10 @@ def store_rfp_in_database(rfp_data, company_name, file_path=None, owner_name=Non
             "RunID": get_current_run_id()
         }
         
-        # Only add RFP_End_Date if it has a valid value
+        # Only add RFP_End_Date if it has a valid value (normalize to MM/DD/YYYY HH:MM AM/PM)
         if end_date and end_date != '-':
-            row_data["RFP_End_Date"] = end_date
+            from core.log_events import normalize_date_format
+            row_data["RFP_End_Date"] = normalize_date_format(end_date)
         
         # Add owner_name if provided
         if owner_name:

@@ -8,6 +8,40 @@ import csv
 from contextvars import ContextVar
 from config.config import *
 
+
+def normalize_date_format(val) -> str:
+    """Convert any date string to consistent 'MM/DD/YYYY HH:MM AM/PM' format.
+
+    Handles:
+      - Slash format: 'MM/DD/YYYY HH:MM AM/PM' → parse directly
+      - Dash format:  'YYYY-DD-MM HH:MM:SS'    → day/month swapped by Excel locale
+      - Portal format: 'MM-DD-YYYY HH:MM'       → parse with MM-DD-YYYY
+    """
+    if not val or str(val).strip() in ("", "-"):
+        return ""
+    val = str(val).strip()
+    try:
+        if "-" in val and "/" not in val:
+            parts = val.split(" ", 1)
+            date_part = parts[0]
+            time_part = parts[1] if len(parts) > 1 else "00:00:00"
+            chunks = date_part.split("-")
+
+            if len(chunks) == 3 and len(chunks[0]) == 4:
+                # YYYY-DD-MM format (Excel swapped day/month)
+                y, d, m = chunks
+                fixed = f"{y}-{m}-{d} {time_part}"
+                dt = pd.to_datetime(fixed)
+            else:
+                # MM-DD-YYYY portal format (e.g. 12-10-2025 02:15)
+                dt = pd.to_datetime(val)
+        else:
+            # Slash format: MM/DD/YYYY HH:MM AM/PM → already correct
+            dt = pd.to_datetime(val)
+        return dt.strftime("%m/%d/%Y %I:%M %p")
+    except Exception:
+        return str(val).strip()
+
 # ==== CONFIGURE DATAVERSE ====
 DATAVERSE = DataverseClient(
     tenant_id=TENANT_ID,
@@ -101,6 +135,10 @@ def write_log_row(category, action, status, message="", rfp_id="", run_id=None, 
             )
         except Exception as e:
             print(f"⚠ Could not insert automation log into Dataverse: {e}")
+            # Fallback: write to local JSONL so the log is not lost
+            from core.local_log import write_local_event
+            write_local_event(category, action, status, message, rfp_id,
+                              extra={"run_id": run_id or "", "dataverse_error": str(e)})
 
     print(f"📝 Log: {row}")
 
@@ -182,9 +220,9 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
         
     }
     
-    # Only add date fields if they have valid values
+    # Only add date fields if they have valid values (normalize to MM/DD/YYYY HH:MM AM/PM)
     if safe_date_field(RFP_End_Date) is not None:
-        row_data["RFP_End_Date"] = safe_date_field(RFP_End_Date)
+        row_data["RFP_End_Date"] = normalize_date_format(RFP_End_Date)
     if safe_date_field(email_sent_at) is not None:
         row_data["Email_Sent_At"] = safe_date_field(email_sent_at)
     if safe_date_field(publish_time) is not None:

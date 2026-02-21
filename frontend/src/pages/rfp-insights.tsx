@@ -56,11 +56,10 @@ import { api } from '@/lib/api'
 
 const statusOptions = [
   { value: '', label: 'All Statuses' },
-  { value: 'downloaded', label: 'Downloaded' },
+  { value: 'open', label: 'Open' },
   { value: 'submitted', label: 'Submitted' },
   { value: 'declined', label: 'Declined' },
   { value: 'not_participant', label: 'Not Participant' },
-  { value: 'open', label: 'Open' },
 ]
 
 const materialMatchOptions = [
@@ -322,7 +321,7 @@ export default function RfpInsightsPage() {
   const submittedCount = countsToUse.submitted || 0
   const notParticipantCount = countsToUse.not_participant || 0
   const declinedCount = countsToUse.declined || 0
-  const downloadedCount = hasActiveFilters ? totalFiltered : totalRows
+  const openCount = countsToUse.open || 0
 
   return (
     <PageWrapper
@@ -375,9 +374,9 @@ export default function RfpInsightsPage() {
           className="stat-card-amber"
         />
         <StatCard
-          title="Downloaded"
-          value={downloadedCount}
-          icon={Download}
+          title="Open"
+          value={openCount}
+          icon={Clock}
           className="stat-card-violet"
         />
       </div>
@@ -570,8 +569,8 @@ export default function RfpInsightsPage() {
           <div className="mt-4 flex items-center justify-between">
             <p className="text-sm text-slate-500">
               Showing <span className="font-semibold text-slate-700">{allRfps.length}</span> of{' '}
-              <span className="font-semibold text-slate-700">{totalFiltered}</span> filtered RFPs
-              {totalFiltered !== totalRows && (
+              <span className="font-semibold text-slate-700">{hasActiveFilters ? totalFiltered : totalRows}</span> RFPs
+              {hasActiveFilters && totalFiltered !== totalRows && (
                 <span className="text-slate-400"> ({totalRows} total)</span>
               )}
             </p>
@@ -761,7 +760,7 @@ export default function RfpInsightsPage() {
                           ) : (
                             <Badge variant="warning" className="gap-1">
                               <Clock className="h-3 w-3" />
-                              Not Participated
+                              Open
                             </Badge>
                           )}
                         </TableCell>
