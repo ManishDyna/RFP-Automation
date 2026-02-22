@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from routes import dashboard, user_management, auth, automation
 from routes import api as api_routes
+from routes.role_routes import router as role_router
 from config.config import SESSION_TIMEOUT_SECONDS
 import os
 
@@ -57,6 +58,9 @@ app.include_router(auth.router)
 
 # User management API router
 app.include_router(user_management.router)
+
+# Role management API router (RBAC)
+app.include_router(role_router)
 
 if __name__ == "__main__":
     import uvicorn

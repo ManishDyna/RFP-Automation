@@ -116,6 +116,31 @@ RFP_STATUS_TABLE_API = "cr673_bhara_rfp_statuses"    # pluralized API name
 # ===== All RFPs Storage (Dataverse) =====
 #  # pluralized API name
 
+# ===== Roles (Dataverse) =====
+ROLES_TABLE_LOGICAL = "cr673_bahra_roles"
+ROLES_TABLE_API = "cr673_bahra_roleses"
+
+# ===== Role Permissions (Dataverse) =====
+ROLE_PERMISSIONS_TABLE_LOGICAL = "cr673_bahra_role_permissions"
+ROLE_PERMISSIONS_TABLE_API = "cr673_bahra_role_permissionses"
+
+# ===== Audit Logs (Dataverse) =====
+AUDIT_LOG_TABLE_LOGICAL = "cr673_bahra_audit_logs"
+AUDIT_LOG_TABLE_API = "cr673_bahra_audit_logses"
+
+# ===== User Status / Lifecycle (Dataverse) =====
+USER_STATUS_TABLE_LOGICAL = "cr673_bahra_user_status"
+USER_STATUS_TABLE_API = "cr673_bahra_user_statuses"
+
+# ===== RBAC Settings =====
+RBAC_CACHE_TTL_SECONDS = 300            # Cache role-permissions for 5 min
+ACCOUNT_LOCKOUT_THRESHOLD = 5           # Failed attempts before lockout
+ACCOUNT_LOCKOUT_DURATION_MINUTES = 30   # Lockout duration in minutes
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_REQUIRE_UPPERCASE = True
+PASSWORD_REQUIRE_NUMBER = True
+PASSWORD_MAX_AGE_DAYS = 90              # Force password change after 90 days
+
 # Power Automate Flow endpoint
 # Legacy
 # FLOW_URL = "https://prod-44.westus.logic.azure.com:443/workflows/0ecbe93dd4cb4235ab019270aa024405/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=pZOCiQeonvszlw8n81uS2SHglLLNoM_dGW9DYioNdrE"

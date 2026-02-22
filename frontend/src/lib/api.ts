@@ -444,4 +444,132 @@ export const api = {
     })
     return handleResponse(response)
   },
+
+  // ==================== Role Management ====================
+  getRoles: async () => {
+    const response = await fetch(ENDPOINTS.ROLES.LIST, { credentials: 'include' })
+    return handleResponse<{ ok: boolean; roles: any[] }>(response)
+  },
+
+  getRole: async (id: string) => {
+    const response = await fetch(ENDPOINTS.ROLES.GET(id), { credentials: 'include' })
+    return handleResponse<{ ok: boolean; role: any }>(response)
+  },
+
+  createRole: async (data: { name: string; description: string; permissions: string[] }) => {
+    const response = await fetch(ENDPOINTS.ROLES.CREATE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  updateRole: async (id: string, data: { name?: string; description?: string }) => {
+    const response = await fetch(ENDPOINTS.ROLES.UPDATE(id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  deleteRole: async (id: string) => {
+    const response = await fetch(ENDPOINTS.ROLES.DELETE(id), {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  getRolePermissions: async (id: string) => {
+    const response = await fetch(ENDPOINTS.ROLES.GET_PERMISSIONS(id), { credentials: 'include' })
+    return handleResponse<{ ok: boolean; permissions: string[] }>(response)
+  },
+
+  setRolePermissions: async (id: string, permissions: string[]) => {
+    const response = await fetch(ENDPOINTS.ROLES.SET_PERMISSIONS(id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permissions }),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  getAllPermissions: async () => {
+    const response = await fetch(ENDPOINTS.PERMISSIONS.LIST, { credentials: 'include' })
+    return handleResponse<{
+      ok: boolean
+      permissions: Record<string, string>
+      groups: Record<string, { label: string; permissions: Record<string, string> }>
+    }>(response)
+  },
+
+  seedDefaultRoles: async () => {
+    const response = await fetch(ENDPOINTS.ROLES.SEED, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  // ==================== User Lifecycle ====================
+  activateUser: async (userId: string) => {
+    const response = await fetch(ENDPOINTS.USERS.ACTIVATE(userId), {
+      method: 'POST',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  deactivateUser: async (userId: string) => {
+    const response = await fetch(ENDPOINTS.USERS.DEACTIVATE(userId), {
+      method: 'POST',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  unlockUser: async (userId: string) => {
+    const response = await fetch(ENDPOINTS.USERS.UNLOCK(userId), {
+      method: 'POST',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  getUserStatus: async (userId: string) => {
+    const response = await fetch(ENDPOINTS.USERS.STATUS(userId), { credentials: 'include' })
+    return handleResponse<{ ok: boolean; status: any }>(response)
+  },
+
+  // ==================== Audit Logs ====================
+  getAuditLogs: async (params: {
+    page?: number
+    page_size?: number
+    category?: string
+    action?: string
+    actor_email?: string
+    date_from?: string
+    date_to?: string
+  }) => {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') searchParams.append(key, String(value))
+    })
+    const response = await fetch(`${ENDPOINTS.AUDIT_LOGS.LIST}?${searchParams}`, {
+      credentials: 'include',
+    })
+    return handleResponse<{
+      ok: boolean
+      logs: any[]
+      total: number
+      page: number
+      page_size: number
+      total_pages: number
+    }>(response)
+  },
 }

@@ -15,6 +15,8 @@ const LogsPage = lazy(() => import('@/pages/logs'))
 const ProfilePage = lazy(() => import('@/pages/profile'))
 const AnalyticsPage = lazy(() => import('@/pages/analytics'))
 const UserManagementPage = lazy(() => import('@/pages/admin/users'))
+const RoleManagementPage = lazy(() => import('@/pages/admin/roles'))
+const AuditLogsPage = lazy(() => import('@/pages/admin/audit-logs'))
 const SapPasswordLogsPage = lazy(() => import('@/pages/admin/sap-logs'))
 const MaterialInsightsPage = lazy(() => import('@/pages/material-insights'))
 
@@ -119,6 +121,8 @@ function ProtectedLayout() {
               <Route path="/dashboard/profile" element={<ProfilePage />} />
               <Route path="/dashboard/analytics" element={<AnalyticsPage />} />
               <Route path="/admin/users" element={<UserManagementPage />} />
+              <Route path="/admin/roles" element={<RoleManagementPage />} />
+              <Route path="/admin/audit-logs" element={<AuditLogsPage />} />
               <Route path="/admin/sap-logs" element={<SapPasswordLogsPage />} />
             </Routes>
           </Suspense>

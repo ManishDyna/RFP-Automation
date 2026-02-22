@@ -9,6 +9,7 @@ interface User {
   email: string
   role: string
   mobile?: string
+  permissions?: string[]
 }
 
 interface AuthState {
@@ -96,4 +97,13 @@ export const useAuth = create<AuthState>()(
 export function useIsAdmin(): boolean {
   const user = useAuth((state) => state.user)
   return user?.role?.toLowerCase() === 'admin'
+}
+
+// Helper hook to check if user has a specific permission
+export function useHasPermission(permission: string): boolean {
+  const user = useAuth((state) => state.user)
+  if (!user) return false
+  // Admin always has all permissions
+  if (user.role?.toLowerCase() === 'admin') return true
+  return user.permissions?.includes(permission) ?? false
 }

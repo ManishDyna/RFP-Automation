@@ -1,7 +1,24 @@
 """
 Role service - Role-based access control (RBAC) helper functions.
-Moved from Dashboard/backend/role_management.py
+
+Backward-compatible wrapper that delegates to the dynamic RBAC system
+(dynamic_role_service.py) while preserving the original API surface.
+
+All existing calls to is_admin(), is_rfp_bidder(), and has_access_to_feature()
+continue to work unchanged.
 """
+
+from services.dynamic_role_service import user_has_permission, get_user_permissions
+
+
+# Map old feature names to new granular permission keys
+_FEATURE_TO_PERMISSION = {
+    "user_management": "user_management.view",
+    "sap_password": "sap_password.change",
+    "sap_password_logs": "sap_password.view",
+    "schedule_automation": "schedule_automation.manage",
+    "analytics": "analytics.view",
+}
 
 
 def is_admin(user: dict) -> bool:
@@ -23,26 +40,17 @@ def is_rfp_bidder(user: dict) -> bool:
 def has_access_to_feature(user: dict, feature: str) -> bool:
     """
     Check if user has access to a specific feature.
-    Features: 'user_management', 'sap_password', 'sap_password_logs',
-              'schedule_automation', 'analytics'
+    Delegates to the dynamic permission system.
+
+    Features (backward compat):
+        'user_management', 'sap_password', 'sap_password_logs',
+        'schedule_automation', 'analytics'
+
+    Also accepts direct permission keys like 'rfp.view', 'role_management.edit', etc.
     """
     if not user:
         return False
 
-    # Admin has access to everything
-    if is_admin(user):
-        return True
-
-    # RFP Bidder restrictions
-    if is_rfp_bidder(user):
-        restricted_features = [
-            'user_management',
-            'sap_password',
-            'sap_password_logs',
-            'schedule_automation',
-            'analytics'
-        ]
-        return feature not in restricted_features
-
-    # Default: deny access for unknown roles
-    return False
+    # Map old feature name to new permission key, or pass through directly
+    permission_key = _FEATURE_TO_PERMISSION.get(feature, feature)
+    return user_has_permission(user, permission_key)

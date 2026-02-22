@@ -653,7 +653,7 @@ def get_material_insights_grouped_data():
     for row in raw_rows:
         rfp_id = row.get("RFP_ID", "")
         matched_data_str = row.get("Matched_Data", "") or ""
-        company = row.get("Company_Name", "") or "Saudi Electricity Company"
+        company = (row.get("Company_Name", "") or "").strip()
         participated = (row.get("participated") or "").strip().lower()
         rfp_end_date = row.get("RFP_End_Date", "")
 
@@ -699,7 +699,8 @@ def get_material_insights_grouped_data():
                         "extracted_material": extracted,
                     })
                     group["rfp_count"] += 1
-                    group["companies"].add(company)
+                    if company:
+                        group["companies"].add(company)
                     if participated in ("submitted", "yes"):
                         group["submitted_count"] += 1
 
@@ -737,7 +738,8 @@ def get_material_insights_grouped_data():
                             "material_description": material_desc,
                         })
                         kw_group["rfp_count"] += 1
-                        kw_group["companies"].add(company)
+                        if company:
+                            kw_group["companies"].add(company)
                         if participated in ("submitted", "yes"):
                             kw_group["submitted_count"] += 1
                     kw_group["material_codes"].add(material_code)

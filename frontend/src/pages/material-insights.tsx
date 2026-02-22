@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, Fragment } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -92,11 +92,14 @@ export default function MaterialInsightsPage() {
   const [activeTab, setActiveTab] = useState<string>(searchParams.get('tab') || 'materials')
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
-  const [filters, setFilters] = useState({
+  const initialFilters = {
     company: searchParams.get('company') || '',
     participated: searchParams.get('participated') || '',
     search: searchParams.get('search') || '',
-  })
+  }
+
+  const [filters, setFilters] = useState(initialFilters)
+  const [appliedFilters, setAppliedFilters] = useState(initialFilters)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const ITEMS_PER_PAGE = 50
@@ -108,11 +111,11 @@ export default function MaterialInsightsPage() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ['materialInsightsGrouped', activeTab, filters],
+    queryKey: ['materialInsightsGrouped', activeTab, appliedFilters],
     queryFn: ({ pageParam = 0 }) =>
       api.getMaterialInsightsGrouped({
         tab: activeTab,
-        ...filters,
+        ...appliedFilters,
         limit: ITEMS_PER_PAGE,
         offset: pageParam,
       }),
@@ -133,6 +136,12 @@ export default function MaterialInsightsPage() {
   const totalFiltered = data?.pages[0]?.total_filtered || 0
   const totalAll = data?.pages[0]?.total || 0
 
+  // Top 10 keywords bar chart data
+  const topKeywordsChart = useMemo(() => {
+    if (!keywordChart.length) return []
+    return keywordChart.slice(0, 10)
+  }, [keywordChart])
+
   // Pie chart data for keyword frequency
   const keywordPieData = useMemo(() => {
     if (!keywordChart.length) return []
@@ -145,6 +154,7 @@ export default function MaterialInsightsPage() {
 
   const applyFilters = (newFilters: typeof filters) => {
     setFilters(newFilters)
+    setAppliedFilters(newFilters)
     const params = new URLSearchParams()
     params.set('tab', activeTab)
     Object.entries(newFilters).forEach(([key, value]) => {
@@ -160,6 +170,7 @@ export default function MaterialInsightsPage() {
   const handleReset = () => {
     const base = { company: '', participated: '', search: '' }
     setFilters(base)
+    setAppliedFilters(base)
     setExpandedRows(new Set())
     const params = new URLSearchParams()
     params.set('tab', activeTab)
@@ -208,7 +219,7 @@ export default function MaterialInsightsPage() {
 
     viewport.addEventListener('scroll', handleScroll)
     return () => viewport.removeEventListener('scroll', handleScroll)
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, activeTab])
 
   return (
     <PageWrapper
@@ -253,10 +264,10 @@ export default function MaterialInsightsPage() {
       </div>
 
       {/* Charts Section */}
-      {(topMaterialsChart.length > 0 || keywordPieData.length > 0) && (
+      {(topMaterialsChart.length > 0 || topKeywordsChart.length > 0 || keywordPieData.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          {/* Top Materials Bar Chart */}
-          {topMaterialsChart.length > 0 && (
+          {/* Top Items Bar Chart - switches based on active tab */}
+          {activeTab === 'materials' && topMaterialsChart.length > 0 && (
             <Card className="border-slate-200 shadow-sm lg:col-span-2">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
@@ -291,6 +302,46 @@ export default function MaterialInsightsPage() {
                       dataKey="rfp_count"
                       name="RFP Count"
                       fill="#6366f1"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTab === 'keywords' && topKeywordsChart.length > 0 && (
+            <Card className="border-slate-200 shadow-sm lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-amber-500" />
+                  Top 10 Keywords by RFP Count
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart
+                    data={topKeywordsChart}
+                    margin={{ top: 10, right: 10, left: 0, bottom: 40 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis
+                      dataKey="keyword"
+                      tick={{ fontSize: 10, fill: '#64748b' }}
+                      angle={-25}
+                      textAnchor="end"
+                      interval={0}
+                      height={60}
+                    />
+                    <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
+                      formatter={(value: any) => [`${value} RFPs`, 'Keyword']}
+                    />
+                    <Bar
+                      dataKey="rfp_count"
+                      name="RFP Count"
+                      fill="#f59e0b"
                       radius={[4, 4, 0, 0]}
                     />
                   </BarChart>
@@ -411,6 +462,7 @@ export default function MaterialInsightsPage() {
                     <SelectItem value="all">All</SelectItem>
                     <SelectItem value="submitted">Submitted</SelectItem>
                     <SelectItem value="declined">Declined</SelectItem>
+                    <SelectItem value="open">Open</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -514,10 +566,9 @@ export default function MaterialInsightsPage() {
                     </TableHeader>
                     <TableBody>
                       {allItems.map((item: any) => (
-                        <>
+                        <Fragment key={item.material_code}>
                           {/* Parent material row */}
                           <TableRow
-                            key={item.material_code}
                             className="cursor-pointer hover:bg-slate-50/80 transition-colors"
                             onClick={() => toggleExpand(item.material_code)}
                           >
@@ -591,7 +642,7 @@ export default function MaterialInsightsPage() {
                               </TableCell>
                             </TableRow>
                           ))}
-                        </>
+                        </Fragment>
                       ))}
                       {isFetchingNextPage && (
                         <TableRow>
@@ -657,10 +708,9 @@ export default function MaterialInsightsPage() {
                     </TableHeader>
                     <TableBody>
                       {allItems.map((item: any) => (
-                        <>
+                        <Fragment key={`kw-${item.keyword}`}>
                           {/* Parent keyword row */}
                           <TableRow
-                            key={item.keyword}
                             className="cursor-pointer hover:bg-slate-50/80 transition-colors"
                             onClick={() => toggleExpand(`kw-${item.keyword}`)}
                           >
@@ -737,7 +787,7 @@ export default function MaterialInsightsPage() {
                               </TableCell>
                             </TableRow>
                           ))}
-                        </>
+                        </Fragment>
                       ))}
                       {isFetchingNextPage && (
                         <TableRow>

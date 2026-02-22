@@ -14,6 +14,14 @@ from services.dashboard_service import (
 )
 from services.sap_service import create_sap_password_record, list_sap_password_records_cached
 from services.role_service import has_access_to_feature
+from services.dynamic_role_service import get_user_permissions
+from services.audit_service import log_event, AuditAction, AuditCategory
+from services.user_lifecycle_service import (
+    is_account_locked, is_user_active, record_failed_login, clear_failed_attempts,
+    update_last_login, get_or_create_user_status, activate_user, deactivate_user,
+    unlock_user, validate_password_strength, update_password_changed, get_user_status,
+)
+from middleware.auth import get_current_user, require_permission, get_request_ip
 from config.config import FORGOT_PASSWORD_FLOW_URL
 import time
 import hmac
@@ -115,20 +123,85 @@ async def api_login(request: Request):
         # Record failed attempt for both email and IP
         _record_failed_attempt(email)
         _record_failed_attempt(f"ip:{client_ip}")
+
+        # Audit: failed login
+        log_event(
+            action=AuditAction.LOGIN_FAILED,
+            category=AuditCategory.AUTH,
+            actor_email=email,
+            target_type="Session",
+            details=json.dumps({"reason": "Invalid credentials"}),
+            ip_address=client_ip,
+        )
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Check if account is locked (persistent lockout in Dataverse)
+    user_id = user.get("record_id", "")
+    locked, minutes_remaining = is_account_locked(user_id)
+    if locked:
+        log_event(
+            action=AuditAction.LOGIN_FAILED,
+            category=AuditCategory.AUTH,
+            actor_email=email,
+            target_type="Session",
+            details=json.dumps({"reason": "Account locked", "minutes_remaining": minutes_remaining}),
+            ip_address=client_ip,
+        )
+        raise HTTPException(
+            status_code=423,
+            detail=f"Account is locked. Try again in {minutes_remaining} minutes."
+        )
+
+    # Check if account is active
+    if not is_user_active(user_id):
+        log_event(
+            action=AuditAction.LOGIN_FAILED,
+            category=AuditCategory.AUTH,
+            actor_email=email,
+            target_type="Session",
+            details=json.dumps({"reason": "Account deactivated"}),
+            ip_address=client_ip,
+        )
+        raise HTTPException(status_code=403, detail="Your account has been deactivated. Please contact an administrator.")
 
     # Clear failed attempts on successful login
     _clear_failed_attempts(email)
     _clear_failed_attempts(f"ip:{client_ip}")
+    clear_failed_attempts(user_id)
+    update_last_login(user_id)
+
+    # Load user permissions from dynamic RBAC
+    user["permissions"] = get_user_permissions(user)
 
     request.session["user"] = user
     request.session["last_activity"] = int(time.time())
+
+    # Audit: successful login
+    log_event(
+        action=AuditAction.LOGIN,
+        category=AuditCategory.AUTH,
+        actor_email=email,
+        actor_name=user.get("name", ""),
+        target_type="Session",
+        ip_address=client_ip,
+    )
+
     return JSONResponse({"ok": True, "redirect": "/dashboard"})
 
 
 @router.post("/logout")
 async def api_logout(request: Request):
     """Logout endpoint"""
+    user = request.session.get("user")
+    if user:
+        log_event(
+            action=AuditAction.LOGOUT,
+            category=AuditCategory.AUTH,
+            actor_email=user.get("email", ""),
+            actor_name=user.get("name", ""),
+            target_type="Session",
+            ip_address=get_request_ip(request),
+        )
     request.session.clear()
     return JSONResponse({"ok": True, "redirect": "/login"})
 
@@ -139,9 +212,20 @@ async def api_session_status(request: Request):
     if not request.session.get("user"):
         return JSONResponse(status_code=401, content={"valid": False, "message": "No active session"})
 
+    user = request.session.get("user")
+
+    # Ensure permissions are always present in session
+    if "permissions" not in user:
+        try:
+            user["permissions"] = get_user_permissions(user)
+            request.session["user"] = user
+        except Exception as e:
+            print(f"[SESSION] Failed to load permissions: {e}")
+            user["permissions"] = []
+
     return JSONResponse({
         "valid": True,
-        "user": request.session.get("user"),
+        "user": user,
         "last_activity": request.session.get("last_activity", int(time.time()))
     })
 
@@ -293,6 +377,20 @@ async def api_reset_password(request: Request):
     ok = update_user(record_id, {"password": str(new_password)})
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to update password")
+
+    # Track password change timestamp
+    update_password_changed(record_id)
+
+    # Audit log
+    log_event(
+        action=AuditAction.PASSWORD_RESET,
+        category=AuditCategory.AUTH,
+        actor_email=email,
+        target_type="User",
+        target_id=record_id,
+        ip_address=get_request_ip(request),
+    )
+
     return JSONResponse({"ok": True})
 
 
@@ -590,6 +688,11 @@ async def api_material_insights_grouped(
                 item for item in filtered
                 if any(r.get("participated", "") == "declined" for r in item.get("rfps", []))
             ]
+        elif p == "open":
+            filtered = [
+                item for item in filtered
+                if any(r.get("participated", "") not in ("submitted", "yes", "declined") for r in item.get("rfps", []))
+            ]
 
     if search:
         q = search.lower()
@@ -602,6 +705,7 @@ async def api_material_insights_grouped(
                 or q in item.get("material_description", "").lower()
             ]
 
+    has_filters = bool(company or participated or search)
     total_filtered = len(filtered)
     paginated = filtered[offset:offset + limit]
 
@@ -609,11 +713,55 @@ async def api_material_insights_grouped(
     for item in items:
         all_companies.update(item.get("companies", []))
 
+    # Recompute stats and charts from filtered data when filters are active
+    if has_filters:
+        all_rfp_ids = set()
+        submitted_count = 0
+        for item in filtered:
+            for r in item.get("rfps", []):
+                all_rfp_ids.add(r.get("rfp_id", ""))
+                if r.get("participated", "") in ("submitted", "yes"):
+                    submitted_count += 1
+
+        # Get the other tab's data for cross-tab stats
+        other_items = data.get("keywords", []) if tab != "keywords" else data.get("materials", [])
+
+        filtered_stats = {
+            "total_unique_materials": total_filtered if tab == "materials" else len(other_items),
+            "total_unique_keywords": total_filtered if tab == "keywords" else len(other_items),
+            "total_rfps_with_matches": len(all_rfp_ids),
+            "total_material_rfp_links": sum(item.get("rfp_count", 0) for item in (filtered if tab == "materials" else other_items)),
+            "total_keyword_rfp_links": sum(item.get("rfp_count", 0) for item in (filtered if tab == "keywords" else other_items)),
+            "submitted_rfp_count": submitted_count,
+        }
+
+        # Recompute chart data from filtered items
+        if tab == "materials":
+            filtered_top_chart = [
+                {"material": m.get("material_code", ""), "description": (m.get("material_description", "") or "")[:40], "rfp_count": m.get("rfp_count", 0)}
+                for m in filtered[:10]
+            ]
+            filtered_keyword_chart = data.get("keyword_chart", [])
+        else:
+            filtered_top_chart = data.get("top_materials_chart", [])
+            filtered_keyword_chart = [
+                {"keyword": k.get("keyword", ""), "rfp_count": k.get("rfp_count", 0)}
+                for k in filtered
+            ]
+
+        response_stats = filtered_stats
+        response_top_chart = filtered_top_chart
+        response_keyword_chart = filtered_keyword_chart
+    else:
+        response_stats = data.get("stats", {})
+        response_top_chart = data.get("top_materials_chart", [])
+        response_keyword_chart = data.get("keyword_chart", [])
+
     return JSONResponse({
         "items": paginated,
-        "stats": data.get("stats", {}),
-        "top_materials_chart": data.get("top_materials_chart", []),
-        "keyword_chart": data.get("keyword_chart", []),
+        "stats": response_stats,
+        "top_materials_chart": response_top_chart,
+        "keyword_chart": response_keyword_chart,
         "total_filtered": total_filtered,
         "total": len(items),
         "offset": offset,
@@ -858,6 +1006,11 @@ async def api_change_password(request: Request):
     if not current_password or not new_password:
         raise HTTPException(status_code=400, detail="Current and new password required")
 
+    # Validate password strength
+    is_valid, error_msg = validate_password_strength(new_password)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+
     # Verify current password
     auth_user = authenticate_user(user.get("email"), current_password)
     if not auth_user:
@@ -866,6 +1019,20 @@ async def api_change_password(request: Request):
     ok = update_user(user.get("record_id"), {"password": new_password})
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to change password")
+
+    # Track password change timestamp
+    update_password_changed(user.get("record_id", ""))
+
+    # Audit log
+    log_event(
+        action=AuditAction.PASSWORD_CHANGED,
+        category=AuditCategory.AUTH,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="User",
+        target_id=user.get("record_id", ""),
+        ip_address=get_request_ip(request),
+    )
 
     return JSONResponse({"ok": True})
 
@@ -938,6 +1105,18 @@ async def api_create_user(request: Request):
     if not ok:
         raise HTTPException(status_code=400, detail="Failed to create user")
 
+    # Audit log
+    log_event(
+        action=AuditAction.USER_CREATED,
+        category=AuditCategory.USER,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="User",
+        target_id=body.get("email", ""),
+        details=json.dumps({"name": body.get("name"), "email": body.get("email"), "role": body.get("role")}),
+        ip_address=get_request_ip(request),
+    )
+
     return JSONResponse({"ok": True})
 
 
@@ -956,6 +1135,18 @@ async def api_update_user(request: Request, record_id: str):
     if not ok:
         raise HTTPException(status_code=400, detail="Failed to update user")
 
+    # Audit log
+    log_event(
+        action=AuditAction.USER_UPDATED,
+        category=AuditCategory.USER,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="User",
+        target_id=record_id,
+        details=json.dumps({"updated_fields": list(body.keys())}),
+        ip_address=get_request_ip(request),
+    )
+
     return JSONResponse({"ok": True})
 
 
@@ -972,6 +1163,17 @@ async def api_delete_user(request: Request, record_id: str):
     ok = delete_user(record_id)
     if not ok:
         raise HTTPException(status_code=400, detail="Failed to delete user")
+
+    # Audit log
+    log_event(
+        action=AuditAction.USER_DELETED,
+        category=AuditCategory.USER,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="User",
+        target_id=record_id,
+        ip_address=get_request_ip(request),
+    )
 
     return JSONResponse({"ok": True})
 
@@ -1094,3 +1296,150 @@ async def api_save_schedule(request: Request):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== USER LIFECYCLE ENDPOINTS ====================
+
+@router.post("/users/{record_id}/activate")
+async def api_activate_user(request: Request, record_id: str):
+    """Activate a user account."""
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = request.session.get("user")
+    if not has_access_to_feature(user, "user_management"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    ok = activate_user(record_id, admin_email=user.get("email", ""))
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to activate user")
+
+    log_event(
+        action=AuditAction.USER_ACTIVATED,
+        category=AuditCategory.USER,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="User",
+        target_id=record_id,
+        ip_address=get_request_ip(request),
+    )
+    return JSONResponse({"ok": True, "message": "User activated"})
+
+
+@router.post("/users/{record_id}/deactivate")
+async def api_deactivate_user(request: Request, record_id: str):
+    """Deactivate a user account."""
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = request.session.get("user")
+    if not has_access_to_feature(user, "user_management"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    ok = deactivate_user(record_id, admin_email=user.get("email", ""))
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to deactivate user")
+
+    log_event(
+        action=AuditAction.USER_DEACTIVATED,
+        category=AuditCategory.USER,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="User",
+        target_id=record_id,
+        ip_address=get_request_ip(request),
+    )
+    return JSONResponse({"ok": True, "message": "User deactivated"})
+
+
+@router.post("/users/{record_id}/unlock")
+async def api_unlock_user(request: Request, record_id: str):
+    """Unlock a locked user account."""
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = request.session.get("user")
+    if not has_access_to_feature(user, "user_management"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    ok = unlock_user(record_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to unlock user")
+
+    log_event(
+        action=AuditAction.USER_UNLOCKED,
+        category=AuditCategory.USER,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="User",
+        target_id=record_id,
+        ip_address=get_request_ip(request),
+    )
+    return JSONResponse({"ok": True, "message": "User unlocked"})
+
+
+@router.get("/users/{record_id}/status")
+async def api_user_status(request: Request, record_id: str):
+    """Get user lifecycle status (active, locked, last login, etc.)."""
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = request.session.get("user")
+    if not has_access_to_feature(user, "user_management"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    status = get_user_status(record_id)
+    if not status:
+        return JSONResponse({"ok": True, "status": {"is_active": True, "failed_attempts": 0}})
+
+    return JSONResponse({"ok": True, "status": status})
+
+
+# ==================== AUDIT LOG ENDPOINTS ====================
+
+@router.get("/audit-logs")
+async def api_list_audit_logs(
+    request: Request,
+    page: int = Query(1),
+    page_size: int = Query(50),
+    category: str = Query(""),
+    action: str = Query(""),
+    actor_email: str = Query(""),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+):
+    """Query audit logs with pagination and filters."""
+    if not request.session.get("user"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = request.session.get("user")
+    if not has_access_to_feature(user, "audit_logs.view"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    from services.audit_service import list_audit_logs, count_audit_logs
+
+    filters = {}
+    if category:
+        filters["category"] = category
+    if action:
+        filters["action"] = action
+    if actor_email:
+        filters["actor_email"] = actor_email
+
+    skip = (page - 1) * page_size
+    logs = list_audit_logs(
+        top=page_size,
+        skip=skip,
+        filters=filters if filters else None,
+        date_from=date_from or None,
+        date_to=date_to or None,
+    )
+    total = count_audit_logs(
+        filters=filters if filters else None,
+        date_from=date_from or None,
+        date_to=date_to or None,
+    )
+
+    return JSONResponse({
+        "ok": True,
+        "logs": logs,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size if page_size > 0 else 0,
+    })

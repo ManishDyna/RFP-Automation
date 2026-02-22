@@ -10,6 +10,10 @@ import {
   Pencil,
   Trash2,
   Search,
+  ShieldCheck,
+  ShieldOff,
+  Unlock,
+  Lock,
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -53,7 +57,14 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from '@/components/ui/tooltip'
 import { api } from '@/lib/api'
+import { useHasPermission } from '@/hooks/use-auth'
 
 const userSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -67,6 +78,10 @@ type UserFormData = z.infer<typeof userSchema>
 
 export default function UserManagementPage() {
   const queryClient = useQueryClient()
+  const canCreate = useHasPermission('user_management.create')
+  const canEdit = useHasPermission('user_management.edit')
+  const canDelete = useHasPermission('user_management.delete')
+  const canActivate = useHasPermission('user_management.activate')
   const [searchTerm, setSearchTerm] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<any>(null)
@@ -75,6 +90,11 @@ export default function UserManagementPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: api.getUsers,
+  })
+
+  const { data: rolesData } = useQuery({
+    queryKey: ['roles'],
+    queryFn: api.getRoles,
   })
 
   const createMutation = useMutation({
@@ -117,6 +137,33 @@ export default function UserManagementPage() {
     },
   })
 
+  const activateMutation = useMutation({
+    mutationFn: (id: string) => api.activateUser(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success('User activated successfully')
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to activate user'),
+  })
+
+  const deactivateMutation = useMutation({
+    mutationFn: (id: string) => api.deactivateUser(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success('User deactivated successfully')
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to deactivate user'),
+  })
+
+  const unlockMutation = useMutation({
+    mutationFn: (id: string) => api.unlockUser(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success('User account unlocked')
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to unlock user'),
+  })
+
   const {
     register,
     handleSubmit,
@@ -136,6 +183,9 @@ export default function UserManagementPage() {
   })
 
   const users = data?.users || []
+  const availableRoles = (rolesData?.roles || []).filter(
+    (r: any) => String(r.is_active || 'true').toLowerCase() !== 'false'
+  )
   const filteredUsers = searchTerm
     ? users.filter((user: any) =>
         user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -172,10 +222,12 @@ export default function UserManagementPage() {
       title="User Management"
       description="Manage system users and their permissions"
       actions={
-        <Button onClick={handleAdd}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add User
-        </Button>
+        canCreate ? (
+          <Button onClick={handleAdd}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add User
+          </Button>
+        ) : undefined
       }
     >
       <Card>
@@ -215,45 +267,128 @@ export default function UserManagementPage() {
                     <TableHead>Email</TableHead>
                     <TableHead>Mobile</TableHead>
                     <TableHead>Role</TableHead>
+                    <TableHead className="text-center">Status</TableHead>
                     <TableHead>Created</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    {(canEdit || canDelete || canActivate) && (
+                      <TableHead className="text-right">Actions</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUsers.map((user: any) => (
-                    <TableRow key={user.record_id}>
-                      <TableCell className="font-medium">{user.name}</TableCell>
-                      <TableCell>{user.email}</TableCell>
-                      <TableCell>{user.mobile_number || '-'}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={user.role?.toLowerCase() === 'admin' ? 'default' : 'secondary'}
-                        >
-                          {user.role || 'User'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{user.created_display || '-'}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleEdit(user)}
+                  {filteredUsers.map((user: any) => {
+                    const isActive = String(user.is_active || 'true').toLowerCase() !== 'false'
+                    const isLocked = String(user.is_locked || '').toLowerCase() === 'true'
+                    return (
+                      <TableRow key={user.record_id}>
+                        <TableCell className="font-medium">{user.name}</TableCell>
+                        <TableCell>{user.email}</TableCell>
+                        <TableCell>{user.mobile_number || '-'}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={user.role?.toLowerCase() === 'admin' ? 'default' : 'secondary'}
                           >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => setDeleteUser(user)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                            {user.role || 'User'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {isLocked ? (
+                            <Badge variant="destructive" className="gap-1">
+                              <Lock className="h-3 w-3" />
+                              Locked
+                            </Badge>
+                          ) : isActive ? (
+                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Active</Badge>
+                          ) : (
+                            <Badge variant="secondary" className="bg-slate-100 text-slate-500">Inactive</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>{user.created_display || '-'}</TableCell>
+                        {(canEdit || canDelete || canActivate) && (
+                          <TableCell className="text-right">
+                            <TooltipProvider delayDuration={0}>
+                              <div className="flex items-center justify-end gap-1">
+                                {canEdit && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-8 w-8"
+                                        onClick={() => handleEdit(user)}
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Edit user</TooltipContent>
+                                  </Tooltip>
+                                )}
+                                {canActivate && isActive && !isLocked && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-8 w-8 text-orange-500 hover:text-orange-600"
+                                        onClick={() => deactivateMutation.mutate(user.record_id)}
+                                      >
+                                        <ShieldOff className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Deactivate user</TooltipContent>
+                                  </Tooltip>
+                                )}
+                                {canActivate && !isActive && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-8 w-8 text-green-600 hover:text-green-700"
+                                        onClick={() => activateMutation.mutate(user.record_id)}
+                                      >
+                                        <ShieldCheck className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Activate user</TooltipContent>
+                                  </Tooltip>
+                                )}
+                                {canEdit && isLocked && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-8 w-8 text-blue-600 hover:text-blue-700"
+                                        onClick={() => unlockMutation.mutate(user.record_id)}
+                                      >
+                                        <Unlock className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Unlock account</TooltipContent>
+                                  </Tooltip>
+                                )}
+                                {canDelete && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-8 w-8 text-destructive hover:text-destructive"
+                                        onClick={() => setDeleteUser(user)}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Delete user</TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </div>
+                            </TooltipProvider>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </ScrollArea>
@@ -320,8 +455,18 @@ export default function UserManagementPage() {
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Admin">Admin</SelectItem>
-                  <SelectItem value="User">User</SelectItem>
+                  {availableRoles.length > 0 ? (
+                    availableRoles.map((role: any) => (
+                      <SelectItem key={role.record_id} value={role.name}>
+                        {role.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <>
+                      <SelectItem value="Admin">Admin</SelectItem>
+                      <SelectItem value="RFP Bidder">RFP Bidder</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
               {errors.role && (

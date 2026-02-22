@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
-import { useIsAdmin } from '@/hooks/use-auth'
+import { useHasPermission } from '@/hooks/use-auth'
 import { useAutomationStatus } from '@/hooks/use-automation'
 import { useState } from 'react'
 
@@ -43,7 +43,14 @@ export function Sidebar({
   onChangeSapPassword,
 }: SidebarProps) {
   const location = useLocation()
-  const isAdmin = useIsAdmin()
+  const canManageUsers = useHasPermission('user_management.view')
+  const canManageRoles = useHasPermission('role_management.view')
+  const canViewAuditLogs = useHasPermission('audit_logs.view')
+  const canViewAnalytics = useHasPermission('analytics.view')
+  const canViewSapLogs = useHasPermission('sap_password.view')
+  const canSchedule = useHasPermission('schedule_automation.manage')
+  const canChangeSapPassword = useHasPermission('sap_password.change')
+  const showAdminSection = canManageUsers || canManageRoles || canViewAuditLogs || canViewAnalytics || canViewSapLogs
   const { data: automationStatus } = useAutomationStatus()
   const [collapsed, setCollapsed] = useState(false)
 
@@ -161,29 +168,53 @@ export function Sidebar({
               </NavSection>
 
               {/* Admin Section */}
-              {isAdmin && (
+              {showAdminSection && (
                 <NavSection title="Administration" collapsed={collapsed} className="mt-6">
-                  <NavItem
-                    path="/admin/users"
-                    icon={Users}
-                    label="Users"
-                    active={location.pathname === '/admin/users'}
-                    collapsed={collapsed}
-                  />
-                  <NavItem
-                    path="/dashboard/analytics"
-                    icon={BarChart3}
-                    label="Analytics"
-                    active={location.pathname === '/dashboard/analytics'}
-                    collapsed={collapsed}
-                  />
-                  <NavItem
-                    path="/admin/sap-logs"
-                    icon={KeyRound}
-                    label="SAP Logs"
-                    active={location.pathname === '/admin/sap-logs'}
-                    collapsed={collapsed}
-                  />
+                  {canManageUsers && (
+                    <NavItem
+                      path="/admin/users"
+                      icon={Users}
+                      label="Users"
+                      active={location.pathname === '/admin/users'}
+                      collapsed={collapsed}
+                    />
+                  )}
+                  {canManageRoles && (
+                    <NavItem
+                      path="/admin/roles"
+                      icon={Shield}
+                      label="Roles"
+                      active={location.pathname === '/admin/roles'}
+                      collapsed={collapsed}
+                    />
+                  )}
+                  {canViewAuditLogs && (
+                    <NavItem
+                      path="/admin/audit-logs"
+                      icon={ScrollText}
+                      label="Audit Logs"
+                      active={location.pathname === '/admin/audit-logs'}
+                      collapsed={collapsed}
+                    />
+                  )}
+                  {canViewAnalytics && (
+                    <NavItem
+                      path="/dashboard/analytics"
+                      icon={BarChart3}
+                      label="Analytics"
+                      active={location.pathname === '/dashboard/analytics'}
+                      collapsed={collapsed}
+                    />
+                  )}
+                  {canViewSapLogs && (
+                    <NavItem
+                      path="/admin/sap-logs"
+                      icon={KeyRound}
+                      label="SAP Logs"
+                      active={location.pathname === '/admin/sap-logs'}
+                      collapsed={collapsed}
+                    />
+                  )}
                 </NavSection>
               )}
 
@@ -225,8 +256,8 @@ export function Sidebar({
                 </div>
               </div>
 
-              {/* Settings Section - Admin Only */}
-              {isAdmin && (
+              {/* Settings Section */}
+              {(canSchedule || canChangeSapPassword) && (
                 <div className={cn('mt-6', collapsed ? 'px-0' : 'px-1')}>
                   {!collapsed && (
                     <div className="flex items-center gap-2 px-2 mb-3">
@@ -237,20 +268,24 @@ export function Sidebar({
                     </div>
                   )}
                   <div className="space-y-1.5">
-                    <QuickAction
-                      icon={Clock}
-                      label="Schedule"
-                      onClick={onSchedule}
-                      collapsed={collapsed}
-                      variant="ghost"
-                    />
-                    <QuickAction
-                      icon={Shield}
-                      label="SAP Password"
-                      onClick={onChangeSapPassword}
-                      collapsed={collapsed}
-                      variant="ghost"
-                    />
+                    {canSchedule && (
+                      <QuickAction
+                        icon={Clock}
+                        label="Schedule"
+                        onClick={onSchedule}
+                        collapsed={collapsed}
+                        variant="ghost"
+                      />
+                    )}
+                    {canChangeSapPassword && (
+                      <QuickAction
+                        icon={KeyRound}
+                        label="SAP Password"
+                        onClick={onChangeSapPassword}
+                        collapsed={collapsed}
+                        variant="ghost"
+                      />
+                    )}
                   </div>
                 </div>
               )}

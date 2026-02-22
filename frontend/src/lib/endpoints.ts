@@ -50,6 +50,10 @@ export const ENDPOINTS = {
     CREATE: `${API_PREFIX}/users/create`,
     UPDATE: (userId: string) => `${API_PREFIX}/users/update/${userId}`,
     DELETE: (userId: string) => `${API_PREFIX}/users/delete/${userId}`,
+    ACTIVATE: (userId: string) => `${API_PREFIX}/users/${userId}/activate`,
+    DEACTIVATE: (userId: string) => `${API_PREFIX}/users/${userId}/deactivate`,
+    UNLOCK: (userId: string) => `${API_PREFIX}/users/${userId}/unlock`,
+    STATUS: (userId: string) => `${API_PREFIX}/users/${userId}/status`,
   },
 
   // ==================== PROFILE (routes/api.py) ====================
@@ -111,6 +115,28 @@ export const ENDPOINTS = {
     STATUS: `${API_PREFIX}/automation/status`,
     DOWNLOAD_ALL_RFPS: `${DASHBOARD_PREFIX}/download-all-rfps`,
     RFP_REMINDER: `${API_PREFIX}/rfp-reminder`,
+  },
+
+  // ==================== ROLES (routes/role_routes.py) ====================
+  ROLES: {
+    LIST: `${API_PREFIX}/roles/list`,
+    CREATE: `${API_PREFIX}/roles/create`,
+    UPDATE: (id: string) => `${API_PREFIX}/roles/update/${id}`,
+    DELETE: (id: string) => `${API_PREFIX}/roles/delete/${id}`,
+    GET: (id: string) => `${API_PREFIX}/roles/${id}`,
+    GET_PERMISSIONS: (id: string) => `${API_PREFIX}/roles/${id}/permissions`,
+    SET_PERMISSIONS: (id: string) => `${API_PREFIX}/roles/${id}/permissions`,
+    SEED: `${API_PREFIX}/roles/seed`,
+  },
+
+  // ==================== PERMISSIONS (routes/role_routes.py) ====================
+  PERMISSIONS: {
+    LIST: `${API_PREFIX}/permissions/list`,
+  },
+
+  // ==================== AUDIT LOGS (routes/api.py) ====================
+  AUDIT_LOGS: {
+    LIST: `${API_PREFIX}/audit-logs`,
   },
 } as const
 
