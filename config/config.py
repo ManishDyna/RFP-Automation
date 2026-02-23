@@ -165,23 +165,23 @@ SP_FAILURE_LOGS_FOLDER = "RFP-logs/automation-error-logs"
 # ── Case 1: New RFP found on portal (one email per RFP with RFP file + matched materials) ──
 # Combined recipients (previously EMAIL_TO_NEW_RFP + EMAIL_TO_NEW_RFP_WITH_MATCH)
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_NEW_RFP = "Manish.soni@dynatechconsultancy.com"
+EMAIL_TO_NEW_RFP = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
 
 # ── Case 2: Automation ran but NO new RFP was found on portal ──
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_NO_NEW_RFP = "Manish.soni@dynatechconsultancy.com"
+EMAIL_TO_NO_NEW_RFP = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
 
  # When RFP is submitted successfully
 EMAIL_TO_RFP_DECLINED = "Manish.soni@dynatechconsultancy.com"  # When RFP is declined successfully
 EMAIL_TO_RFP_ERROR_IN_SUBMISSION = "Manish.soni@dynatechconsultancy.com"  # When RFP is submission failed
 EMAIL_TO_RFP_ERROR_IN_DECLINE = "Manish.soni@dynatechconsultancy.com"  # When RFP is decline failed or error in decline
 EMAIL_TO_AUTOMATION_FAILURE = "Manish.soni@dynatechconsultancy.com"  # When Automation is failed
-EMAIL_TO_NEW_RFP_NO_MATCH = "Manish.soni@dynatechconsultancy.com"
+
 # When a new RFP is found AND materials are matched — receives the RFP file itself (in addition to
 # Sales/Technical who receive the matched materials CSV)
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
 EMAIL_TO_RFP_SUBMITTED = "Manish.soni@dynatechconsultancy.com" 
-EMAIL_TO_RFP_SAVED_DRAFT = "Manish.soni@dynatechconsultancy.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
+EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
 
 
 EMAIL_TO_RFP_REMINDER = "Manish.soni@dynatechconsultancy.com"
@@ -190,8 +190,9 @@ EMAIL_TO_RFP_REMINDER = "Manish.soni@dynatechconsultancy.com"
 # EMAIL_TO_NEW_RFP_WITH_MATCH = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"
 # EMAIL_TO_NO_MATCHED_DATA = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"
 # NOTE: EMAIL_TO_NEW_RFP_WITH_MATCH is now consolidated with EMAIL_TO_NEW_RFP (per-RFP email flow)
-EMAIL_TO_NEW_RFP_WITH_MATCH = "Manish.soni@dynatechconsultancy.com"
-EMAIL_TO_NO_MATCHED_DATA = "Manish.soni@dynatechconsultancy.com"  # When No matched data IN DOWNLOAD RFP"
+EMAIL_TO_NEW_RFP_WITH_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
+EMAIL_TO_NO_MATCHED_DATA = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"  # When No matched data IN DOWNLOAD RFP"
+EMAIL_TO_NEW_RFP_NO_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
 # EMAIL_TO_RFP_SUBMITTED = "arawah@bahra-cables.com" 
 # EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
 
@@ -211,7 +212,7 @@ RFP_TEAM_TABLE = [
 # ===== Dashboard / Logs Settings =====
 # Backend cache TTLs (seconds)
 DASHBOARD_TTL_SECONDS = 300
-LOGS_TTL_SECONDS = 300
+LOGS_TTL_SECONDS = 300  
 SAP_LOGS_TTL_SECONDS = 300
 
 # HTTP cache max-age for dashboard pages (seconds)
