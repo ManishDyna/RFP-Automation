@@ -36,6 +36,7 @@ from config.config import (
     COMPANY_NAME,
 )
 from config.config import AUTOMATION_SCHEDULE_TABLE_API, AUTOMATION_SCHEDULE_TABLE_LOGICAL
+from config.config import RFP_ACTIVITY_LOG_TABLE_API, RFP_ACTIVITY_LOG_TABLE_LOGICAL
 from helpers.core_helper import (
     DATAVERSE,
     update_rfp_participation_status,
@@ -2047,16 +2048,126 @@ def parse_excel_for_dynamic_form(excel_path):
     
     return form_structure
 
+def _try_materials_from_dataverse(rfp_id: str):
+    """
+    Try to build dialog response from stored Matched_Data JSON in Dataverse.
+    Returns dict (response body) if successful, None if fallback needed.
+    """
+    try:
+        filter_val = rfp_id.replace("'", "''")
+        result = DATAVERSE.query_rows(
+            RFP_ACTIVITY_LOG_TABLE_API,
+            filter_expr=f"RFP_ID eq '{filter_val}'",
+            select="RFP_ID,Matched_Data",
+            top=1,
+            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            use_display_names=True
+        )
+        rows = result.get("value", []) if isinstance(result, dict) else []
+        if not rows:
+            return None
+
+        matched_data_str = (rows[0].get("Matched_Data") or "").strip()
+        if not matched_data_str:
+            return None
+
+        items = json.loads(matched_data_str)
+        if not isinstance(items, list) or not items:
+            return None
+
+        # Check if data has new format (is_matched field present)
+        has_new_format = any("is_matched" in item for item in items)
+        if not has_new_format:
+            return None  # Old format — fall back to live matching
+
+        # Transform stored data to dialog format
+        materials_list = []
+        for item in items:
+            is_matched = bool(item.get("is_matched", True))
+            raw_method = item.get("MatchMethod")
+
+            if not is_matched:
+                match_method = None
+            elif raw_method and str(raw_method).lower() == "keyword":
+                match_method = "keyword"
+            else:
+                match_method = "exact_code"
+
+            mat_code = str(item.get("ExtractedMaterial") or item.get("Material") or "").strip()
+            name = str(item.get("ExcelName") or item.get("ColumnName") or "").strip()
+            description = str(item.get("ExcelDescription") or "").strip()
+
+            master_description = ""
+            if is_matched:
+                master_description = str(item.get("Material Description") or "").strip()
+
+            # Build master_data dict (exclude internal tracking fields)
+            internal_keys = {
+                "SourceFile", "RFP_Title", "RFP_End_Date", "TDS_file_path",
+                "RowNumber", "ColumnName", "ExtractedMaterial", "MatchMethod",
+                "is_matched", "ExcelName", "ExcelDescription"
+            }
+            master_data = {}
+            if is_matched:
+                master_data = {
+                    k: (None if (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) else v)
+                    for k, v in item.items()
+                    if k not in internal_keys
+                }
+
+            materials_list.append({
+                "material_code": mat_code,
+                "name": name,
+                "description": description,
+                "is_matched": is_matched,
+                "match_method": match_method,
+                "master_description": master_description,
+                "master_data": master_data,
+                "selected": False,
+                "reason": "",
+            })
+
+        total_materials = len(materials_list)
+        matched_count = sum(1 for m in materials_list if m["is_matched"])
+        exact_code_matches = sum(1 for m in materials_list if m.get("match_method") == "exact_code")
+        keyword_matches = sum(1 for m in materials_list if m.get("match_method") == "keyword")
+        match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
+
+        return {
+            "ok": True,
+            "rfp_id": rfp_id,
+            "total_materials": total_materials,
+            "matched_count": matched_count,
+            "unmatched_count": total_materials - matched_count,
+            "exact_code_matches": exact_code_matches,
+            "keyword_matches": keyword_matches,
+            "match_percentage": match_percentage,
+            "materials": materials_list,
+        }
+
+    except Exception as e:
+        print(f"[MaterialDialog] Dataverse read failed for {rfp_id}, falling back to live matching: {e}")
+        return None
+
+
 @router.get("/rfp/{rfp_id}/materials")
 async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
     """
     Extract materials from RFP Excel file and match with master file.
     Returns materials with match status for display in modal.
+    Primary path: reads from stored Matched_Data JSON in Dataverse.
+    Fallback: live-matches from Excel + master CSV (for old records).
     """
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     try:
+        # PRIMARY PATH: Try stored Dataverse data
+        stored_result = _try_materials_from_dataverse(rfp_id)
+        if stored_result is not None:
+            return JSONResponse(stored_result)
+
+        # FALLBACK PATH: Live matching (for old records without new format)
         # Initialize GraphClient for master file download
         graph_client = GraphClient(
             CLIENT_ID, CLIENT_SECRET, TENANT_ID,

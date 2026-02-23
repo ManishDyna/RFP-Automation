@@ -633,10 +633,79 @@ def _get_keywords_list_cached():
     return _KEYWORDS_CACHE["data"]
 
 
+def _add_to_material_group(material_groups, material_code, material_desc, rfp_id, company, rfp_end_date, participated, match_method, extracted=""):
+    """Helper: add a material entry to material_groups dict."""
+    if not material_code:
+        return
+    if material_code not in material_groups:
+        material_groups[material_code] = {
+            "material_code": material_code,
+            "material_description": material_desc,
+            "rfp_count": 0,
+            "rfps": [],
+            "companies": set(),
+            "submitted_count": 0,
+        }
+    group = material_groups[material_code]
+    existing_rfp_ids = {r["rfp_id"] for r in group["rfps"]}
+    if rfp_id not in existing_rfp_ids:
+        group["rfps"].append({
+            "rfp_id": rfp_id,
+            "company": company,
+            "rfp_end_date": str(rfp_end_date),
+            "participated": participated,
+            "match_method": match_method,
+            "extracted_material": extracted,
+        })
+        group["rfp_count"] += 1
+        if company:
+            group["companies"].add(company)
+        if participated in ("submitted", "yes"):
+            group["submitted_count"] += 1
+
+
+def _add_to_keyword_group(keyword_groups, kw, rfp_id, company, rfp_end_date, participated, material_code, material_desc):
+    """Helper: add a keyword entry to keyword_groups dict."""
+    kw = kw.strip()
+    if not kw:
+        return
+    if kw not in keyword_groups:
+        keyword_groups[kw] = {
+            "keyword": kw,
+            "rfp_count": 0,
+            "rfps": [],
+            "companies": set(),
+            "submitted_count": 0,
+            "material_codes": set(),
+        }
+    kw_group = keyword_groups[kw]
+    existing_kw_rfps = {r["rfp_id"] for r in kw_group["rfps"]}
+    if rfp_id not in existing_kw_rfps:
+        kw_group["rfps"].append({
+            "rfp_id": rfp_id,
+            "company": company,
+            "rfp_end_date": str(rfp_end_date),
+            "participated": participated,
+            "material_code": material_code,
+            "material_description": material_desc,
+        })
+        kw_group["rfp_count"] += 1
+        if company:
+            kw_group["companies"].add(company)
+        if participated in ("submitted", "yes"):
+            kw_group["submitted_count"] += 1
+    if material_code:
+        kw_group["material_codes"].add(material_code)
+
+
 def get_material_insights_grouped_data():
     """
-    Build material-code-centric and keyword-centric views
-    by parsing Matched_Data JSON from each RFP.
+    Build material-code-centric and keyword-centric views.
+
+    Primary path: uses direct columns (Material_Code, Material_Description,
+    Matched_Keywords) from the Dataverse table.
+    Fallback path: parses Matched_Data JSON + CSV keyword cross-reference
+    for rows that don't have the direct columns populated.
     """
     import json as _json
 
@@ -652,97 +721,84 @@ def get_material_insights_grouped_data():
 
     for row in raw_rows:
         rfp_id = row.get("RFP_ID", "")
-        matched_data_str = row.get("Matched_Data", "") or ""
         company = (row.get("Company_Name", "") or "").strip()
         participated = (row.get("participated") or "").strip().lower()
         rfp_end_date = row.get("RFP_End_Date", "")
 
-        if not matched_data_str.strip():
-            continue
+        # --- Direct columns (primary path) ---
+        direct_material_code = (row.get("Material_Code", "") or "").strip()
+        direct_material_desc = (row.get("Material_Description", "") or "").strip()
+        direct_matched_keywords = (row.get("Matched_Keywords", "") or "").strip()
+        material_matched_flag = (row.get("Material_Matched", "") or "").strip().lower()
+        keyword_matched_flag = (row.get("Keyword_Matched", "") or "").strip().lower()
 
-        try:
-            matched_items = _json.loads(matched_data_str)
-        except (ValueError, TypeError):
-            continue
+        if direct_material_code:
+            # PRIMARY PATH: use direct columns
+            all_rfp_ids_with_matches.add(rfp_id)
 
-        if not isinstance(matched_items, list):
-            continue
+            # Determine match method from flags
+            if keyword_matched_flag == "yes":
+                match_method = "keyword"
+            else:
+                match_method = "exact"
 
-        all_rfp_ids_with_matches.add(rfp_id)
+            # Material grouping
+            _add_to_material_group(
+                material_groups, direct_material_code, direct_material_desc,
+                rfp_id, company, rfp_end_date, participated, match_method
+            )
 
-        for item in matched_items:
-            material_code = str(item.get("Material", "") or "").strip()
-            material_desc = str(item.get("Material Description", "") or "").strip()
-            match_method = str(item.get("MatchMethod", "exact") or "exact").lower()
-            extracted = str(item.get("ExtractedMaterial", "") or "").strip()
+            # Keyword grouping from Matched_Keywords column (comma-separated)
+            if direct_matched_keywords:
+                for kw in direct_matched_keywords.split(","):
+                    _add_to_keyword_group(
+                        keyword_groups, kw, rfp_id, company, rfp_end_date,
+                        participated, direct_material_code, direct_material_desc
+                    )
 
-            # --- Material Code grouping ---
-            if material_code:
-                if material_code not in material_groups:
-                    material_groups[material_code] = {
-                        "material_code": material_code,
-                        "material_description": material_desc,
-                        "rfp_count": 0,
-                        "rfps": [],
-                        "companies": set(),
-                        "submitted_count": 0,
-                    }
-                group = material_groups[material_code]
-                existing_rfp_ids = {r["rfp_id"] for r in group["rfps"]}
-                if rfp_id not in existing_rfp_ids:
-                    group["rfps"].append({
-                        "rfp_id": rfp_id,
-                        "company": company,
-                        "rfp_end_date": str(rfp_end_date),
-                        "participated": participated,
-                        "match_method": match_method,
-                        "extracted_material": extracted,
-                    })
-                    group["rfp_count"] += 1
-                    if company:
-                        group["companies"].add(company)
-                    if participated in ("submitted", "yes"):
-                        group["submitted_count"] += 1
+        else:
+            # FALLBACK PATH: parse Matched_Data JSON
+            matched_data_str = row.get("Matched_Data", "") or ""
+            if not matched_data_str.strip():
+                continue
 
-            # --- Keyword grouping ---
-            if match_method == "keyword":
-                # Cross-reference item against keywords list
-                desc_upper = material_desc.upper()
-                name_upper = str(item.get("ColumnName", "") or "").upper()
-                search_text = desc_upper + " " + name_upper + " " + extracted.upper()
+            try:
+                matched_items = _json.loads(matched_data_str)
+            except (ValueError, TypeError):
+                continue
 
-                matched_keywords = []
-                for kw in keywords_list:
-                    if kw.upper() in search_text:
-                        matched_keywords.append(kw)
+            if not isinstance(matched_items, list):
+                continue
 
-                for kw in matched_keywords:
-                    if kw not in keyword_groups:
-                        keyword_groups[kw] = {
-                            "keyword": kw,
-                            "rfp_count": 0,
-                            "rfps": [],
-                            "companies": set(),
-                            "submitted_count": 0,
-                            "material_codes": set(),
-                        }
-                    kw_group = keyword_groups[kw]
-                    existing_kw_rfps = {r["rfp_id"] for r in kw_group["rfps"]}
-                    if rfp_id not in existing_kw_rfps:
-                        kw_group["rfps"].append({
-                            "rfp_id": rfp_id,
-                            "company": company,
-                            "rfp_end_date": str(rfp_end_date),
-                            "participated": participated,
-                            "material_code": material_code,
-                            "material_description": material_desc,
-                        })
-                        kw_group["rfp_count"] += 1
-                        if company:
-                            kw_group["companies"].add(company)
-                        if participated in ("submitted", "yes"):
-                            kw_group["submitted_count"] += 1
-                    kw_group["material_codes"].add(material_code)
+            all_rfp_ids_with_matches.add(rfp_id)
+
+            for item in matched_items:
+                # Skip unmatched materials (new format has is_matched field)
+                if item.get("is_matched") is False:
+                    continue
+                material_code = str(item.get("Material", "") or "").strip()
+                material_desc = str(item.get("Material Description", "") or "").strip()
+                match_method = str(item.get("MatchMethod", "exact") or "exact").lower()
+                extracted = str(item.get("ExtractedMaterial", "") or "").strip()
+
+                # Material grouping
+                _add_to_material_group(
+                    material_groups, material_code, material_desc,
+                    rfp_id, company, rfp_end_date, participated, match_method, extracted
+                )
+
+                # Keyword grouping via CSV cross-reference
+                if match_method == "keyword":
+                    desc_upper = material_desc.upper()
+                    name_upper = str(item.get("ColumnName", "") or "").upper()
+                    search_text = desc_upper + " " + name_upper + " " + extracted.upper()
+
+                    for kw in keywords_list:
+                        if kw.upper() in search_text:
+                            _add_to_keyword_group(
+                                keyword_groups, kw, rfp_id, company, rfp_end_date,
+                                participated, material_code, material_desc
+                            )
 
     # Convert sets to sorted lists for JSON serialization
     materials_list = sorted(material_groups.values(), key=lambda x: x["rfp_count"], reverse=True)
