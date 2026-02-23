@@ -204,7 +204,9 @@ EMAIL_TO_NO_MATCHED_DATA = "Manish.soni@dynatechconsultancy.com"  # When No matc
 RFP_TEAM_TABLE = [
     # --- TESTING: using test user emails (revert to @bahra-cables.com for production) ---
     {"product": "Cables",             "name": "Manish Soni",      "email": "Manish.soni@dynatechconsultancy.com"},
-    {"product": "Cable Accessories",  "name": "Dhyey",  "email": "Dhyey.Bhalodiya@dynatechconsultancy.com"},
+    {"product": "Cable Accessories",  "name": "Shubham Kumbhar",  "email": "shubham.kumbhar@dynatechconsultancy.com"},
+    {"product": "material Accessories",  "name": "AI",  "email": "AIsupport@dynatechconsultancy.com"},
+
     # {"product": "Cables",             "name": "Lotfy Idrees",    "email": "lotfy.idrees@bahra-cables.com"},
     # {"product": "Cable Accessories",  "name": "Ahmed Ebeed",     "email": "ahmed.ebeed@bahra-cables.com"},
     # {"product": "Non-Cables",         "name": "Karim Nour",      "email": "karim.nour@bahra-cables.com"},

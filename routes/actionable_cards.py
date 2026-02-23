@@ -139,10 +139,17 @@ def _build_refresh_card(
         resp = response_lookup.get(m_email)
         has_responded = resp is not None
 
-        results_text = resp["results"] if has_responded else "Pending"
-        remarks_text = resp["remarks"] if has_responded else "Pending"
-        results_color = "Good" if has_responded else "Warning"
-        remarks_color = "Good" if has_responded else "Warning"
+        # For current user who hasn't submitted: inline Input.Text fields
+        if is_current and not user_has_submitted:
+            results_item = {"type": "Input.Text", "id": "results", "placeholder": "Enter results..."}
+            remarks_item = {"type": "Input.Text", "id": "remarks", "placeholder": "Enter remarks..."}
+        else:
+            results_text = resp["results"] if has_responded else "Pending"
+            remarks_text = resp["remarks"] if has_responded else "Pending"
+            results_color = "Good" if has_responded else "Warning"
+            remarks_color = "Good" if has_responded else "Warning"
+            results_item = {"type": "TextBlock", "text": results_text, "horizontalAlignment": "Center", "color": results_color}
+            remarks_item = {"type": "TextBlock", "text": remarks_text or "-", "horizontalAlignment": "Center", "color": remarks_color, "wrap": True}
 
         row = {
             "type": "ColumnSet",
@@ -163,11 +170,11 @@ def _build_refresh_card(
                 },
                 {
                     "type": "Column", "width": "stretch", "padding": "None",
-                    "items": [{"type": "TextBlock", "text": results_text, "horizontalAlignment": "Center", "color": results_color}],
+                    "items": [results_item],
                 },
                 {
                     "type": "Column", "width": "stretch", "padding": "None",
-                    "items": [{"type": "TextBlock", "text": remarks_text or "-", "horizontalAlignment": "Center", "color": remarks_color, "wrap": True}],
+                    "items": [remarks_item],
                 },
             ],
         }
@@ -192,43 +199,11 @@ def _build_refresh_card(
         "body": refresh_body,
     }
 
-    # autoInvokeAction - Outlook calls this automatically when email is opened
-    auto_invoke = {
-        "type": "Action.Http",
-        "method": "POST",
-        "url": refresh_url,
-        "headers": [{"name": "Content-Type", "value": "application/json"}],
-        "body": refresh_body,
-    }
-
     status_text = f"Team responses: {responded_count}/{total_count} received."
 
-    if user_has_submitted:
-        # Read-only card (already submitted)
-        card = {
-            "type": "AdaptiveCard",
-            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-            "version": "1.4",
-            "body": [
-                {"type": "TextBlock", "text": "Response Submitted Successfully!",
-                 "weight": "Bolder", "size": "Large", "color": "Good"},
-                {"type": "FactSet", "facts": [
-                    {"title": "RFP ID:", "value": rfp_id},
-                    {"title": "Company:", "value": company_name},
-                ]},
-                {"type": "TextBlock", "text": "Team Assignment", "weight": "Bolder",
-                 "separator": True, "spacing": "Medium"},
-                header_row,
-                *data_rows,
-                {"type": "TextBlock", "text": status_text,
-                 "isSubtle": True, "wrap": True, "spacing": "Medium"},
-            ],
-            "actions": [refresh_action],
-            "autoInvokeAction": auto_invoke,
-            "padding": "Default",
-        }
-    else:
-        # Editable card (not yet submitted) - includes input fields + Submit button
+    # Actions: Submit + Refresh if not yet submitted, only Refresh if already submitted
+    actions = [refresh_action]
+    if not user_has_submitted:
         submit_action = {
             "type": "Action.Http",
             "title": "Submit Response",
@@ -247,40 +222,32 @@ def _build_refresh_card(
             "style": "positive",
             "isPrimary": True,
         }
+        actions = [submit_action, refresh_action]
 
-        card = {
-            "type": "AdaptiveCard",
-            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-            "version": "1.4",
-            "body": [
-                {"type": "TextBlock", "text": "RFP Response Required",
-                 "weight": "Bolder", "size": "Large", "color": "Accent"},
-                {"type": "FactSet", "facts": [
-                    {"title": "RFP ID:", "value": rfp_id},
-                    {"title": "Company:", "value": company_name},
-                    {"title": "Assigned To:", "value": name},
-                    {"title": "Product:", "value": product},
-                ]},
-                {"type": "TextBlock", "text": "Team Assignment", "weight": "Bolder",
-                 "separator": True, "spacing": "Medium"},
-                header_row,
-                *data_rows,
-                {"type": "TextBlock", "text": f"Your Response ({product})",
-                 "weight": "Bolder", "size": "Medium", "separator": True,
-                 "spacing": "Large", "color": "Accent"},
-                {"type": "TextBlock", "text": "Results", "weight": "Bolder", "spacing": "Small"},
-                {"type": "Input.Text", "id": "results",
-                 "placeholder": "Enter your results here...", "isRequired": True},
-                {"type": "TextBlock", "text": "Remarks", "weight": "Bolder", "spacing": "Small"},
-                {"type": "Input.Text", "id": "remarks",
-                 "placeholder": "Enter your remarks here...", "isMultiline": True},
-                {"type": "TextBlock", "text": status_text,
-                 "isSubtle": True, "wrap": True, "spacing": "Medium"},
-            ],
-            "actions": [submit_action, refresh_action],
-            "autoInvokeAction": auto_invoke,
-            "padding": "Default",
-        }
+    # Same card layout regardless of submission state
+    card = {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.0",
+        "body": [
+            {"type": "TextBlock", "text": f"Dear {name},",
+             "wrap": True},
+            {"type": "TextBlock", "text": f"Kindly advise us regarding the attached RFP file for **{product}**.",
+             "wrap": True, "spacing": "Small"},
+            {"type": "TextBlock", "text": "Please fill in your Results and Remarks using the interactive form below.",
+             "wrap": True, "spacing": "Small"},
+            {"type": "TextBlock", "text": "Team Assignment", "weight": "Bolder",
+             "separator": True, "spacing": "Medium"},
+            header_row,
+            *data_rows,
+            {"type": "TextBlock", "text": status_text,
+             "isSubtle": True, "wrap": True, "spacing": "Medium"},
+            {"type": "TextBlock", "text": "Best Regards,\nAutomation System",
+             "wrap": True, "spacing": "Medium", "separator": True},
+        ],
+        "actions": actions,
+        "padding": "None",
+    }
 
     return card
 
@@ -381,9 +348,10 @@ async def receive_card_response(request: Request):
     all_responded = team_emails.issubset(responded_emails)
 
     if all_responded and len(team_emails) > 0:
-        # All team members have responded - send consolidated email
+        # All team members have responded - send consolidated email with attachments + Decline button
         try:
             from helpers.email_helper import send_consolidated_response_email
+            from config.config import RFP_ACTIVITY_LOG_TABLE_API, RFP_ACTIVITY_LOG_TABLE_LOGICAL
 
             responses_for_email = [
                 {
@@ -394,7 +362,23 @@ async def receive_card_response(request: Request):
                 }
                 for r in all_responses
             ]
-            send_consolidated_response_email(rfp_id, responses_for_email, company_name)
+
+            # Look up RFP end date from Dataverse activity log
+            rfp_end_date = "-"
+            try:
+                activity = _DATAVERSE.query_rows(
+                    RFP_ACTIVITY_LOG_TABLE_API,
+                    filter_expr=f"cr673_name eq '{rfp_id}'",
+                    top=1,
+                    table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+                    use_display_names=True,
+                )
+                if activity and "value" in activity and len(activity["value"]) > 0:
+                    rfp_end_date = activity["value"][0].get("RFP_End_Date", "-") or "-"
+            except Exception:
+                pass
+
+            send_consolidated_response_email(rfp_id, responses_for_email, company_name, rfp_end_date)
         except Exception as e:
             print(f"⚠ Could not send consolidated email: {e}")
 
@@ -490,6 +474,74 @@ async def refresh_card_status(request: Request):
         total_count=len(team_emails),
         callback_url=ACTIONABLE_CARD_CALLBACK_URL,
     )
+
+    return JSONResponse(
+        content=card,
+        status_code=200,
+        headers={"CARD-UPDATE-IN-BODY": "true"},
+    )
+
+
+@router.post("/decline")
+async def decline_rfp_from_card(request: Request):
+    """
+    Receive a Decline action from the consolidated Adaptive Card email.
+    Verifies the bearer token, then triggers the RFP decline automation.
+    Returns an updated card showing that the decline has been initiated.
+    """
+    import threading
+
+    # Step 1: Verify the bearer token from Microsoft
+    auth_header = request.headers.get("Authorization", "")
+    claims = _verify_actionable_message_token(auth_header)
+    user_email = claims.get("sub") or claims.get("preferred_username") or claims.get("upn", "unknown")
+
+    # Step 2: Parse the JSON body
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    rfp_id = body.get("rfp_id", "")
+    company_name = body.get("company_name", "")
+
+    if not rfp_id:
+        raise HTTPException(status_code=400, detail="rfp_id is required")
+
+    print(f"🔴 Decline requested by {user_email} for RFP: {rfp_id} ({company_name})")
+
+    # Step 3: Trigger decline automation in background thread
+    def _run_decline():
+        import asyncio
+        from automation_logic import run_automation_decline
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(run_automation_decline(rfp_id, company_name or None))
+        except Exception as e:
+            print(f"❌ Decline automation failed for {rfp_id}: {e}")
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=_run_decline, daemon=True)
+    thread.start()
+
+    # Step 4: Return updated card confirming decline initiated
+    card = {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.0",
+        "body": [
+            {"type": "TextBlock", "text": "Dear Team,", "wrap": True},
+            {"type": "TextBlock", "text": f"RFP **{rfp_id}** decline has been initiated by {user_email}.",
+             "wrap": True, "spacing": "Small", "weight": "Bolder", "color": "Attention"},
+            {"type": "TextBlock", "text": "The automation is running in the background. You will receive a confirmation email once the decline is complete.",
+             "wrap": True, "spacing": "Small", "isSubtle": True},
+            {"type": "TextBlock", "text": "Best Regards,\nAutomation System",
+             "wrap": True, "spacing": "Medium", "separator": True},
+        ],
+        "padding": "None",
+    }
 
     return JSONResponse(
         content=card,
