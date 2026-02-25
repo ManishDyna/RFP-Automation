@@ -170,12 +170,18 @@ def calculate_match_counts(matched_data):
             'exact_matched': 0
         }
 
-    total = len(matched_data)
+    # Filter to only matched items (backward compat: missing column = all matched)
+    if 'is_matched' in matched_data.columns:
+        matched_only = matched_data[matched_data['is_matched'] == True]
+    else:
+        matched_only = matched_data
+
+    total = len(matched_only)
 
     # Count by match method (handle backward compatibility)
-    if 'MatchMethod' in matched_data.columns:
+    if 'MatchMethod' in matched_only.columns:
         # Handle NaN values and case variations
-        match_method = matched_data['MatchMethod'].fillna('exact').str.lower()
+        match_method = matched_only['MatchMethod'].fillna('exact').str.lower()
         keyword_count = (match_method == 'keyword').sum()
         exact_count = (match_method == 'exact').sum()
     else:

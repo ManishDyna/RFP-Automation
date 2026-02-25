@@ -101,6 +101,8 @@ function ProtectedLayout() {
         onDeclineRfp={() => setDeclineRfpOpen(true)}
         onSchedule={() => setScheduleOpen(true)}
         onChangeSapPassword={() => setSapPasswordOpen(true)}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
       />
 
       <div className={cn(

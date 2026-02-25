@@ -98,6 +98,572 @@ def _build_rfp_notification_html(rfp_titles: list, rfp_end_dates: dict = None) -
     return subject, body_html
 
 
+def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_name, callback_url, originator_id, matched_line=""):
+    """
+    Build an Adaptive Card JSON string for one team member.
+    The card is embedded in the email HTML and rendered interactively in Outlook.
+    Shows the full team table with the current member's row highlighted,
+    and input fields for Results and Remarks below the table.
+    """
+    from config.config import RFP_TEAM_TABLE
+
+    # --- Build the team table rows ---
+    # Header row
+    header_row = {
+        "type": "ColumnSet",
+        "style": "emphasis",
+        "columns": [
+            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Products", "weight": "Bolder", "horizontalAlignment": "Center"}]},
+            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Name", "weight": "Bolder", "horizontalAlignment": "Center"}]},
+            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Results", "weight": "Bolder", "horizontalAlignment": "Center"}]},
+            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Remarks", "weight": "Bolder", "horizontalAlignment": "Center"}]},
+        ],
+        "padding": "None",
+    }
+
+    # Data rows — current member gets inline Input.Text, others get "Pending"
+    data_rows = []
+    for member in RFP_TEAM_TABLE:
+        is_current = member.get("email", "").lower() == email.lower()
+
+        if is_current:
+            # Editable row — Input.Text fields inline
+            results_item = {"type": "Input.Text", "id": "results", "placeholder": "Enter results..."}
+            remarks_item = {"type": "Input.Text", "id": "remarks", "placeholder": "Enter remarks..."}
+        else:
+            # Read-only row
+            results_item = {"type": "TextBlock", "text": "Pending", "horizontalAlignment": "Center", "color": "Warning"}
+            remarks_item = {"type": "TextBlock", "text": "Pending", "horizontalAlignment": "Center", "color": "Warning"}
+
+        row = {
+            "type": "ColumnSet",
+            "separator": True,
+            "padding": "None",
+            **({"style": "accent"} if is_current else {}),
+            "columns": [
+                {
+                    "type": "Column", "width": "stretch", "padding": "None",
+                    "items": [{"type": "TextBlock", "text": member["product"], "horizontalAlignment": "Center",
+                               **({"weight": "Bolder"} if is_current else {})}],
+                },
+                {
+                    "type": "Column", "width": "stretch", "padding": "None",
+                    "items": [{"type": "TextBlock", "text": f"{member['name']} (You)" if is_current else member["name"],
+                               "horizontalAlignment": "Center",
+                               **({"weight": "Bolder"} if is_current else {})}],
+                },
+                {
+                    "type": "Column", "width": "stretch", "padding": "None",
+                    "items": [results_item],
+                },
+                {
+                    "type": "Column", "width": "stretch", "padding": "None",
+                    "items": [remarks_item],
+                },
+            ],
+        }
+        data_rows.append(row)
+
+    # --- Footer items (due date, matched note, sign-off) ---
+    footer_items = [
+        {
+            "type": "TextBlock",
+            "text": f"**Note:** the due date for __{rfp_id}__ is **{due_date}**",
+            "wrap": True,
+            "spacing": "Medium",
+            "color": "Attention",
+        },
+    ]
+    if matched_line:
+        footer_items.append({
+            "type": "TextBlock",
+            "text": f"**NOTE:** {matched_line}",
+            "wrap": True,
+            "spacing": "Small",
+            "isSubtle": True,
+        })
+    footer_items.append({
+        "type": "TextBlock",
+        "text": "Best Regards,\nAutomation System",
+        "wrap": True,
+        "spacing": "Medium",
+        "separator": True,
+    })
+
+    # --- Assemble full card body ---
+    card = {
+        "originator": originator_id,
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.0",
+        "body": [
+            {
+                "type": "TextBlock",
+                "text": f"Dear {name},",
+                "wrap": True,
+            },
+            {
+                "type": "TextBlock",
+                "text": f"Kindly advise us regarding the attached RFP file for **{product}**.",
+                "wrap": True,
+                "spacing": "Small",
+            },
+            {
+                "type": "TextBlock",
+                "text": "Please fill in your Results and Remarks using the interactive form below.",
+                "wrap": True,
+                "spacing": "Small",
+            },
+            {
+                "type": "TextBlock",
+                "text": "Team Assignment",
+                "weight": "Bolder",
+                "separator": True,
+                "spacing": "Medium",
+            },
+            header_row,
+            *data_rows,
+            *footer_items,
+        ],
+        "actions": [
+            {
+                "type": "Action.Http",
+                "title": "Submit Response",
+                "method": "POST",
+                "url": callback_url,
+                "headers": [
+                    {"name": "Content-Type", "value": "application/json"}
+                ],
+                "body": json.dumps({
+                    "rfp_id": rfp_id,
+                    "product": product,
+                    "name": name,
+                    "email": email,
+                    "company_name": company_name,
+                    "results": "{{results.value}}",
+                    "remarks": "{{remarks.value}}",
+                }),
+                "style": "positive",
+                "isPrimary": True,
+            },
+            {
+                "type": "Action.Http",
+                "title": "Refresh Status",
+                "method": "POST",
+                "url": callback_url + "/refresh",
+                "headers": [
+                    {"name": "Content-Type", "value": "application/json"}
+                ],
+                "body": json.dumps({
+                    "rfp_id": rfp_id,
+                    "product": product,
+                    "name": name,
+                    "email": email,
+                    "company_name": company_name,
+                }),
+            },
+        ],
+        "padding": "None",
+    }
+    return json.dumps(card)
+
+
+def _get_graph_mail_token():
+    """Get a Graph API access token for sending mail via Mail.Send permission."""
+    from config.config import TENANT_ID, CLIENT_ID, CLIENT_SECRET
+    import msal
+
+    app = msal.ConfidentialClientApplication(
+        CLIENT_ID,
+        authority=f"https://login.microsoftonline.com/{TENANT_ID}",
+        client_credential=CLIENT_SECRET,
+    )
+    result = app.acquire_token_for_client(["https://graph.microsoft.com/.default"])
+    if "access_token" not in result:
+        raise RuntimeError(f"Failed to get Graph API token: {result.get('error_description', result)}")
+    return result["access_token"]
+
+
+def _download_sp_file_bytes(graph_client, sp_path: str) -> bytes:
+    """Download a file from SharePoint and return its bytes (for email attachment)."""
+    try:
+        graph_client.ensure_token()
+        url = (
+            f"https://graph.microsoft.com/v1.0/sites/{graph_client.site_id}"
+            f"/drives/{graph_client.drive_id}/root:/{sp_path}:/content"
+        )
+        resp = requests.get(url, headers=graph_client.headers)
+        if resp.status_code == 200:
+            return resp.content
+    except Exception as e:
+        print(f"⚠ Could not download SP file {sp_path}: {e}")
+    return None
+
+
+def send_actionable_rfp_emails(
+    rfp_id: str,
+    company_name: str,
+    rfp_end_date: str = "-",
+    matched_csv_path: str = None,
+    graph_client=None,
+):
+    """
+    Send one personalized Adaptive Card email PER team member via Graph API MIME endpoint.
+    Uses raw MIME format to preserve the <script type="application/adaptivecard+json"> tag
+    (both Power Automate and Graph API JSON sendMail strip <script> tags).
+    """
+    import base64
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders as email_encoders
+    from helpers.core_helper import clean_rfp_title
+    from config.config import (
+        RFP_TEAM_TABLE, SP_BASE_FOLDER,
+        ACTIONABLE_CARD_ORIGINATOR_ID, ACTIONABLE_CARD_CALLBACK_URL,
+    )
+    from core.log_events import log_rfp_activity
+
+    # Get Graph API token for sending mail
+    mail_token = _get_graph_mail_token()
+
+    # Build attachment file list (SharePoint paths)
+    file_data = create_file_names_and_source_files([rfp_id], company_name)
+    sp_file_names = file_data["FileNames"]
+    sp_source_files = file_data["SourceFiles"]
+
+    if matched_csv_path and os.path.exists(matched_csv_path):
+        matched_file_name = os.path.basename(matched_csv_path)
+        sp_file_names.append(matched_file_name)
+        clean_title = clean_rfp_title(rfp_id)
+        sp_source_files.append(
+            f"/Shared Documents/{SP_BASE_FOLDER}/ALLRFPs/{company_name}/{clean_title}/{matched_file_name}"
+        )
+
+    # Download attachment files from SharePoint (or local)
+    attachment_files = []  # list of (filename, bytes)
+    for fname, sp_path in zip(sp_file_names, sp_source_files):
+        file_bytes = None
+        # Try local file first (for matched CSV)
+        if matched_csv_path and fname == os.path.basename(matched_csv_path):
+            if os.path.exists(matched_csv_path):
+                with open(matched_csv_path, "rb") as f:
+                    file_bytes = f.read()
+        # Try SharePoint download
+        if file_bytes is None and graph_client:
+            clean_sp_path = sp_path.replace("/Shared Documents/", "", 1)
+            file_bytes = _download_sp_file_bytes(graph_client, clean_sp_path)
+
+        if file_bytes:
+            attachment_files.append((fname, file_bytes))
+        else:
+            print(f"⚠ Could not load attachment: {fname}")
+
+    # Matched materials note (passed into the Adaptive Card)
+    if matched_csv_path and os.path.exists(matched_csv_path):
+        matched_line = (
+            "The matched materials file contains system suggested materials that match Bahra offerings. "
+            "It is important that you verify the complete RFP file. Do not rely solely on the matched materials file."
+        )
+    else:
+        matched_line = "No matched materials were found for this RFP."
+
+    # Sender email (must match the registered sender in Actionable Message dashboard)
+    sender_email = "D365FOadmin@bahra-electric.com"
+
+    for member in RFP_TEAM_TABLE:
+        product = member["product"]
+        name = member["name"]
+        email = member.get("email", "")
+
+        if not email:
+            print(f"⚠ No email configured for {name}, skipping Adaptive Card email")
+            continue
+
+        # Build adaptive card JSON
+        card_json = _build_adaptive_card_json(
+            rfp_id=rfp_id,
+            product=product,
+            name=name,
+            email=email,
+            due_date=rfp_end_date,
+            company_name=company_name,
+            callback_url=ACTIONABLE_CARD_CALLBACK_URL,
+            originator_id=ACTIONABLE_CARD_ORIGINATOR_ID,
+            matched_line=matched_line,
+        )
+
+        # Build email HTML with embedded adaptive card
+        # Everything is inside the card — HTML body is a minimal fallback for non-Outlook clients
+        body_html = f"""<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <script type="application/adaptivecard+json">
+  {card_json}
+  </script>
+</head>
+<body>
+</body>
+</html>"""
+
+        # Build raw MIME message (preserves <script> tag — JSON sendMail strips it)
+        msg = MIMEMultipart("mixed")
+        msg["From"] = sender_email
+        msg["To"] = email
+        msg["Subject"] = rfp_id
+
+        # HTML body with adaptive card
+        html_part = MIMEText(body_html, "html", "utf-8")
+        msg.attach(html_part)
+
+        # Attach files
+        for att_name, att_bytes in attachment_files:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(att_bytes)
+            email_encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f'attachment; filename="{att_name}"')
+            msg.attach(part)
+
+        # Send via Graph API MIME endpoint (raw MIME preserves <script> tags)
+        mime_bytes = msg.as_bytes()
+        encoded_mime = base64.b64encode(mime_bytes).decode("utf-8")
+
+        try:
+            response = requests.post(
+                f"https://graph.microsoft.com/v1.0/users/{sender_email}/sendMail",
+                headers={
+                    "Authorization": f"Bearer {mail_token}",
+                    "Content-Type": "text/plain",
+                },
+                data=encoded_mime,
+            )
+
+            if response.status_code == 202:
+                print(f"✅ Actionable email sent for {rfp_id} to {name} ({email})")
+            else:
+                print(f"❌ Actionable email failed for {rfp_id} to {name}: {response.status_code} {response.text}")
+        except Exception as e:
+            print(f"❌ Failed to send email to {name}: {e}")
+
+    # Log activity once per RFP
+    log_rfp_activity(
+        rfp_id=rfp_id,
+        Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        email_sent_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        email_to=";".join(m.get("email", "") for m in RFP_TEAM_TABLE if m.get("email")),
+        email_status="Sent (Actionable)",
+        company_name=company_name,
+    )
+
+    return rfp_id
+
+
+def send_consolidated_response_email(rfp_id: str, responses: list, company_name: str = "", rfp_end_date: str = "-"):
+    """
+    Send a consolidated Adaptive Card email with the filled Results/Remarks table
+    + Decline button to all team members. Called when ALL team members have responded.
+    Sent via Graph API MIME to preserve the Adaptive Card <script> tag.
+
+    Args:
+        rfp_id: The RFP identifier
+        responses: List of dicts with keys: product, name, results, remarks
+        company_name: Company name for context
+        rfp_end_date: Due date string for the RFP
+    """
+    import base64
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders as email_encoders
+    from helpers.core_helper import clean_rfp_title
+    from helpers.sharepoint_helper import GraphClient
+    from config.config import (
+        RFP_TEAM_TABLE, EMAIL_TO_NEW_RFP, SP_BASE_FOLDER,
+        ACTIONABLE_CARD_ORIGINATOR_ID, ACTIONABLE_CARD_CALLBACK_URL,
+        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
+        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME,
+    )
+
+    # Get Graph API token for sending mail
+    mail_token = _get_graph_mail_token()
+
+    # --- Download RFP file + matched CSV from SharePoint ---
+    graph_client = GraphClient(
+        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
+        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME,
+    )
+    graph_client.auth()
+
+    file_data = create_file_names_and_source_files([rfp_id], company_name)
+    sp_file_names = file_data["FileNames"]
+    sp_source_files = file_data["SourceFiles"]
+
+    # Also try to find matched materials CSV on SharePoint
+    clean_title = clean_rfp_title(rfp_id)
+    matched_csv_name = f"matched_materials_{clean_title}.csv"
+    matched_csv_sp = f"{SP_BASE_FOLDER}/ALLRFPs/{company_name}/{clean_title}/{matched_csv_name}"
+    sp_file_names.append(matched_csv_name)
+    sp_source_files.append(f"/Shared Documents/{matched_csv_sp}")
+
+    attachment_files = []  # list of (filename, bytes)
+    matched_line = ""
+    for fname, sp_path in zip(sp_file_names, sp_source_files):
+        clean_sp_path = sp_path.replace("/Shared Documents/", "", 1)
+        file_bytes = _download_sp_file_bytes(graph_client, clean_sp_path)
+        if file_bytes:
+            attachment_files.append((fname, file_bytes))
+            if fname == matched_csv_name:
+                matched_line = (
+                    "The matched materials file contains system suggested materials that match Bahra offerings. "
+                    "It is important that you verify the complete RFP file. Do not rely solely on the matched materials file."
+                )
+        else:
+            if fname == matched_csv_name:
+                matched_line = "No matched materials were found for this RFP."
+            else:
+                print(f"⚠ Could not load attachment: {fname}")
+
+    # --- Build Adaptive Card with filled response table + Decline button ---
+    # Table header
+    header_row = {
+        "type": "ColumnSet",
+        "style": "emphasis",
+        "padding": "None",
+        "columns": [
+            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Products", "weight": "Bolder", "horizontalAlignment": "Center"}]},
+            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Name", "weight": "Bolder", "horizontalAlignment": "Center"}]},
+            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Results", "weight": "Bolder", "horizontalAlignment": "Center"}]},
+            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Remarks", "weight": "Bolder", "horizontalAlignment": "Center"}]},
+        ],
+    }
+
+    # Filled data rows
+    data_rows = []
+    for resp in responses:
+        row = {
+            "type": "ColumnSet",
+            "separator": True,
+            "padding": "None",
+            "columns": [
+                {"type": "Column", "width": "stretch", "padding": "None",
+                 "items": [{"type": "TextBlock", "text": resp.get("product", ""), "horizontalAlignment": "Center"}]},
+                {"type": "Column", "width": "stretch", "padding": "None",
+                 "items": [{"type": "TextBlock", "text": resp.get("name", ""), "horizontalAlignment": "Center"}]},
+                {"type": "Column", "width": "stretch", "padding": "None",
+                 "items": [{"type": "TextBlock", "text": resp.get("results", ""), "horizontalAlignment": "Center", "color": "Good"}]},
+                {"type": "Column", "width": "stretch", "padding": "None",
+                 "items": [{"type": "TextBlock", "text": resp.get("remarks", "") or "-", "horizontalAlignment": "Center", "color": "Good", "wrap": True}]},
+            ],
+        }
+        data_rows.append(row)
+
+    # Footer items
+    footer_items = [
+        {"type": "TextBlock", "text": f"**Note:** the due date for __{rfp_id}__ is **{rfp_end_date}**",
+         "wrap": True, "spacing": "Medium", "color": "Attention"},
+    ]
+    if matched_line:
+        footer_items.append({"type": "TextBlock", "text": f"**NOTE:** {matched_line}",
+                             "wrap": True, "spacing": "Small", "isSubtle": True})
+    footer_items.append({"type": "TextBlock", "text": "Best Regards,\nAutomation System",
+                         "wrap": True, "spacing": "Medium", "separator": True})
+
+    # Decline button URL (same origin as callback)
+    decline_url = ACTIONABLE_CARD_CALLBACK_URL.rsplit("/response", 1)[0] + "/decline"
+
+    card = {
+        "originator": ACTIONABLE_CARD_ORIGINATOR_ID,
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.0",
+        "body": [
+            {"type": "TextBlock", "text": "Dear Team,", "wrap": True},
+            {"type": "TextBlock", "text": "Kindly advise us regarding the attached RFP file.",
+             "wrap": True, "spacing": "Small"},
+            {"type": "TextBlock", "text": f"All team members have submitted their responses for **{rfp_id}**.",
+             "wrap": True, "spacing": "Small", "weight": "Bolder", "color": "Good"},
+            {"type": "TextBlock", "text": "Team Assignment", "weight": "Bolder",
+             "separator": True, "spacing": "Medium"},
+            header_row,
+            *data_rows,
+            *footer_items,
+        ],
+        "actions": [
+            {
+                "type": "Action.Http",
+                "title": "Decline RFP",
+                "method": "POST",
+                "url": decline_url,
+                "headers": [{"name": "Content-Type", "value": "application/json"}],
+                "body": json.dumps({
+                    "rfp_id": rfp_id,
+                    "company_name": company_name,
+                }),
+                "style": "destructive",
+            },
+        ],
+        "padding": "None",
+    }
+    card_json = json.dumps(card)
+
+    # --- Build and send MIME email to all team members ---
+    all_emails = set()
+    all_emails.add(EMAIL_TO_NEW_RFP)
+    for member in RFP_TEAM_TABLE:
+        if member.get("email"):
+            all_emails.add(member["email"])
+
+    sender_email = "D365FOadmin@bahra-electric.com"
+    recipients = ", ".join(all_emails)
+
+    body_html = f"""<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <script type="application/adaptivecard+json">
+  {card_json}
+  </script>
+</head>
+<body>
+</body>
+</html>"""
+
+    msg = MIMEMultipart("mixed")
+    msg["From"] = sender_email
+    msg["To"] = recipients
+    msg["Subject"] = f"All Responses Received - {rfp_id}"
+
+    html_part = MIMEText(body_html, "html", "utf-8")
+    msg.attach(html_part)
+
+    # Attach files
+    for att_name, att_bytes in attachment_files:
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(att_bytes)
+        email_encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f'attachment; filename="{att_name}"')
+        msg.attach(part)
+
+    # Send via Graph API MIME endpoint
+    mime_bytes = msg.as_bytes()
+    encoded_mime = base64.b64encode(mime_bytes).decode("utf-8")
+
+    try:
+        response = requests.post(
+            f"https://graph.microsoft.com/v1.0/users/{sender_email}/sendMail",
+            headers={
+                "Authorization": f"Bearer {mail_token}",
+                "Content-Type": "text/plain",
+            },
+            data=encoded_mime,
+        )
+        if response.status_code == 202:
+            print(f"✅ Consolidated response email sent for {rfp_id}")
+        else:
+            print(f"❌ Consolidated response email failed for {rfp_id}: {response.status_code} {response.text}")
+    except Exception as e:
+        print(f"❌ Failed to send consolidated email: {e}")
+
+
 def send_per_rfp_email(
     rfp_id: str,
     company_name: str,
@@ -111,12 +677,29 @@ def send_per_rfp_email(
       - Body: Team table + due date + matched materials note
       - Attachments: RFP .xls file + matched material CSV (if exists)
       - To: EMAIL_TO_NEW_RFP
+
+    If Adaptive Card config is set (ACTIONABLE_CARD_ORIGINATOR_ID and
+    ACTIONABLE_CARD_CALLBACK_URL), sends 5 personalized interactive emails
+    instead of 1 shared email.
     """
     from helpers.core_helper import clean_rfp_title, get_sharepoint_rfp_material_path
-    from config.config import RFP_TEAM_TABLE, EMAIL_TO_NEW_RFP, FLOW_URL, SP_BASE_FOLDER
+    from config.config import (
+        RFP_TEAM_TABLE, EMAIL_TO_NEW_RFP, FLOW_URL, SP_BASE_FOLDER,
+        ACTIONABLE_CARD_ORIGINATOR_ID, ACTIONABLE_CARD_CALLBACK_URL,
+    )
     from core.log_events import log_rfp_activity
 
-    # === Build subject ===
+    # === Use Adaptive Card emails if configured ===
+    if ACTIONABLE_CARD_ORIGINATOR_ID and ACTIONABLE_CARD_CALLBACK_URL:
+        return send_actionable_rfp_emails(
+            rfp_id=rfp_id,
+            company_name=company_name,
+            rfp_end_date=rfp_end_date,
+            matched_csv_path=matched_csv_path,
+            graph_client=graph_client,
+        )
+
+    # === Fallback: original HTML table email ===
     subject = rfp_id
 
     # === Build team table ===

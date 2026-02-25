@@ -77,7 +77,7 @@ MASTER_LINKS_FILE = os.path.join(
     "ALLRFPs", "Portal-Rfps", "All-RFPs.xls",
 )
 
-MAX_DOWNLOAD_ATTEMPTS = 3    # total attempts per RFP before giving up
+MAX_DOWNLOAD_ATTEMPTS = 1    # total attempts per RFP before giving up
 RETRY_WAIT_SEC        = 10   # seconds to wait between error retries
 LOGIN_MAX_RETRIES     = 3    # how many times to try re-logging in
 

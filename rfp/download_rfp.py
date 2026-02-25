@@ -410,14 +410,15 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                         if is_matched:
                             break
                 
+                # Get RFP End Date from log (needed for all records)
+                RFP_End_Date = "-"
+                if not log_df.empty:
+                    match_row = log_df.loc[log_df["RFP_ID"].astype(str) == str(rfp_id), "RFP_End_Date"]
+                    if not match_row.empty:
+                        RFP_End_Date = match_row.iloc[0]
+
                 if is_matched:
                     files_with_any_match.add(file_name)   # mark this file as having at least one match
-                    # Get RFP End Date from log if available
-                    RFP_End_Date = "-"
-                    if not log_df.empty:
-                        match_row = log_df.loc[log_df["RFP_ID"].astype(str) == str(rfp_id), "RFP_End_Date"]
-                        if not match_row.empty:
-                            RFP_End_Date = match_row.iloc[0]
 
                     # If matched by keyword but no exact code match, search master for rows with matching keywords
                     if matched_rows.empty and keywords_list:
@@ -426,7 +427,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                         name_keywords = extract_keywords_from_text(name_text)
                         desc_keywords = extract_keywords_from_text(description_text)
                         all_material_keywords = set(name_keywords + desc_keywords)
-                        
+
                         # Search master CSV for rows containing any of the matched keywords
                         keyword_matched_rows = pd.DataFrame()
                         for mat_keyword in all_material_keywords:
@@ -435,7 +436,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                                 temp_matches = master[master[master_col].astype(str).str.contains(mat_keyword, case=False, na=False)]
                                 if not temp_matches.empty:
                                     keyword_matched_rows = pd.concat([keyword_matched_rows, temp_matches]).drop_duplicates()
-                                
+
                                 # Also search in other text columns if they exist
                                 for col in master.columns:
                                     if col != master_col and master[col].dtype == 'object':
@@ -445,10 +446,10 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                                                 keyword_matched_rows = pd.concat([keyword_matched_rows, temp_matches]).drop_duplicates()
                                         except:
                                             pass
-                        
+
                         if not keyword_matched_rows.empty:
                             matched_rows = keyword_matched_rows.head(1)  # Use first matching row
-                    
+
                     # Create records from matched rows (use to_dict for better performance)
                     if not matched_rows.empty:
                         for record in matched_rows.to_dict('records'):
@@ -461,7 +462,10 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                                 "RowNumber": idx + 2,
                                 "ColumnName": col_name,
                                 "ExtractedMaterial": mat,
-                                "MatchMethod": "exact"
+                                "MatchMethod": "exact",
+                                "is_matched": True,
+                                "ExcelName": name_text,
+                                "ExcelDescription": description_text,
                             })
                             # Capture specific columns from Excel
                             for col_index in [2, 7, 13, 14, 17, 19, 22]:
@@ -479,7 +483,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                         for col in master.columns:
                             if col not in record:
                                 record[col] = None
-                        
+
                         record.update({
                             "SourceFile": file_name,
                             "RFP_Title": rfp_id,
@@ -488,7 +492,10 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                             "RowNumber": idx + 2,
                             "ColumnName": col_name,
                             "ExtractedMaterial": mat,
-                            "MatchMethod": "keyword"  # Indicate this was matched by keyword
+                            "MatchMethod": "keyword",
+                            "is_matched": True,
+                            "ExcelName": name_text,
+                            "ExcelDescription": description_text,
                         })
                         # Capture specific columns from Excel
                         for col_index in [2, 7, 13, 14, 17, 19, 22]:
@@ -498,6 +505,32 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                             else:
                                 record[f"MissingCol_{col_index}"] = None
                         all_matches.append(record)
+                else:
+                    # Unmatched material — store for dialog display
+                    record = {master_col: mat}
+                    for col in master.columns:
+                        if col not in record:
+                            record[col] = None
+                    record.update({
+                        "SourceFile": file_name,
+                        "RFP_Title": rfp_id,
+                        "RFP_End_Date": RFP_End_Date,
+                        "TDS_file_path": "",
+                        "RowNumber": idx + 2,
+                        "ColumnName": col_name,
+                        "ExtractedMaterial": mat,
+                        "MatchMethod": None,
+                        "is_matched": False,
+                        "ExcelName": name_text,
+                        "ExcelDescription": description_text,
+                    })
+                    for col_index in [2, 7, 13, 14, 17, 19, 22]:
+                        if col_index - 1 < len(df.columns):
+                            header = df.columns[col_index - 1]
+                            record[header] = df.iloc[idx, col_index - 1]
+                        else:
+                            record[f"MissingCol_{col_index}"] = None
+                    all_matches.append(record)
 
     # A file is "not matched" only if NONE of its materials had any match
     not_mateched_files = [

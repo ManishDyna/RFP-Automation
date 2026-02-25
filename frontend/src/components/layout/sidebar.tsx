@@ -25,7 +25,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { useHasPermission } from '@/hooks/use-auth'
 import { useAutomationStatus } from '@/hooks/use-automation'
-import { useState } from 'react'
 
 interface SidebarProps {
   onDownloadRfps: () => void
@@ -33,6 +32,8 @@ interface SidebarProps {
   onDeclineRfp: () => void
   onSchedule: () => void
   onChangeSapPassword: () => void
+  collapsed: boolean
+  onCollapsedChange: (collapsed: boolean) => void
 }
 
 export function Sidebar({
@@ -41,6 +42,8 @@ export function Sidebar({
   onDeclineRfp,
   onSchedule,
   onChangeSapPassword,
+  collapsed,
+  onCollapsedChange,
 }: SidebarProps) {
   const location = useLocation()
   const canManageUsers = useHasPermission('user_management.view')
@@ -52,7 +55,7 @@ export function Sidebar({
   const canChangeSapPassword = useHasPermission('sap_password.change')
   const showAdminSection = canManageUsers || canManageRoles || canViewAuditLogs || canViewAnalytics || canViewSapLogs
   const { data: automationStatus } = useAutomationStatus()
-  const [collapsed, setCollapsed] = useState(false)
+  const setCollapsed = onCollapsedChange
 
   const isRunning = automationStatus?.status === 'Running'
   const progress = automationStatus?.progress || 0

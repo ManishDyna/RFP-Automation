@@ -37,7 +37,8 @@
       "Bash(xargs:*)",
       "Bash(c:/python/RFP-automation/env/Scripts/python.exe:*)",
       "Bash(cat:*)",
-      "Bash(PYTHONIOENCODING=utf-8 python:*)"
+      "Bash(PYTHONIOENCODING=utf-8 python:*)",
+      "Bash(pip show:*)"
     ]
   }
 }

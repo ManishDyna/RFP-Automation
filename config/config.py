@@ -199,15 +199,34 @@ EMAIL_TO_NEW_RFP_NO_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-ca
 
 # ===== RFP Notification Email — Team Assignment Table =====
 # Shown in every new-RFP email so recipients know who handles each product.
-# Each entry: {"product": "Category", "name": "Person Name"}
+# Each entry: {"product": "Category", "name": "Person Name", "email": "person@company.com"}
 # A product can have multiple rows (one per person).
+# The "email" field is used for personalized Adaptive Card emails.
 RFP_TEAM_TABLE = [
-    {"product": "Cables",             "name": "Lotfy Idrees"},
-    {"product": "Cable Accessories",  "name": "Ahmed Ebeed"},
-    {"product": "Non-Cables",         "name": "Karim Nour"},
-    {"product": "TBS and BED",        "name": "Intikhab Ali"},
-    {"product": "TBS and BED",        "name": "Mohammad Ariff"},
+    # --- TESTING: using test user emails (revert to @bahra-cables.com for production) ---
+    {"product": "Cables",             "name": "Manish Soni",      "email": "Manish.soni@dynatechconsultancy.com"},
+    {"product": "Cable Accessories",  "name": "Shubham Kumbhar",  "email": "shubham.kumbhar@dynatechconsultancy.com"},
+    {"product": "material Accessories",  "name": "AI",  "email": "AIsupport@dynatechconsultancy.com"},
+
+    # {"product": "Cables",             "name": "Lotfy Idrees",    "email": "lotfy.idrees@bahra-cables.com"},
+    # {"product": "Cable Accessories",  "name": "Ahmed Ebeed",     "email": "ahmed.ebeed@bahra-cables.com"},
+    # {"product": "Non-Cables",         "name": "Karim Nour",      "email": "karim.nour@bahra-cables.com"},
+    # {"product": "TBS and BED",        "name": "Intikhab Ali",    "email": "intikhab.ali@bahra-cables.com"},
+    # {"product": "TBS and BED",        "name": "Mohammad Ariff",  "email": "mohammad.ariff@bahra-cables.com"},
 ]
+
+# ===== Actionable Messages (Adaptive Cards in Outlook) =====
+# Originator ID from Microsoft Actionable Email Developer Dashboard
+# Register at https://aka.ms/publishactionableemails (Organization scope)
+# Leave empty to disable Adaptive Cards and use the original HTML-table email
+ACTIONABLE_CARD_ORIGINATOR_ID = "f97cfa6f-eaf0-4d8e-a464-8f4646a22c7b"
+# Public HTTPS callback URL that Outlook will POST to when users submit the card
+ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
+
+# ===== RFP Team Responses (Dataverse) =====
+# Table for storing individual team member responses from Adaptive Card submissions
+RFP_RESPONSE_TABLE_LOGICAL = "cr6db_cr673_bahra_rfp_response"
+RFP_RESPONSE_TABLE_API = "cr6db_cr673_bahra_rfp_responses"
 
 # ===== Dashboard / Logs Settings =====
 # Backend cache TTLs (seconds)
