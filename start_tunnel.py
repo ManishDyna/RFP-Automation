@@ -1,3 +1,23 @@
+# from pyngrok import ngrok, conf
+
+# # Set your auth token (get from https://dashboard.ngrok.com/get-started/your-authtoken)
+# ngrok.set_auth_token("3A75gB1rWHxWmkZR7QnV9Wdjrpb_6Mzt3kYs2w9mhecbSeH7b")
+
+# # Start tunnel on port 8000
+# tunnel = ngrok.connect(8000, "http", domain="bahra-rfp-automation.ngrok-free.app")
+
+# print(f"Public URL: {tunnel.public_url}")
+# print("Tunnel is running... Press Ctrl+C to stop")
+
+# # Keep it running
+# try:
+#     while True:
+#         pass
+# except KeyboardInterrupt:
+#     ngrok.disconnect(tunnel.public_url)
+#     ngrok.kill()
+
+
 import email
 import os
 
@@ -165,14 +185,14 @@ SP_FAILURE_LOGS_FOLDER = "RFP-logs/automation-error-logs"
 # ── Case 1: New RFP found on portal (one email per RFP with RFP file + matched materials) ──
 # Combined recipients (previously EMAIL_TO_NEW_RFP + EMAIL_TO_NEW_RFP_WITH_MATCH)
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_NEW_RFP = "Manish.soni@dynatechconsultancy.com"
+EMAIL_TO_NEW_RFP = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
 
 # ── Case 2: Automation ran but NO new RFP was found on portal ──
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_NO_NEW_RFP = "Manish.soni@dynatechconsultancy.com"
+EMAIL_TO_NO_NEW_RFP = "abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
 
  # When RFP is submitted successfully
-EMAIL_TO_RFP_DECLINED = "Manish.soni@dynatechconsultancy.com"  # When RFP is declined successfully
+EMAIL_TO_RFP_DECLINED = "abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"  # When RFP is declined successfully
 EMAIL_TO_RFP_ERROR_IN_SUBMISSION = "Manish.soni@dynatechconsultancy.com"  # When RFP is submission failed
 EMAIL_TO_RFP_ERROR_IN_DECLINE = "Manish.soni@dynatechconsultancy.com"  # When RFP is decline failed or error in decline
 EMAIL_TO_AUTOMATION_FAILURE = "Manish.soni@dynatechconsultancy.com"  # When Automation is failed
@@ -180,8 +200,8 @@ EMAIL_TO_AUTOMATION_FAILURE = "Manish.soni@dynatechconsultancy.com"  # When Auto
 # When a new RFP is found AND materials are matched — receives the RFP file itself (in addition to
 # Sales/Technical who receive the matched materials CSV)
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_RFP_SUBMITTED = "Manish.soni@dynatechconsultancy.com" 
-EMAIL_TO_RFP_SAVED_DRAFT = "Manish.soni@dynatechconsultancy.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
+EMAIL_TO_RFP_SUBMITTED = "abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com" 
+EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
 
 
 EMAIL_TO_RFP_REMINDER = "Manish.soni@dynatechconsultancy.com"
@@ -190,9 +210,9 @@ EMAIL_TO_RFP_REMINDER = "Manish.soni@dynatechconsultancy.com"
 # EMAIL_TO_NEW_RFP_WITH_MATCH = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"
 # EMAIL_TO_NO_MATCHED_DATA = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"
 # NOTE: EMAIL_TO_NEW_RFP_WITH_MATCH is now consolidated with EMAIL_TO_NEW_RFP (per-RFP email flow)
-EMAIL_TO_NEW_RFP_WITH_MATCH = "Manish.soni@dynatechconsultancy.com"
-EMAIL_TO_NO_MATCHED_DATA = "Manish.soni@dynatechconsultancy.com"  # When No matched data IN DOWNLOAD RFP"
-EMAIL_TO_NEW_RFP_NO_MATCH = "Manish.soni@dynatechconsultancy.com"
+EMAIL_TO_NEW_RFP_WITH_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
+EMAIL_TO_NO_MATCHED_DATA = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"  # When No matched data IN DOWNLOAD RFP"
+EMAIL_TO_NEW_RFP_NO_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
 # EMAIL_TO_RFP_SUBMITTED = "arawah@bahra-cables.com" 
 # EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
 

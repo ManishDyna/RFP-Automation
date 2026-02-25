@@ -205,8 +205,7 @@ def main():
         local_dir = args.output
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        local_dir = os.path.join(os.getcwd(), "SharePoint-Downloads", timestamp)
-
+        local_dir = "C:/Bahra-Automation-RFP-System/"
     os.makedirs(local_dir, exist_ok=True)
 
     print("=" * 60)
