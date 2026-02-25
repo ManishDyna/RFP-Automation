@@ -322,10 +322,6 @@ def get_user_permissions(user: dict) -> List[str]:
     if not role_name:
         return []
 
-    # Admin shortcut: all permissions
-    if role_name.lower() == "admin":
-        return list(PERMISSIONS.keys())
-
     return get_role_permissions(role_name)
 
 
@@ -340,10 +336,6 @@ def user_has_permission(user: dict, permission_key: str) -> bool:
     role_name = (user.get("role") or "").strip()
     if not role_name:
         return False
-
-    # Admin shortcut
-    if role_name.lower() == "admin":
-        return True
 
     # Check session-cached permissions first (faster than DB)
     session_perms = user.get("permissions")

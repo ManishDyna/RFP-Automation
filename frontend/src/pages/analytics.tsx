@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
+import { useHasPermission } from '@/hooks/use-auth'
 
 // Simple chart components using CSS
 function BarChartComponent({
@@ -166,6 +167,7 @@ function StatCard({
 }
 
 export default function AnalyticsPage() {
+  const hasPermission = useHasPermission('analytics.view')
   const navigate = useNavigate()
 
   const { data, isLoading } = useQuery({
@@ -269,6 +271,8 @@ export default function AnalyticsPage() {
     }
     navigate(`/dashboard/rfp-insights?company=${encodeURIComponent(company)}&participation=${participationMap[participationType]}`)
   }
+
+  if (!hasPermission) return null
 
   return (
     <PageWrapper

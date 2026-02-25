@@ -3,7 +3,7 @@ JSON API endpoints for React frontend.
 All routes are prefixed with /api
 """
 
-from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi import APIRouter, Request, HTTPException, Query, Depends
 from fastapi.responses import JSONResponse, FileResponse
 from services.user_service import (
     authenticate_user, list_users, get_user, create_user, update_user, delete_user, get_user_by_email
@@ -13,7 +13,6 @@ from services.dashboard_service import (
     get_material_insights_cached, get_material_insights_grouped_cached
 )
 from services.sap_service import create_sap_password_record, list_sap_password_records_cached
-from services.role_service import has_access_to_feature
 from services.dynamic_role_service import get_user_permissions
 from services.audit_service import log_event, AuditAction, AuditCategory
 from services.user_lifecycle_service import (
@@ -397,11 +396,8 @@ async def api_reset_password(request: Request):
 # ==================== DASHBOARD ENDPOINTS ====================
 
 @router.get("/dashboard/data")
-async def api_dashboard_data(request: Request, refresh: int = Query(0)):
+async def api_dashboard_data(request: Request, refresh: int = Query(0), user: dict = Depends(require_permission("dashboard.view"))):
     """Get dashboard data as JSON"""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     data = get_dashboard_data_cached(force_refresh=bool(refresh))
     return JSONResponse(data)
 
@@ -420,10 +416,9 @@ async def api_rfp_details(
     limit: int = Query(50),           # New: Number of records per page
     offset: int = Query(0),           # New: Starting position
     refresh: int = Query(0),
+    user: dict = Depends(require_permission("rfp.view")),
 ):
     """Get RFP details as JSON with pagination and new filters"""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
 
     from datetime import datetime
 
@@ -587,11 +582,9 @@ async def api_material_insights(
     limit: int = Query(50),
     offset: int = Query(0),
     refresh: int = Query(0),
+    user: dict = Depends(require_permission("material_insights.view")),
 ):
     """Get material insights data from bahra_rfps table with filtering and pagination."""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     data = get_material_insights_cached(force_refresh=bool(refresh))
     materials = data.get("materials", [])
 
@@ -659,11 +652,9 @@ async def api_material_insights_grouped(
     limit: int = Query(50),
     offset: int = Query(0),
     refresh: int = Query(0),
+    user: dict = Depends(require_permission("material_insights.view")),
 ):
     """Get material insights grouped by material code or keyword."""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     data = get_material_insights_grouped_cached(force_refresh=bool(refresh))
 
     if tab == "keywords":
@@ -772,10 +763,8 @@ async def api_material_insights_grouped(
 
 
 @router.get("/dashboard/view-logs")
-async def api_view_logs(request: Request, page: int = Query(1), page_size: int = Query(50), force_refresh: bool = Query(False)):
+async def api_view_logs(request: Request, page: int = Query(1), page_size: int = Query(50), force_refresh: bool = Query(False), user: dict = Depends(require_permission("logs.view"))):
     """Get automation logs as JSON, grouped by run_id and paginated by runs."""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
 
     # get_logs_data_cached returns a list directly, not a dict
     logs_list = get_logs_data_cached(force_refresh=force_refresh)
@@ -1040,19 +1029,14 @@ async def api_change_password(request: Request):
 # ==================== SAP PASSWORD ENDPOINTS ====================
 
 @router.post("/sap/change-password")
-async def api_sap_change_password(request: Request):
+async def api_sap_change_password(request: Request, user: dict = Depends(require_permission("sap_password.change"))):
     """Change SAP password"""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     body = await request.json()
     username = body.get("username")
     password = body.get("password")
 
     if not username or not password:
         raise HTTPException(status_code=400, detail="Username and password required")
-
-    user = request.session.get("user")
     ok = create_sap_password_record(
         password=password,
         user_email=user.get("email"),
@@ -1065,10 +1049,8 @@ async def api_sap_change_password(request: Request):
 
 
 @router.get("/dashboard/sap-password-logs")
-async def api_sap_password_logs(request: Request):
+async def api_sap_password_logs(request: Request, user: dict = Depends(require_permission("sap_password.view"))):
     """Get SAP password change logs"""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
 
     logs = list_sap_password_records_cached(force_refresh=False)
     return JSONResponse({"logs": logs})
@@ -1077,28 +1059,15 @@ async def api_sap_password_logs(request: Request):
 # ==================== USER MANAGEMENT ENDPOINTS ====================
 
 @router.get("/users/user-list")
-async def api_user_list(request: Request, refresh: int = Query(0)):
+async def api_user_list(request: Request, refresh: int = Query(0), user: dict = Depends(require_permission("user_management.view"))):
     """Get list of users as JSON"""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "user_management"):
-        raise HTTPException(status_code=403, detail="Access denied. Admin access required.")
-
     users = list_users(top=200)
     return JSONResponse({"users": users})
 
 
 @router.post("/users/create")
-async def api_create_user(request: Request):
+async def api_create_user(request: Request, user: dict = Depends(require_permission("user_management.create"))):
     """Create a new user"""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "user_management"):
-        raise HTTPException(status_code=403, detail="Access denied. Admin access required.")
 
     body = await request.json()
     ok = create_user(body)
@@ -1121,14 +1090,8 @@ async def api_create_user(request: Request):
 
 
 @router.put("/users/update/{record_id}")
-async def api_update_user(request: Request, record_id: str):
+async def api_update_user(request: Request, record_id: str, user: dict = Depends(require_permission("user_management.edit"))):
     """Update a user"""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "user_management"):
-        raise HTTPException(status_code=403, detail="Access denied. Admin access required.")
 
     body = await request.json()
     ok = update_user(record_id, body)
@@ -1151,14 +1114,8 @@ async def api_update_user(request: Request, record_id: str):
 
 
 @router.delete("/users/delete/{record_id}")
-async def api_delete_user(request: Request, record_id: str):
+async def api_delete_user(request: Request, record_id: str, user: dict = Depends(require_permission("user_management.delete"))):
     """Delete a user"""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "user_management"):
-        raise HTTPException(status_code=403, detail="Access denied. Admin access required.")
 
     ok = delete_user(record_id)
     if not ok:
@@ -1220,14 +1177,8 @@ async def api_validate_rfp(request: Request, rfp_id: str = Query(...)):
 # ==================== SCHEDULE ENDPOINTS ====================
 
 @router.post("/schedule/save")
-async def api_save_schedule(request: Request):
+async def api_save_schedule(request: Request, user: dict = Depends(require_permission("schedule_automation.manage"))):
     """Save automation schedule"""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "schedule_automation"):
-        raise HTTPException(status_code=403, detail="Access denied. Admin access required.")
 
     from helpers.core_helper import DATAVERSE
     from config.config import AUTOMATION_SCHEDULE_TABLE_API, AUTOMATION_SCHEDULE_TABLE_LOGICAL
@@ -1301,13 +1252,8 @@ async def api_save_schedule(request: Request):
 # ==================== USER LIFECYCLE ENDPOINTS ====================
 
 @router.post("/users/{record_id}/activate")
-async def api_activate_user(request: Request, record_id: str):
+async def api_activate_user(request: Request, record_id: str, user: dict = Depends(require_permission("user_management.activate"))):
     """Activate a user account."""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "user_management"):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     ok = activate_user(record_id, admin_email=user.get("email", ""))
     if not ok:
@@ -1326,13 +1272,8 @@ async def api_activate_user(request: Request, record_id: str):
 
 
 @router.post("/users/{record_id}/deactivate")
-async def api_deactivate_user(request: Request, record_id: str):
+async def api_deactivate_user(request: Request, record_id: str, user: dict = Depends(require_permission("user_management.activate"))):
     """Deactivate a user account."""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "user_management"):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     ok = deactivate_user(record_id, admin_email=user.get("email", ""))
     if not ok:
@@ -1351,13 +1292,8 @@ async def api_deactivate_user(request: Request, record_id: str):
 
 
 @router.post("/users/{record_id}/unlock")
-async def api_unlock_user(request: Request, record_id: str):
+async def api_unlock_user(request: Request, record_id: str, user: dict = Depends(require_permission("user_management.activate"))):
     """Unlock a locked user account."""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "user_management"):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     ok = unlock_user(record_id)
     if not ok:
@@ -1376,13 +1312,8 @@ async def api_unlock_user(request: Request, record_id: str):
 
 
 @router.get("/users/{record_id}/status")
-async def api_user_status(request: Request, record_id: str):
+async def api_user_status(request: Request, record_id: str, user: dict = Depends(require_permission("user_management.view"))):
     """Get user lifecycle status (active, locked, last login, etc.)."""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "user_management"):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     status = get_user_status(record_id)
     if not status:
@@ -1403,13 +1334,9 @@ async def api_list_audit_logs(
     actor_email: str = Query(""),
     date_from: str = Query(""),
     date_to: str = Query(""),
+    user: dict = Depends(require_permission("audit_logs.view")),
 ):
     """Query audit logs with pagination and filters."""
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "audit_logs.view"):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     from services.audit_service import list_audit_logs, count_audit_logs
 

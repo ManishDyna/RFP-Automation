@@ -19,6 +19,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
+import { useHasPermission } from '@/hooks/use-auth'
 
 // Format date string to readable format
 function formatDate(dateString: string | null | undefined): string {
@@ -77,6 +78,7 @@ function PasswordCell({ password }: { password: string | null | undefined }) {
 }
 
 export default function SapPasswordLogsPage() {
+  const hasPermission = useHasPermission('sap_password.view')
   const [searchTerm, setSearchTerm] = useState('')
 
   const { data, isLoading } = useQuery({
@@ -92,6 +94,8 @@ export default function SapPasswordLogsPage() {
         )
       )
     : logs
+
+  if (!hasPermission) return null
 
   return (
     <PageWrapper

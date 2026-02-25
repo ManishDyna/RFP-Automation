@@ -35,7 +35,7 @@ def require_permission(permission_key: str):
     Factory: returns a FastAPI dependency that checks for a specific permission.
 
     The returned dependency ensures the user is authenticated AND has the
-    required permission. Falls back to role-name check for Admin users.
+    required permission based on their role's assigned permissions.
 
     Usage:
         @router.get("/roles/list")
@@ -43,11 +43,6 @@ def require_permission(permission_key: str):
             ...
     """
     def checker(user: dict = Depends(get_current_user)) -> dict:
-        # Admin role always has full access
-        role = (user.get("role") or "").strip().lower()
-        if role == "admin":
-            return user
-
         # Check permissions list from session
         permissions = user.get("permissions") or []
         if permission_key in permissions:

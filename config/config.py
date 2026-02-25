@@ -169,7 +169,7 @@ EMAIL_TO_NEW_RFP = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;
 
 # ── Case 2: Automation ran but NO new RFP was found on portal ──
 # Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_NO_NEW_RFP = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
+EMAIL_TO_NO_NEW_RFP = "abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
 
  # When RFP is submitted successfully
 EMAIL_TO_RFP_DECLINED = "Manish.soni@dynatechconsultancy.com"  # When RFP is declined successfully

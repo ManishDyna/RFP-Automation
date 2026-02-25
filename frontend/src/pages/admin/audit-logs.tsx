@@ -30,6 +30,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
+import { useHasPermission } from '@/hooks/use-auth'
 
 const CATEGORIES = ['', 'AUTH', 'USER', 'ROLE', 'RFP', 'SYSTEM']
 const ACTIONS = [
@@ -61,6 +62,7 @@ const categoryColors: Record<string, string> = {
 }
 
 export default function AuditLogsPage() {
+  const hasPermission = useHasPermission('audit_logs.view')
   const [page, setPage] = useState(1)
   const [pageSize] = useState(30)
   const [category, setCategory] = useState('')
@@ -106,6 +108,8 @@ export default function AuditLogsPage() {
       return details
     }
   }
+
+  if (!hasPermission) return null
 
   return (
     <PageWrapper

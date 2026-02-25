@@ -103,7 +103,5 @@ export function useIsAdmin(): boolean {
 export function useHasPermission(permission: string): boolean {
   const user = useAuth((state) => state.user)
   if (!user) return false
-  // Admin always has all permissions
-  if (user.role?.toLowerCase() === 'admin') return true
   return user.permissions?.includes(permission) ?? false
 }

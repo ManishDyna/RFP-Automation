@@ -1,5 +1,6 @@
 
-from fastapi import APIRouter, Request, HTTPException, Query, Body, UploadFile, File
+from fastapi import APIRouter, Request, HTTPException, Query, Body, UploadFile, File, Depends
+from middleware.auth import get_current_user, require_permission, require_admin
 from services.dashboard_service import (
     get_dashboard_data,
     get_logs_data,
@@ -65,7 +66,7 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 @router.get("/clear-cache")
-async def clear_cache_and_refresh():
+async def clear_cache_and_refresh(user: dict = Depends(require_admin)):
     """Clear all dashboard caches and redirect to dashboard with fresh data."""
     from fastapi.responses import RedirectResponse
     invalidate_dashboard_caches()
@@ -88,9 +89,6 @@ _RFP_FILTER_OPTIONS = [
     {"value": "saved_draft", "label": "Saved Draft"},
     {"value": "declined", "label": "Declined"},
 ]
-
-# ===== Role-based Access Control Helpers =====
-from services.role_service import is_admin, is_rfp_bidder, has_access_to_feature
 
 def _normalize_participation(raw_status: str) -> str:
     value = (raw_status or "").strip().lower()
@@ -201,7 +199,7 @@ def _get_frequency_maps():
 
 # ===== RFP status update =====
 @router.post("/rfp/status")
-async def update_rfp_status(payload: dict = Body(...)):
+async def update_rfp_status(request: Request, payload: dict = Body(...), user: dict = Depends(get_current_user)):
     try:
         rfp_id = (payload.get("rfp_id") or "").strip()
         status = (payload.get("status") or "").strip()
@@ -232,7 +230,7 @@ async def update_rfp_status(payload: dict = Body(...)):
         raise HTTPException(status_code=500, detail=f"Error updating status: {str(e)}")
 
 @router.get("/rfp-status/{rfp_id}")
-async def rfp_submit_status(rfp_id: str):
+async def rfp_submit_status(rfp_id: str, user: dict = Depends(get_current_user)):
     """Check if specific RFP is currently being submitted"""
     return JSONResponse({
         "ok": True,
@@ -241,11 +239,8 @@ async def rfp_submit_status(rfp_id: str):
     })
 
 @router.post("/download-all-rfps")
-async def download_all_rfps(request: Request):
+async def download_all_rfps(request: Request, user: dict = Depends(require_permission("rfp.download"))):
     """API endpoint to trigger download all RFPs automation (non-blocking background task)"""
-    # Simple session check
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
 
     # Check if download is already running
     if _RUN_STATE.get("download"):
@@ -353,20 +348,12 @@ async def update_profile(request: Request):
         raise HTTPException(status_code=500, detail=f"Error updating profile: {str(e)}")
 
 @router.post("/sap-password")
-async def update_sap_password(request: Request):
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    # Role-based access check
-    user = request.session.get("user")
-    if not has_access_to_feature(user, "sap_password"):
-        raise HTTPException(status_code=403, detail="Access denied. Admin access required.")
+async def update_sap_password(request: Request, user: dict = Depends(require_permission("sap_password.change"))):
     try:
         data = await request.json()
         # allow any password (no validation)
         password = (data.get("password") or "")
         username = (data.get("username") or "").strip()
-
-        user = request.session.get("user")
         user_email = user.get("email") if isinstance(user, dict) else None
         if not username and isinstance(user, dict):
             username = user.get("name") or ""
@@ -390,11 +377,7 @@ def _safe_use_display_names() -> bool:
     return bool(AUTOMATION_SCHEDULE_TABLE_LOGICAL)
 
 @router.get("/schedule-automation/latest")
-async def get_latest_schedule(request: Request):
-    # Role-based access check
-    user = request.session.get("user") if hasattr(request, 'session') else None
-    if not user or not has_access_to_feature(user, "schedule_automation"):
-        return JSONResponse(status_code=403, content={"ok": False, "message": "Access denied. Admin access required."})
+async def get_latest_schedule(request: Request, user: dict = Depends(require_permission("schedule_automation.view"))):
     try:
         rows = DATAVERSE.get_rows_from_dataverse(
             table_api_name=AUTOMATION_SCHEDULE_TABLE_API,
@@ -428,11 +411,7 @@ async def get_latest_schedule(request: Request):
 
 
 @router.post("/schedule-automation")
-async def save_schedule(request: Request, payload: dict = Body(...)):
-    # Role-based access check
-    user = request.session.get("user") if hasattr(request, 'session') else None
-    if not user or not has_access_to_feature(user, "schedule_automation"):
-        return JSONResponse(status_code=403, content={"ok": False, "message": "Access denied. Admin access required."})
+async def save_schedule(request: Request, payload: dict = Body(...), user: dict = Depends(require_permission("schedule_automation.manage"))):
     try:
         freq_label = payload.get("frequency")
         maps = _get_frequency_maps()
@@ -2331,7 +2310,7 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 @router.post("/submit-rfp-final")
-async def submit_rfp_final(request: Request):
+async def submit_rfp_final(request: Request, user: dict = Depends(require_permission("rfp.submit"))):
     """
     Handle final RFP submission with all data and TDS file uploads.
     This endpoint:
@@ -2339,8 +2318,6 @@ async def submit_rfp_final(request: Request):
     2. Writes all submission data to Excel file
     3. Saves Excel file to rfp-upload-file folder
     """
-    if not request.session.get("user"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
     
     try:
         # Parse FormData

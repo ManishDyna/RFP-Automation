@@ -6,6 +6,8 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { Header } from '@/components/layout/header'
 import { cn } from '@/lib/utils'
 import { DialogProvider, useDialogs } from '@/contexts/dialog-context'
+import { PermissionGuard } from '@/components/auth/permission-guard'
+import { AccessDenied } from '@/components/auth/access-denied'
 
 // Lazy-loaded pages for code splitting (only load when route is accessed)
 const LoginPage = lazy(() => import('@/pages/login'))
@@ -119,11 +121,31 @@ function ProtectedLayout() {
               <Route path="/dashboard/material-insights" element={<MaterialInsightsPage />} />
               <Route path="/dashboard/logs" element={<LogsPage />} />
               <Route path="/dashboard/profile" element={<ProfilePage />} />
-              <Route path="/dashboard/analytics" element={<AnalyticsPage />} />
-              <Route path="/admin/users" element={<UserManagementPage />} />
-              <Route path="/admin/roles" element={<RoleManagementPage />} />
-              <Route path="/admin/audit-logs" element={<AuditLogsPage />} />
-              <Route path="/admin/sap-logs" element={<SapPasswordLogsPage />} />
+              <Route path="/dashboard/analytics" element={
+                <PermissionGuard permission="analytics.view" fallback={<AccessDenied />}>
+                  <AnalyticsPage />
+                </PermissionGuard>
+              } />
+              <Route path="/admin/users" element={
+                <PermissionGuard permission="user_management.view" fallback={<AccessDenied />}>
+                  <UserManagementPage />
+                </PermissionGuard>
+              } />
+              <Route path="/admin/roles" element={
+                <PermissionGuard permission="role_management.view" fallback={<AccessDenied />}>
+                  <RoleManagementPage />
+                </PermissionGuard>
+              } />
+              <Route path="/admin/audit-logs" element={
+                <PermissionGuard permission="audit_logs.view" fallback={<AccessDenied />}>
+                  <AuditLogsPage />
+                </PermissionGuard>
+              } />
+              <Route path="/admin/sap-logs" element={
+                <PermissionGuard permission="sap_password.view" fallback={<AccessDenied />}>
+                  <SapPasswordLogsPage />
+                </PermissionGuard>
+              } />
             </Routes>
           </Suspense>
         </main>
