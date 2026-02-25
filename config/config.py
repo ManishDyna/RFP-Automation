@@ -160,68 +160,91 @@ os.makedirs(FAILURE_LOGS_DIR, exist_ok=True)
 SP_FAILURE_LOGS_FOLDER = "RFP-logs/automation-error-logs"
 
 
-# Email Config
+# ===== Email Environment Mode =====
+# Set to "dev" or "prod"
+#   "dev"  → ALL emails go to DEV_EMAIL only
+#   "prod" → emails go to the production recipient lists below
+EMAIL_MODE = "dev"  # ← Change to "prod" for production
+DEV_EMAIL = "Manish.soni@dynatechconsultancy.com"
+
+# ===== Production Email Recipients =====
+# These are only used when EMAIL_MODE = "prod"
 
 # ── Case 1: New RFP found on portal (one email per RFP with RFP file + matched materials) ──
-# Combined recipients (previously EMAIL_TO_NEW_RFP + EMAIL_TO_NEW_RFP_WITH_MATCH)
-# Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_NEW_RFP = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_NEW_RFP = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
 
 # ── Case 2: Automation ran but NO new RFP was found on portal ──
-# Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_NO_NEW_RFP = "abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_NO_NEW_RFP = "abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
 
- # When RFP is submitted successfully
-EMAIL_TO_RFP_DECLINED = "Manish.soni@dynatechconsultancy.com"  # When RFP is declined successfully
-EMAIL_TO_RFP_ERROR_IN_SUBMISSION = "Manish.soni@dynatechconsultancy.com"  # When RFP is submission failed
-EMAIL_TO_RFP_ERROR_IN_DECLINE = "Manish.soni@dynatechconsultancy.com"  # When RFP is decline failed or error in decline
-EMAIL_TO_AUTOMATION_FAILURE = "Manish.soni@dynatechconsultancy.com"  # When Automation is failed
+_PROD_EMAIL_TO_RFP_DECLINED = "Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_RFP_ERROR_IN_SUBMISSION = "Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_RFP_ERROR_IN_DECLINE = "Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_AUTOMATION_FAILURE = "Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_RFP_SUBMITTED = "Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"
+_PROD_EMAIL_TO_RFP_REMINDER = "Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_NEW_RFP_WITH_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_NO_MATCHED_DATA = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_NEW_RFP_NO_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
 
-# When a new RFP is found AND materials are matched — receives the RFP file itself (in addition to
-# Sales/Technical who receive the matched materials CSV)
-# Add multiple recipients separated by semicolons: "a@x.com;b@x.com"
-EMAIL_TO_RFP_SUBMITTED = "Manish.soni@dynatechconsultancy.com" 
-EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
-
-
-EMAIL_TO_RFP_REMINDER = "Manish.soni@dynatechconsultancy.com"
-# RFP REMINDER EMAIL
-
-# EMAIL_TO_NEW_RFP_WITH_MATCH = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"
-# EMAIL_TO_NO_MATCHED_DATA = "sec.tenderteam@bahra-cables.com;ksatenders@bahra-cables.com"
-# NOTE: EMAIL_TO_NEW_RFP_WITH_MATCH is now consolidated with EMAIL_TO_NEW_RFP (per-RFP email flow)
-EMAIL_TO_NEW_RFP_WITH_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
-EMAIL_TO_NO_MATCHED_DATA = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"  # When No matched data IN DOWNLOAD RFP"
-EMAIL_TO_NEW_RFP_NO_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
-# EMAIL_TO_RFP_SUBMITTED = "arawah@bahra-cables.com" 
-# EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"  # Abdullah Alrawah(  When RFP is saved as draft successfully )
-
-
-# ===== RFP Notification Email — Team Assignment Table =====
-# Shown in every new-RFP email so recipients know who handles each product.
-# Each entry: {"product": "Category", "name": "Person Name", "email": "person@company.com"}
-# A product can have multiple rows (one per person).
-# The "email" field is used for personalized Adaptive Card emails.
-RFP_TEAM_TABLE = [
-    # --- TESTING: using test user emails (revert to @bahra-cables.com for production) ---
-    {"product": "Cables",             "name": "Manish Soni",      "email": "Manish.soni@dynatechconsultancy.com"},
-    {"product": "Cable Accessories",  "name": "Shubham Kumbhar",  "email": "shubham.kumbhar@dynatechconsultancy.com"},
-    {"product": "material Accessories",  "name": "AI",  "email": "AIsupport@dynatechconsultancy.com"},
-
-    # {"product": "Cables",             "name": "Lotfy Idrees",    "email": "lotfy.idrees@bahra-cables.com"},
-    # {"product": "Cable Accessories",  "name": "Ahmed Ebeed",     "email": "ahmed.ebeed@bahra-cables.com"},
-    # {"product": "Non-Cables",         "name": "Karim Nour",      "email": "karim.nour@bahra-cables.com"},
-    # {"product": "TBS and BED",        "name": "Intikhab Ali",    "email": "intikhab.ali@bahra-cables.com"},
-    # {"product": "TBS and BED",        "name": "Mohammad Ariff",  "email": "mohammad.ariff@bahra-cables.com"},
+# Production RFP Team Assignment Table
+_PROD_RFP_TEAM_TABLE = [
+    {"product": "Cables",             "name": "Lotfy Idrees",    "email": "lotfy.idrees@bahra-cables.com"},
+    {"product": "Cable Accessories",  "name": "Ahmed Ebeed",     "email": "ahmed.ebeed@bahra-cables.com"},
+    {"product": "Non-Cables",         "name": "Karim Nour",      "email": "karim.nour@bahra-cables.com"},
+    {"product": "TBS and BED",        "name": "Intikhab Ali",    "email": "intikhab.ali@bahra-cables.com"},
+    {"product": "TBS and BED",        "name": "Mohammad Ariff",  "email": "mohammad.ariff@bahra-cables.com"},
 ]
+
+# Dev RFP Team Assignment Table (all emails go to DEV_EMAIL)
+_DEV_RFP_TEAM_TABLE = [
+    {"product": "Cables",             "name": "Lotfy Idrees",    "email": DEV_EMAIL},
+    {"product": "Cable Accessories",  "name": "Ahmed Ebeed",     "email": DEV_EMAIL},
+    {"product": "Non-Cables",         "name": "Karim Nour",      "email": DEV_EMAIL},
+    {"product": "TBS and BED",        "name": "Intikhab Ali",    "email": DEV_EMAIL},
+    {"product": "TBS and BED",        "name": "Mohammad Ariff",  "email": DEV_EMAIL},
+]
+
+# ===== Resolve emails based on EMAIL_MODE =====
+if EMAIL_MODE == "prod":
+    EMAIL_TO_NEW_RFP = _PROD_EMAIL_TO_NEW_RFP
+    EMAIL_TO_NO_NEW_RFP = _PROD_EMAIL_TO_NO_NEW_RFP
+    EMAIL_TO_RFP_DECLINED = _PROD_EMAIL_TO_RFP_DECLINED
+    EMAIL_TO_RFP_ERROR_IN_SUBMISSION = _PROD_EMAIL_TO_RFP_ERROR_IN_SUBMISSION
+    EMAIL_TO_RFP_ERROR_IN_DECLINE = _PROD_EMAIL_TO_RFP_ERROR_IN_DECLINE
+    EMAIL_TO_AUTOMATION_FAILURE = _PROD_EMAIL_TO_AUTOMATION_FAILURE
+    EMAIL_TO_RFP_SUBMITTED = _PROD_EMAIL_TO_RFP_SUBMITTED
+    EMAIL_TO_RFP_SAVED_DRAFT = _PROD_EMAIL_TO_RFP_SAVED_DRAFT
+    EMAIL_TO_RFP_REMINDER = _PROD_EMAIL_TO_RFP_REMINDER
+    EMAIL_TO_NEW_RFP_WITH_MATCH = _PROD_EMAIL_TO_NEW_RFP_WITH_MATCH
+    EMAIL_TO_NO_MATCHED_DATA = _PROD_EMAIL_TO_NO_MATCHED_DATA
+    EMAIL_TO_NEW_RFP_NO_MATCH = _PROD_EMAIL_TO_NEW_RFP_NO_MATCH
+    RFP_TEAM_TABLE = _PROD_RFP_TEAM_TABLE
+else:
+    # dev mode — all emails route to DEV_EMAIL
+    EMAIL_TO_NEW_RFP = DEV_EMAIL
+    EMAIL_TO_NO_NEW_RFP = DEV_EMAIL
+    EMAIL_TO_RFP_DECLINED = DEV_EMAIL
+    EMAIL_TO_RFP_ERROR_IN_SUBMISSION = DEV_EMAIL
+    EMAIL_TO_RFP_ERROR_IN_DECLINE = DEV_EMAIL
+    EMAIL_TO_AUTOMATION_FAILURE = DEV_EMAIL
+    EMAIL_TO_RFP_SUBMITTED = DEV_EMAIL
+    EMAIL_TO_RFP_SAVED_DRAFT = DEV_EMAIL
+    EMAIL_TO_RFP_REMINDER = DEV_EMAIL
+    EMAIL_TO_NEW_RFP_WITH_MATCH = DEV_EMAIL
+    EMAIL_TO_NO_MATCHED_DATA = DEV_EMAIL
+    EMAIL_TO_NEW_RFP_NO_MATCH = DEV_EMAIL
+    RFP_TEAM_TABLE = _DEV_RFP_TEAM_TABLE
 
 # ===== Actionable Messages (Adaptive Cards in Outlook) =====
 # Originator ID from Microsoft Actionable Email Developer Dashboard
 # Register at https://aka.ms/publishactionableemails (Organization scope)
 # Leave empty to disable Adaptive Cards and use the original HTML-table email
-ACTIONABLE_CARD_ORIGINATOR_ID = "f97cfa6f-eaf0-4d8e-a464-8f4646a22c7b"
+# ACTIONABLE_CARD_ORIGINATOR_ID = "f97cfa6f-eaf0-4d8e-a464-8f4646a22c7b"
+ACTIONABLE_CARD_ORIGINATOR_ID = ""
 # Public HTTPS callback URL that Outlook will POST to when users submit the card
-ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
+# ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
+ACTIONABLE_CARD_CALLBACK_URL = ""
 
 # ===== RFP Team Responses (Dataverse) =====
 # Table for storing individual team member responses from Adaptive Card submissions
