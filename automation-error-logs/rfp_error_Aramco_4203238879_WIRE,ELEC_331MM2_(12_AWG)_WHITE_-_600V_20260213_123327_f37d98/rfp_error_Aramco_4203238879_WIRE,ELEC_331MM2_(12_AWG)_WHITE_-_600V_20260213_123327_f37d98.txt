@@ -1,0 +1,61 @@
+================================================================================
+🔍 AUTOMATION ERROR REPORT
+================================================================================
+
+📋 RFP ID: Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V
+⏰ Report Time: 2026-02-13T12:33:27.267148
+📊 Status: FAILED
+
+💬 Summary: Last successful step: Download | Failed at: Process File | Error: Could not read C:\python\RFP-automation\ALLRFPs\Aramco e-Marketplace/Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V/downloaded-rfp/Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V.xlsx: Missing optional dependency 'openpyxl'.  Use pip or conda to install openpyxl.
+
+────────────────────────────────────────────────────────────────────────────────
+🎯 FAILURE IDENTIFICATION
+────────────────────────────────────────────────────────────────────────────────
+
+✅ Last Successful Step:
+   Action: Download
+   Time: 2026-02-12T18:46:04Z
+   Message: Download attempt completed
+
+🚨 Failure Point:
+   Action: Process File
+   Time: 2026-02-12T18:52:36Z
+   Status: FAIL
+   Error Message: Could not read C:\python\RFP-automation\ALLRFPs\Aramco e-Marketplace/Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V/downloaded-rfp/Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V.xlsx: Missing optional dependency 'openpyxl'.  Use pip or conda to install openpyxl.
+
+📊 Error Count: 1
+⚠️  Warning Count: 1
+
+────────────────────────────────────────────────────────────────────────────────
+💡 SUGGESTED ACTIONS
+────────────────────────────────────────────────────────────────────────────────
+   📥 File download failed
+      → Check if download button is visible and enabled
+      → Verify download folder permissions
+      → Check if file already exists
+
+────────────────────────────────────────────────────────────────────────────────
+📅 ERROR TIMELINE (Last 10 Steps)
+────────────────────────────────────────────────────────────────────────────────
+
+✅ [Success] Download: Download button is ready
+
+ℹ️ [Downloading] Download: Initiating file download
+
+✅ [Success] Download: Download button clicked successfully
+
+ℹ️ [Saving] Download: Saving file: Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V.xlsx to temp
+
+✅ [Success] Download: Successfully downloaded: Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V.xlsx
+
+ℹ️ [Uploading] Upload: Uploading Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V.xlsx to SharePoint
+
+✅ [Success] Upload: Successfully uploaded Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V.xlsx to SharePoint
+
+✅ [Complete] Download: Download attempt completed
+
+ℹ️ [Processing] Process File: Processing file: Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V.xlsx
+
+🚨 [Fail] Process File: Could not read C:\python\RFP-automation\ALLRFPs\Aramco e-Marketplace/Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V/downloaded-rfp/Aramco_4203238879_WIRE,ELEC 331MM2 (12 AWG) WHITE - 600V.xlsx: Missing optional dependency 'openpyxl'.  Use pip or conda to install openpyxl.
+
+================================================================================
