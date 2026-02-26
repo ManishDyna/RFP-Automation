@@ -304,7 +304,12 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                         if existing_email_status != email_status:
                             has_meaningful_updates = True
                             print(f"🔄 Email status changed from '{existing_email_status}' to '{email_status}' for: {rfp_id}")
-                    
+
+                    # Always update when email was just sent (timestamp changes every run)
+                    if email_sent_at and email_sent_at.strip():
+                        has_meaningful_updates = True
+                        print(f"🔄 Email sent — updating Email_Sent_At for: {rfp_id}")
+
                     # Check if matched data is being added (and wasn't there before)
                     if Matched_Data_str and Matched_Data_str.strip():
                         existing_matched_data = existing_row.get("Matched_Data", "")
@@ -325,6 +330,8 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                             update_data["Email_Status"] = email_status
                         if email_to and email_to.strip():
                             update_data["Email_To"] = email_to
+                        if email_sent_at and email_sent_at.strip():
+                            update_data["Email_Sent_At"] = email_sent_at
                         if Matched_Data_str and Matched_Data_str.strip():
                             existing_matched = existing_row.get("Matched_Data", "")
                             if not existing_matched or not existing_matched.strip():
@@ -379,6 +386,7 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                 print(f"✅ New RFP Log Inserted: {rfp_id}")
 
         except Exception as e:
+            log_event("DB", "RFPLog", "Fail", f"Could not upsert RFP log for {rfp_id}: {e}")
             print(f"⚠ Could not upsert RFP log into Dataverse: {e}")
 
     print(f"📝 RFP Log Processed: {rfp_id}")

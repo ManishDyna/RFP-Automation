@@ -394,7 +394,14 @@ def send_actionable_rfp_emails(
         )
 
         # Build email HTML with embedded adaptive card
-        # Everything is inside the card — HTML body is a minimal fallback for non-Outlook clients
+        # Adaptive Card is in <head>; <body> has a fallback for non-Outlook / unapproved originator
+        fallback_table_rows = "".join(
+            f"<tr><td style='border:1px solid #ccc;padding:6px 10px;'>{m['product']}</td>"
+            f"<td style='border:1px solid #ccc;padding:6px 10px;'>{m['name']}</td>"
+            f"<td style='border:1px solid #ccc;padding:6px 10px;'></td>"
+            f"<td style='border:1px solid #ccc;padding:6px 10px;'></td></tr>"
+            for m in RFP_TEAM_TABLE
+        )
         body_html = f"""<html>
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
@@ -403,6 +410,22 @@ def send_actionable_rfp_emails(
   </script>
 </head>
 <body>
+  <p>Dear {name},</p>
+  <p>Kindly advise us regarding the attached RFP file for <b>{product}</b>.</p>
+  <p>Please fill in your Results and Remarks below.</p>
+  <table style='border-collapse:collapse;margin:10px 0;'>
+    <tr style='background:#f0f0f0;'>
+      <th style='border:1px solid #ccc;padding:6px 10px;'>Products</th>
+      <th style='border:1px solid #ccc;padding:6px 10px;'>Name</th>
+      <th style='border:1px solid #ccc;padding:6px 10px;'>Results</th>
+      <th style='border:1px solid #ccc;padding:6px 10px;'>Remarks</th>
+    </tr>
+    {fallback_table_rows}
+  </table>
+  <p style='background-color:#FFFF00;display:inline-block;padding:4px 8px;'>
+    <b>Note: the due date for <u>{rfp_id}</u> is {rfp_end_date}</b>
+  </p>
+  <br><p>Best Regards,<br>Automation System</p>
 </body>
 </html>"""
 
@@ -616,6 +639,14 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     sender_email = "D365FOadmin@bahra-electric.com"
     recipients = ", ".join(all_emails)
 
+    # Build fallback table rows for non-Outlook clients
+    fallback_rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:6px 10px;'>{r.get('product','')}</td>"
+        f"<td style='border:1px solid #ccc;padding:6px 10px;'>{r.get('name','')}</td>"
+        f"<td style='border:1px solid #ccc;padding:6px 10px;'>{r.get('results','')}</td>"
+        f"<td style='border:1px solid #ccc;padding:6px 10px;'>{r.get('remarks','') or '-'}</td></tr>"
+        for r in responses
+    )
     body_html = f"""<html>
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
@@ -624,6 +655,21 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
   </script>
 </head>
 <body>
+  <p>Dear Team,</p>
+  <p>All team members have submitted their responses for <b>{rfp_id}</b>.</p>
+  <table style='border-collapse:collapse;margin:10px 0;'>
+    <tr style='background:#f0f0f0;'>
+      <th style='border:1px solid #ccc;padding:6px 10px;'>Products</th>
+      <th style='border:1px solid #ccc;padding:6px 10px;'>Name</th>
+      <th style='border:1px solid #ccc;padding:6px 10px;'>Results</th>
+      <th style='border:1px solid #ccc;padding:6px 10px;'>Remarks</th>
+    </tr>
+    {fallback_rows}
+  </table>
+  <p style='background-color:#FFFF00;display:inline-block;padding:4px 8px;'>
+    <b>Note: the due date for <u>{rfp_id}</u> is {rfp_end_date}</b>
+  </p>
+  <br><p>Best Regards,<br>Automation System</p>
 </body>
 </html>"""
 

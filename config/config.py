@@ -189,7 +189,8 @@ _PROD_EMAIL_TO_NEW_RFP_NO_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@ba
 
 # Production RFP Team Assignment Table
 _PROD_RFP_TEAM_TABLE = [
-    {"product": "Cables",             "name": "Lotfy Idrees",    "email": "lotfy.idrees@bahra-cables.com"},
+    
+    {"product": "Cables",             "name": "Lotfy Idrees",    "email": "lotfy.mohammad@bahra-electric.com"},
     {"product": "Cable Accessories",  "name": "Ahmed Ebeed",     "email": "ahmed.ebeed@bahra-cables.com"},
     {"product": "Non-Cables",         "name": "Karim Nour",      "email": "karim.nour@bahra-cables.com"},
     {"product": "TBS and BED",        "name": "Intikhab Ali",    "email": "intikhab.ali@bahra-cables.com"},
@@ -198,11 +199,12 @@ _PROD_RFP_TEAM_TABLE = [
 
 # Dev RFP Team Assignment Table (all emails go to DEV_EMAIL)
 _DEV_RFP_TEAM_TABLE = [
-    {"product": "Cables",             "name": "Lotfy Idrees",    "email": DEV_EMAIL},
-    {"product": "Cable Accessories",  "name": "Ahmed Ebeed",     "email": DEV_EMAIL},
-    {"product": "Non-Cables",         "name": "Karim Nour",      "email": DEV_EMAIL},
-    {"product": "TBS and BED",        "name": "Intikhab Ali",    "email": DEV_EMAIL},
-    {"product": "TBS and BED",        "name": "Mohammad Ariff",  "email": DEV_EMAIL},
+    {"product": "Cables",             "name": "Lotfy Idrees",    "email": "KSAGOV.tenders@bahra-cables.com"},
+    # {"product": "Cables",             "name": "Lotfy Idrees",    "email": DEV_EMAIL},
+    # {"product": "Cable Accessories",  "name": "Ahmed Ebeed",     "email": DEV_EMAIL},
+    # {"product": "Non-Cables",         "name": "Karim Nour",      "email": DEV_EMAIL},
+    # {"product": "TBS and BED",        "name": "Intikhab Ali",    "email": DEV_EMAIL},
+    # {"product": "TBS and BED",        "name": "Mohammad Ariff",  "email": DEV_EMAIL},
 ]
 
 # ===== Resolve emails based on EMAIL_MODE =====
@@ -241,10 +243,10 @@ else:
 # Register at https://aka.ms/publishactionableemails (Organization scope)
 # Leave empty to disable Adaptive Cards and use the original HTML-table email
 # ACTIONABLE_CARD_ORIGINATOR_ID = "f97cfa6f-eaf0-4d8e-a464-8f4646a22c7b"
-ACTIONABLE_CARD_ORIGINATOR_ID = ""
+ACTIONABLE_CARD_ORIGINATOR_ID = "6d54540e-0657-4b98-aad6-6ac8204d7b41"
 # Public HTTPS callback URL that Outlook will POST to when users submit the card
 # ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
-ACTIONABLE_CARD_CALLBACK_URL = ""
+ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/"
 
 # ===== RFP Team Responses (Dataverse) =====
 # Table for storing individual team member responses from Adaptive Card submissions
