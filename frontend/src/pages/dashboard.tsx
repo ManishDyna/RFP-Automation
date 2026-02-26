@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
 import { useDialogs } from '@/contexts/dialog-context'
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
+import { useAutomationStatus } from '@/hooks/use-automation'
 import {
   Download,
   CheckCircle2,
@@ -493,6 +494,16 @@ export default function DashboardPage() {
     queryKey: ['dashboardData'],
     queryFn: api.getDashboardData,
   })
+
+  // Auto-refresh dashboard when submit automation finishes
+  const { data: automationStatus } = useAutomationStatus()
+  const prevSubmitRunning = useRef(false)
+  useEffect(() => {
+    if (prevSubmitRunning.current && !automationStatus?.submit_running) {
+      refetch()
+    }
+    prevSubmitRunning.current = automationStatus?.submit_running ?? false
+  }, [automationStatus?.submit_running, refetch])
 
   // Optimistic mutation for instant status updates
   const statusMutation = useMutation({

@@ -139,22 +139,22 @@ async def flow_of_process_according_to_step(page, current_position, title='-'):
     except Exception:
         pass
 
-    # Click "Decline to Respond" button
-    # decline_button_clicked = await safe_click(page, "//button[span[contains(text(),'Decline to Respond')]]")
-    # if not decline_button_clicked:
-    #     print("❌ Failed to click 'Decline to Respond' button")
-    #     try:
-    #         from core.log_events import log_event
-    #         log_event("RFP", "Decline", "Fail", "Decline to Respond button not clickable", title)
-    #     except Exception:
-    #         pass
-    #     return False
-    # else:
-    #     try:
-    #         from core.log_events import log_event
-    #         log_event("RFP", "Decline", "Click", "Clicked 'Decline to Respond'", title)
-    #     except Exception:
-    #         pass
+    #Click "Decline to Respond" button
+    decline_button_clicked = await safe_click(page, "//button[span[contains(text(),'Decline to Respond')]]")
+    if not decline_button_clicked:
+        print("❌ Failed to click 'Decline to Respond' button")
+        try:
+            from core.log_events import log_event
+            log_event("RFP", "Decline", "Fail", "Decline to Respond button not clickable", title)
+        except Exception:
+            pass
+        return False
+    else:
+        try:
+            from core.log_events import log_event
+            log_event("RFP", "Decline", "Click", "Clicked 'Decline to Respond'", title)
+        except Exception:
+            pass
     
     await page.wait_for_timeout(5000)
 
@@ -163,7 +163,7 @@ async def flow_of_process_according_to_step(page, current_position, title='-'):
         await page.evaluate("""
         const textarea = document.querySelector("textarea");
         if (textarea) {
-                textarea.value = "We Don't Know Right Now";
+                textarea.value = "We don't carry a compatible part/material";
                 // Trigger input event safely
                 const event = document.createEvent('HTMLEvents');
                 event.initEvent('input', true, true);
@@ -188,7 +188,7 @@ async def flow_of_process_according_to_step(page, current_position, title='-'):
     await page.wait_for_timeout(10000)
 
     # Optional: Add confirmation logic here if needed
-    # await safe_click(page, "//button[@title='OK Button']")
+    await safe_click(page, "//button[@title='OK Button']")
 
     print(f"✅ Successfully declined RFP: {title}")
     try:

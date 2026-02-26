@@ -612,7 +612,7 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
     if not link:
         log_event("RFP", "Download", "Skip", "No link", title)
         return False
-    
+
     clean_title = clean_rfp_title(title)
 
     # Build local storage path
@@ -620,33 +620,47 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
     os.makedirs(local_rfp_dir, exist_ok=True)
     local_file_path = os.path.join(local_rfp_dir, f"{clean_title}.xls")
 
-    # 1. If file exists locally, check Dataverse & SharePoint without re-downloading
+    # Check DB Email_Status first — if email already sent, skip everything
+    email_already_sent = False
+    existing_db_record = None
+    try:
+        safe_rfp_id = sanitize_filter_value(title)
+        safe_company = sanitize_filter_value(company_name)
+        db_result = DATAVERSE.query_rows(
+            RFP_ACTIVITY_LOG_TABLE_API,
+            filter_expr=f"RFP_ID eq '{safe_rfp_id}' and Company_Name eq '{safe_company}'",
+            top=1,
+            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            use_display_names=True
+        )
+        if db_result and "value" in db_result and db_result["value"]:
+            existing_db_record = db_result["value"][0]
+            db_email_status = existing_db_record.get("Email_Status", "") or ""
+            if "sent" in db_email_status.lower():
+                email_already_sent = True
+    except Exception as e:
+        log_event("RFP", "Download", "Warning", f"DB Email_Status check failed: {e}", title)
+        # Continue — don't skip if DB check fails
+
+    if email_already_sent:
+        log_event("RFP", "Download", "Skip", f"Email already sent — skipping RFP", title)
+        return "skipped"
+
+    # 1. If file exists locally, ensure DB record + SharePoint, then treat as processable
     if os.path.exists(local_file_path):
-        try:
-            safe_rfp_id = sanitize_filter_value(title)
-            safe_company = sanitize_filter_value(company_name)
-            existing_result = DATAVERSE.query_rows(
-                RFP_ACTIVITY_LOG_TABLE_API,
-                filter_expr=f"RFP_ID eq '{safe_rfp_id}' and Company_Name eq '{safe_company}'",
-                top=1,
-                table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
-                use_display_names=True
+        # Ensure DB record exists (reuse existing_db_record from check above)
+        if not existing_db_record:
+            log_event("RFP", "Download", "Insert", "File exists locally but not in Dataverse — inserting", title)
+            log_rfp_activity(
+                rfp_id=title,
+                Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                RFP_End_Date=RFP_End_Date,
+                participated=participated,
+                link=link,
+                company_name=company_name
             )
-            if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
-                log_event("RFP", "Download", "Skip", "File exists locally & in Dataverse", title)
-            else:
-                # File exists locally but NOT in Dataverse — insert entry
-                log_event("RFP", "Download", "Insert", "File exists locally but not in Dataverse — inserting", title)
-                log_rfp_activity(
-                    rfp_id=title,
-                    Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    RFP_End_Date=RFP_End_Date,
-                    participated=participated,
-                    link=link,
-                    company_name=company_name
-                )
-        except Exception as e:
-            log_event("RFP", "Download", "Warning", f"Local file Dataverse check failed: {e}", title)
+        else:
+            log_event("RFP", "Download", "Info", "File exists locally, email not yet sent — will process + email", title)
 
         # Upload to SharePoint only if missing
         if graph_client:
@@ -666,7 +680,7 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
             except Exception as e:
                 log_event("Sharepoint", "Upload", "Warning", f"SharePoint check/upload failed: {e}", title)
 
-        return "skipped"
+        return True  # Email not yet sent — add to new_rfp_titles so it gets processed + emailed
 
     # 2. File does NOT exist locally — always download, then ensure SharePoint + Dataverse
     log_event("RFP", "Download", "Proceed", "File not found locally — downloading from portal", title)
