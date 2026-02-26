@@ -207,8 +207,14 @@ def load_master_rfp_links(master_file: str) -> dict:
         wb = xlrd.open_workbook(master_file)
         ws = wb.sheet_by_index(0)
         headers = [str(v).strip() for v in ws.row_values(0)]
-        title_col = next((i for i, h in enumerate(headers) if h.lower() == 'title'), None)
-        id_col    = next((i for i, h in enumerate(headers) if h.lower() == 'id'),    None)
+        title_col     = next((i for i, h in enumerate(headers) if h.lower() == 'title'),    None)
+        id_col        = next((i for i, h in enumerate(headers) if h.lower() == 'id'),       None)
+        end_time_col  = next((i for i, h in enumerate(headers)
+                              if h.lower() in ('end time', 'end_time', 'endtime', 'end date', 'close date')), None)
+        event_col     = next((i for i, h in enumerate(headers)
+                              if h.lower() in ('event type', 'event_type', 'eventtype', 'type')), None)
+        part_col      = next((i for i, h in enumerate(headers)
+                              if h.lower() in ('participated', 'participation')), None)
         if title_col is None or id_col is None:
             _log(f"[WARN] Master file missing 'Title' or 'ID' column. Found: {headers}")
             return {}
@@ -225,8 +231,23 @@ def load_master_rfp_links(master_file: str) -> dict:
                 link = hl.url_or_path.strip()
             else:
                 link = f"{ARIBA_BASE_URL}&an={doc_id}"
+
+            def _cell(col):
+                if col is not None and col < len(row):
+                    v = row[col]
+                    # xlrd may return floats for date serial numbers — keep as string
+                    return str(v).strip() if not isinstance(v, float) or v != int(v) else str(int(v))
+                return ""
+
             norm = _normalize_for_match(title)
-            result[norm] = {"id": doc_id, "link": link, "title": title}
+            result[norm] = {
+                "id":          doc_id,
+                "link":        link,
+                "title":       title,
+                "end_time":    _cell(end_time_col),
+                "event_type":  _cell(event_col),
+                "participated": _cell(part_col),
+            }
         _log(f"Master links file loaded: {len(result)} RFPs indexed.")
         return result
     except ImportError:
@@ -239,11 +260,16 @@ def load_master_rfp_links(master_file: str) -> dict:
 
 def enrich_with_master_links(rows: list, master_links: dict) -> list:
     for row in rows:
-        if row["link"]:
-            continue
         norm = _normalize_for_match(row["rfp_id"])
         if norm in master_links:
-            row["link"] = master_links[norm]["link"]
+            master = master_links[norm]
+            if not row["link"]:
+                row["link"] = master["link"]
+            # Always pull extra fields from master (fill blanks only)
+            row.setdefault("doc_id",      master.get("id", ""))
+            row.setdefault("end_time",    master.get("end_time", ""))
+            row.setdefault("event_type",  master.get("event_type", ""))
+            row.setdefault("participated", master.get("participated", ""))
     return rows
 
 
@@ -410,11 +436,15 @@ async def _click_if_visible(page, selector: str, timeout: int = 5000) -> bool:
 
 async def extract_owner_and_publish(page) -> dict:
     """
-    Scrape owner name and publish date/time from the currently open RFP
-    detail page.  Returns {'owner': str|None, 'publish_time': str|None}.
+    Scrape all available details from the RFP detail page.
+    Returns {'owner', 'publish_time', 'end_date', 'event_type', 'status', 'description'}.
     """
     owner_name   = None
     publish_time = None
+    end_date     = None
+    event_type   = None
+    status       = None
+    description  = None
 
     # ── Selector list for table cells on the details page ──────────────────
     SELECTORS = [
@@ -462,9 +492,18 @@ async def extract_owner_and_publish(page) -> dict:
                 if not publish_time and any(kw in line_lower for kw in ['publish', 'published', 'posted']):
                     if re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}.*\d{1,2}:\d{2}', line):
                         publish_time = line.strip()
+
+                if not end_date and any(kw in line_lower for kw in ['end', 'close', 'deadline', 'due']):
+                    if re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}.*\d{1,2}:\d{2}', line):
+                        end_date = line.strip()
+
         except Exception:
             pass
-        return {'owner': owner_name, 'publish_time': publish_time}
+        return {
+            'owner': owner_name, 'publish_time': publish_time,
+            'end_date': end_date, 'event_type': event_type,
+            'status': status, 'description': description,
+        }
 
     DATE_PATTERNS = [
         r'\d{1,2}/\d{1,2}/\d{4}.*\d{1,2}:\d{2}.*[AP]M',
@@ -475,10 +514,10 @@ async def extract_owner_and_publish(page) -> dict:
 
     for i in range(cell_count):
         try:
-            cell_text = (await all_cells.nth(i).inner_text()).strip()
+            cell_text  = (await all_cells.nth(i).inner_text()).strip()
             cell_lower = cell_text.lower()
 
-            # ── Look for Owner label ──────────────────────────────────────
+            # ── Owner ─────────────────────────────────────────────────────
             if not owner_name and any(kw in cell_lower for kw in ['owner', 'owner:', 'owned by', 'created by']):
                 for j in range(max(0, i - 2), min(cell_count, i + 3)):
                     try:
@@ -495,9 +534,9 @@ async def extract_owner_and_publish(page) -> dict:
                     except Exception:
                         continue
 
-            # ── Look for Publish/Created label ────────────────────────────
+            # ── Publish / Created date ────────────────────────────────────
             if not publish_time and any(kw in cell_lower for kw in [
-                    'publish', 'published', 'created', 'posted', 'time:', 'date:']):
+                    'publish', 'published', 'created', 'posted', 'open date', 'start date']):
                 for j in range(max(0, i - 2), min(cell_count, i + 3)):
                     try:
                         candidate = (await all_cells.nth(j).inner_text()).strip()
@@ -510,22 +549,88 @@ async def extract_owner_and_publish(page) -> dict:
                     except Exception:
                         continue
 
-            if owner_name and publish_time:
+            # ── End / Close / Deadline date ───────────────────────────────
+            if not end_date and any(kw in cell_lower for kw in [
+                    'end date', 'end time', 'close date', 'deadline', 'due date',
+                    'submission', 'close time', 'closing']):
+                for j in range(max(0, i - 2), min(cell_count, i + 3)):
+                    try:
+                        candidate = (await all_cells.nth(j).inner_text()).strip()
+                        for pattern in DATE_PATTERNS:
+                            if re.search(pattern, candidate, re.IGNORECASE):
+                                end_date = candidate
+                                break
+                        if end_date:
+                            break
+                    except Exception:
+                        continue
+
+            # ── Event Type ────────────────────────────────────────────────
+            if not event_type and any(kw in cell_lower for kw in [
+                    'event type', 'type:', 'sourcing type', 'process type']):
+                for j in range(i + 1, min(cell_count, i + 3)):
+                    try:
+                        candidate = (await all_cells.nth(j).inner_text()).strip()
+                        if candidate and len(candidate) > 1 and 'type' not in candidate.lower():
+                            event_type = candidate
+                            break
+                    except Exception:
+                        continue
+
+            # ── Status ────────────────────────────────────────────────────
+            if not status and any(kw in cell_lower for kw in ['status:', 'state:']):
+                for j in range(i + 1, min(cell_count, i + 3)):
+                    try:
+                        candidate = (await all_cells.nth(j).inner_text()).strip()
+                        if candidate and len(candidate) > 1:
+                            status = candidate
+                            break
+                    except Exception:
+                        continue
+
+            # ── Description (first non-empty long text block) ─────────────
+            if not description and any(kw in cell_lower for kw in ['description', 'scope', 'overview']):
+                for j in range(i + 1, min(cell_count, i + 5)):
+                    try:
+                        candidate = (await all_cells.nth(j).inner_text()).strip()
+                        if candidate and len(candidate) > 10:
+                            description = candidate[:500]  # cap at 500 chars
+                            break
+                    except Exception:
+                        continue
+
+            if owner_name and publish_time and end_date and event_type:
                 break
 
         except Exception:
             continue
 
-    return {'owner': owner_name, 'publish_time': publish_time}
+    return {
+        'owner':       owner_name,
+        'publish_time': publish_time,
+        'end_date':    end_date,
+        'event_type':  event_type,
+        'status':      status,
+        'description': description,
+    }
 
 
 async def get_rfp_info(page, rfp_id: str, link: str, username: str, password: str) -> dict:
     """
     Open the RFP portal page in a new tab, click the details tab,
-    and return {'rfp_id', 'owner', 'publish_time'}.
+    and return all available fields.
     Does NOT download anything.
     """
-    result = {'rfp_id': rfp_id, 'owner': None, 'publish_time': None, 'error': None}
+    result = {
+        'rfp_id':      rfp_id,
+        'owner':       None,
+        'publish_time': None,
+        'end_date':    None,
+        'event_type':  None,
+        'status':      None,
+        'description': None,
+        'error':       None,
+    }
 
     if not link:
         result['error'] = "No link available"
@@ -546,7 +651,6 @@ async def get_rfp_info(page, rfp_id: str, link: str, username: str, password: st
             if not await do_login(page, username, password):
                 result['error'] = "Session expired, re-login failed"
                 return result
-            # Retry in the main tab after re-login
             new_page = await page.context.new_page()
             await new_page.goto(link, wait_until="domcontentloaded", timeout=60000)
             await asyncio.sleep(2)
@@ -563,6 +667,14 @@ async def get_rfp_info(page, rfp_id: str, link: str, username: str, password: st
         info = await extract_owner_and_publish(new_page)
         result['owner']        = info.get('owner')
         result['publish_time'] = info.get('publish_time')
+        result['end_date']     = info.get('end_date')
+        result['event_type']   = info.get('event_type')
+        result['status']       = info.get('status')
+        result['description']  = info.get('description')
+
+        _log(f"  End Date     : {result['end_date']   or '(not found)'}")
+        _log(f"  Event Type   : {result['event_type'] or '(not found)'}")
+        _log(f"  Status       : {result['status']     or '(not found)'}")
 
     except Exception as exc:
         result['error'] = str(exc)
@@ -582,8 +694,8 @@ async def get_rfp_info(page, rfp_id: str, link: str, username: str, password: st
 
 def _print_table(results: list):
     """Print a neat aligned table to stdout."""
-    COL_W = [30, 20, 30, 35, 30]
-    headers = ["RFP_ID", "Company", "Owner", "Publish_Date", "Note"]
+    COL_W   = [30, 20, 25, 30, 30, 20, 25]
+    headers = ["RFP_ID", "Company", "Owner", "Publish_Date", "End_Date", "Event_Type", "Note"]
 
     def row_str(vals):
         return "  ".join(str(v or "").ljust(w) for v, w in zip(vals, COL_W))
@@ -599,28 +711,11 @@ def _print_table(results: list):
             r.get('company_name', ''),
             r.get('owner') or "",
             r.get('publish_time') or "",
+            r.get('end_date') or r.get('end_time') or "",
+            r.get('event_type') or "",
             note,
         ]))
     print()
-
-
-def _save_csv(results: list) -> str:
-    timestamp  = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path   = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"RFP_Info_{timestamp}.csv")
-    fieldnames = ["RFP_ID", "Company_Name", "Owner", "Publish_Date", "Note"]
-    with open(out_path, "w", newline="", encoding="utf-8-sig") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fieldnames)
-        writer.writeheader()
-        for r in results:
-            note = r.get('error') or ("" if r.get('owner') or r.get('publish_time') else "Not found")
-            writer.writerow({
-                "RFP_ID":       r['rfp_id'],
-                "Company_Name": r.get('company_name', ''),
-                "Owner":        r.get('owner') or "",
-                "Publish_Date": r.get('publish_time') or "",
-                "Note":         note,
-            })
-    return out_path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -643,84 +738,173 @@ async def run(input_file: str, username: str, password: str, headless: bool):
     else:
         _log("[WARN] Master links file not loaded — links from input file only.")
 
+    # ── Output CSV: named after the input file so resume always uses same file ─
+    input_basename = os.path.splitext(os.path.basename(input_file))[0]
+    csv_path   = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              f"RFP_Info_{input_basename}.csv")
+    fieldnames = [
+        "RFP_ID", "Company_Name", "Link",
+        "Owner", "Publish_Date", "End_Date",
+        "Event_Type", "Status", "Participated",
+        "Description", "Note",
+    ]
+
+    # ── Resume: load already-processed RFP IDs ────────────────────────────────
+    done_ids = set()
+    if os.path.isfile(csv_path):
+        with open(csv_path, newline="", encoding="utf-8-sig") as fh:
+            for row in csv.DictReader(fh):
+                rid = row.get("RFP_ID", "").strip()
+                if rid:
+                    done_ids.add(rid)
+        _log(f"Resume mode — {len(done_ids)} RFP(s) already done, will skip them.")
+        csv_fh = open(csv_path, "a", newline="", encoding="utf-8-sig")  # append
+        csv_writer = csv.DictWriter(csv_fh, fieldnames=fieldnames)
+    else:
+        csv_fh = open(csv_path, "w", newline="", encoding="utf-8-sig")  # fresh
+        csv_writer = csv.DictWriter(csv_fh, fieldnames=fieldnames)
+        csv_writer.writeheader()
+        csv_fh.flush()
+
+    _log(f"Live output file: {csv_path}")
+
+    def _append_row(r: dict):
+        note = r.get('error') or ("" if r.get('owner') or r.get('publish_time') else "Not found")
+        # End_Date: prefer scraped value, fall back to master-links value
+        end_date = r.get('end_date') or r.get('end_time') or ""
+        csv_writer.writerow({
+            "RFP_ID":       r['rfp_id'],
+            "Company_Name": r.get('company_name', ''),
+            "Link":         r.get('link', ''),
+            "Owner":        r.get('owner') or "",
+            "Publish_Date": r.get('publish_time') or "",
+            "End_Date":     end_date,
+            "Event_Type":   r.get('event_type') or "",
+            "Status":       r.get('status') or "",
+            "Participated": r.get('participated') or "",
+            "Description":  r.get('description') or "",
+            "Note":         note,
+        })
+        csv_fh.flush()  # write to disk immediately
+
+    no_link = [r for r in rows if not r["link"]]
+    to_process = [r for r in rows if r["link"]]
+
+    # Filter out already-done RFPs
+    pending = [r for r in to_process if _clean_id(r['rfp_id']) not in done_ids]
+    # Also skip no-link rows already recorded
+    no_link_pending = [r for r in no_link if _clean_id(r['rfp_id']) not in done_ids]
+
     print()
     print("=" * 65)
     print("  RFP Owner & Publish Date Fetcher")
     print("=" * 65)
-    print(f"  Input file : {input_file}")
-    print(f"  Total RFPs : {len(rows)}")
-    print(f"  With link  : {sum(1 for r in rows if r['link'])}")
-    print(f"  No link    : {sum(1 for r in rows if not r['link'])}")
-    print(f"  Headless   : {headless}")
+    print(f"  Input file  : {input_file}")
+    print(f"  Total RFPs  : {len(rows)}")
+    print(f"  Already done: {len(done_ids)}")
+    print(f"  Remaining   : {len(pending)}")
+    print(f"  No link     : {len(no_link_pending)} pending")
+    print(f"  Headless    : {headless}")
     print("=" * 65)
     print()
 
-    no_link = [r for r in rows if not r["link"]]
-    if no_link:
-        _log(f"[WARN] {len(no_link)} RFP(s) have no link and will be skipped:")
-        for r in no_link:
+    if no_link_pending:
+        _log(f"[WARN] {len(no_link_pending)} RFP(s) have no link and will be skipped:")
+        for r in no_link_pending:
             _log(f"       - {r['rfp_id']} ({r['company_name']})")
         print()
 
-    to_process = [r for r in rows if r["link"]]
-    if not to_process:
-        _die("No RFPs have a portal link. Cannot proceed.")
+    if not pending and not no_link_pending:
+        csv_fh.close()
+        _log("All RFPs already processed. Nothing to do.")
+        _log(f"Results file: {csv_path}")
+        return
 
     results = []
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=headless,
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-        )
-        context = await browser.new_context(viewport={"width": 1280, "height": 1024})
-        page    = await context.new_page()
+    if pending:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(
+                headless=headless,
+                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+            )
+            context = await browser.new_context(viewport={"width": 1280, "height": 1024})
+            page    = await context.new_page()
 
-        _log("Logging in to portal …")
-        if not await do_login(page, username, password):
+            _log("Logging in to portal …")
+            if not await do_login(page, username, password):
+                await browser.close()
+                csv_fh.close()
+                _die("Login failed. Check your credentials.")
+
+            for idx, row in enumerate(pending, start=1):
+                rfp_id  = _clean_id(row['rfp_id'])
+                company = row['company_name']
+                link    = row['link']
+
+                print()
+                _log(f"[{idx}/{len(pending)}]  {rfp_id}  |  {company}")
+
+                # Refresh session if needed
+                if not await ensure_logged_in(page, username, password):
+                    _log("  Cannot log in — skipping.")
+                    entry = {
+                        'rfp_id':      rfp_id,
+                        'company_name': company,
+                        'link':        link,
+                        'owner':       None,
+                        'publish_time': None,
+                        'end_date':    None,
+                        'end_time':    row.get('end_time', ''),
+                        'event_type':  row.get('event_type', ''),
+                        'status':      None,
+                        'participated': row.get('participated', ''),
+                        'description': None,
+                        'error':       "Login failed",
+                    }
+                    results.append(entry)
+                    _append_row(entry)
+                    continue
+
+                info = await get_rfp_info(page, rfp_id, link, username, password)
+                info['company_name'] = company
+                info['link']         = link
+                # Merge master-links extras (scraped value wins; master is fallback)
+                info['end_time']    = row.get('end_time', '')
+                if not info.get('event_type'):
+                    info['event_type'] = row.get('event_type', '')
+                info['participated'] = row.get('participated', '')
+                results.append(info)
+                _append_row(info)  # saved to disk immediately
+
+                _log(f"  Owner        : {info.get('owner') or '(not found)'}")
+                _log(f"  Publish Date : {info.get('publish_time') or '(not found)'}")
+
             await browser.close()
-            _die("Login failed. Check your credentials.")
 
-        for idx, row in enumerate(to_process, start=1):
-            rfp_id  = _clean_id(row['rfp_id'])
-            company = row['company_name']
-            link    = row['link']
-
-            print()
-            _log(f"[{idx}/{len(to_process)}]  {rfp_id}  |  {company}")
-
-            # Refresh session if needed
-            if not await ensure_logged_in(page, username, password):
-                _log("  Cannot log in — skipping.")
-                results.append({
-                    'rfp_id': rfp_id, 'company_name': company,
-                    'owner': None, 'publish_time': None,
-                    'error': "Login failed",
-                })
-                continue
-
-            info = await get_rfp_info(page, rfp_id, link, username, password)
-            info['company_name'] = company
-            results.append(info)
-
-            _log(f"  Owner        : {info.get('owner') or '(not found)'}")
-            _log(f"  Publish Date : {info.get('publish_time') or '(not found)'}")
-
-        await browser.close()
-
-    # Add skipped (no-link) rows as empty entries so they appear in output
-    for r in no_link:
-        results.append({
-            'rfp_id': _clean_id(r['rfp_id']),
+    # Write any pending no-link rows (carry master-links data even without a URL)
+    for r in no_link_pending:
+        entry = {
+            'rfp_id':      _clean_id(r['rfp_id']),
             'company_name': r['company_name'],
-            'owner': None,
+            'link':        '',
+            'owner':       None,
             'publish_time': None,
-            'error': "No portal link",
-        })
+            'end_date':    None,
+            'end_time':    r.get('end_time', ''),
+            'event_type':  r.get('event_type', ''),
+            'status':      None,
+            'participated': r.get('participated', ''),
+            'description': None,
+            'error':       "No portal link",
+        }
+        results.append(entry)
+        _append_row(entry)
 
-    # Print table + save CSV
-    _print_table(results)
-    csv_path = _save_csv(results)
+    csv_fh.close()
+
+    if results:
+        _print_table(results)
     print(f"  Saved to: {csv_path}")
     print()
 
