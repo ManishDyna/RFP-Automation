@@ -1,0 +1,88 @@
+{
+  "sync_timestamp": "2026-02-18 12:49:38",
+  "exported_file": "scraped_directly",
+  "total_rfps_extracted": 5,
+  "rfp_data": [
+    {
+      "Title": "SEC RFP- C001738316 - 6001738316",
+      "RFP_ID": "SEC RFP- C001738316 - 6001738316",
+      "Link": "https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIxAE2B8&awcharset=UTF-8",
+      "Doc_ID": "Doc242868771",
+      "End_Time": "02/25/2026 02:15 AM",
+      "Event_Type": "RFP",
+      "Participated": "submitted"
+    },
+    {
+      "Title": "SEC RFP-C001744022 - 6001744022",
+      "RFP_ID": "SEC RFP-C001744022 - 6001744022",
+      "Link": "https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIzn7yqo&awcharset=UTF-8",
+      "Doc_ID": "Doc243647313",
+      "End_Time": "02/24/2026 02:15 AM",
+      "Event_Type": "RFP",
+      "Participated": "submitted"
+    },
+    {
+      "Title": "SEC RFP C001739759",
+      "RFP_ID": "SEC RFP C001739759",
+      "Link": "https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIz%2BCfUD&awcharset=UTF-8",
+      "Doc_ID": "Doc243723462",
+      "End_Time": "02/23/2026 02:15 AM",
+      "Event_Type": "RFP",
+      "Participated": "no"
+    },
+    {
+      "Title": "SEC RFP-C001744675",
+      "RFP_ID": "SEC RFP-C001744675",
+      "Link": "https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIz204hr&awcharset=UTF-8",
+      "Doc_ID": "Doc243711910",
+      "End_Time": "02/22/2026 02:15 AM",
+      "Event_Type": "RFP",
+      "Participated": "submitted"
+    },
+    {
+      "Title": "SEC RFP C001738905",
+      "RFP_ID": "SEC RFP C001738905",
+      "Link": "https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIzi4hZP&awcharset=UTF-8",
+      "Doc_ID": "Doc243631149",
+      "End_Time": "02/19/2026 02:15 AM",
+      "Event_Type": "RFP",
+      "Participated": "declined"
+    }
+  ],
+  "sync_summary": {
+    "checked": 5,
+    "updated": 0,
+    "db_not_found": 0,
+    "errors": 3,
+    "details": [
+      {
+        "RFP_ID": "SEC RFP- C001738316 - 6001738316",
+        "from": "yes",
+        "to": "submitted",
+        "result": "update_failed"
+      },
+      {
+        "RFP_ID": "SEC RFP-C001744022 - 6001744022",
+        "from": "no",
+        "to": "submitted",
+        "result": "update_failed"
+      },
+      {
+        "RFP_ID": "SEC RFP C001739759",
+        "Title": "SEC RFP C001739759",
+        "result": "no_change"
+      },
+      {
+        "RFP_ID": "SEC RFP-C001744675",
+        "Title": "SEC RFP-C001744675",
+        "result": "no_change"
+      },
+      {
+        "RFP_ID": "SEC RFP C001738905",
+        "from": "no",
+        "to": "declined",
+        "result": "update_failed"
+      }
+    ]
+  }
+}

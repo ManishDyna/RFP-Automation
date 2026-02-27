@@ -1,0 +1,33 @@
+{
+  "error_type": "FileNotFoundError",
+  "error_message": "❌ No Excel files found in SharePoint",
+  "file": "C:\\python\\RFP-automation\\rfp\\download_rfp.py",
+  "line": 222,
+  "function": "process_folder",
+  "stack": [
+    {
+      "file": "C:\\python\\RFP-automation\\automation_logic.py",
+      "line": 509,
+      "function": "run_automation_download",
+      "code": "await download_rfp(page, open_rfps, graph_client, company_name=target_company)"
+    },
+    {
+      "file": "C:\\python\\RFP-automation\\automation_logic.py",
+      "line": 415,
+      "function": "download_rfp",
+      "code": "matched_df, matched_csv_path, not_mateched_files = process_folder("
+    },
+    {
+      "file": "C:\\python\\RFP-automation\\rfp\\download_rfp.py",
+      "line": 222,
+      "function": "process_folder",
+      "code": "raise FileNotFoundError(f\"❌ {error_msg}\")"
+    }
+  ],
+  "formatted_traceback": "Traceback (most recent call last):\n  File \"C:\\python\\RFP-automation\\automation_logic.py\", line 509, in run_automation_download\n    await download_rfp(page, open_rfps, graph_client, company_name=target_company)\n  File \"C:\\python\\RFP-automation\\automation_logic.py\", line 415, in download_rfp\n    matched_df, matched_csv_path, not_mateched_files = process_folder(\n  File \"C:\\python\\RFP-automation\\rfp\\download_rfp.py\", line 222, in process_folder\n    raise FileNotFoundError(f\"❌ {error_msg}\")\nFileNotFoundError: ❌ No Excel files found in SharePoint\n",
+  "timestamp": "2026-02-15T06:26:14.271196",
+  "context": {
+    "automation": "download_rfp",
+    "company": "Saudi Electricity Company"
+  }
+}
