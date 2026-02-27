@@ -248,6 +248,14 @@ ACTIONABLE_CARD_ORIGINATOR_ID = "6d54540e-0657-4b98-aad6-6ac8204d7b41"
 # ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
 ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/"
 
+# ===== Master Data (Dataverse) =====
+# Run setup_master_data_tables.py first, then confirm EntitySetName values below.
+MATERIAL_MASTER_TABLE_LOGICAL = "cr673_bahra_material_master"
+MATERIAL_MASTER_TABLE_API     = "cr673_bahra_material_master"   # confirm after setup
+
+KEYWORDS_TABLE_LOGICAL = "cr673_bahra_keywords" 
+KEYWORDS_TABLE_API     = "cr673_bahra_keywords"                 # confirm after setup
+
 # ===== RFP Team Responses (Dataverse) =====
 # Table for storing individual team member responses from Adaptive Card submissions
 RFP_RESPONSE_TABLE_LOGICAL = "cr6db_cr673_bahra_rfp_response"

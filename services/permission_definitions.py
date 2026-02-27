@@ -44,6 +44,12 @@ PERMISSIONS = {
 
     # Material Insights
     "material_insights.view": "View material insights",
+
+    # Master Data Management
+    "master_data.view":   "View material master codes and keywords",
+    "master_data.create": "Add new material codes or keywords",
+    "master_data.edit":   "Edit material codes or keywords",
+    "master_data.delete": "Delete material codes or keywords",
 }
 
 # Group permissions by module for UI display
@@ -66,6 +72,7 @@ MODULE_LABELS = {
     "logs": "Activity Logs",
     "audit_logs": "Audit Trail",
     "material_insights": "Material Insights",
+    "master_data": "Master Data Management",
 }
 
 # Default role templates for seeding

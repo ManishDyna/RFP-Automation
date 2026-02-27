@@ -17,6 +17,7 @@ import {
   Shield,
   Activity,
   Package,
+  Database,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -53,7 +54,8 @@ export function Sidebar({
   const canViewSapLogs = useHasPermission('sap_password.view')
   const canSchedule = useHasPermission('schedule_automation.manage')
   const canChangeSapPassword = useHasPermission('sap_password.change')
-  const showAdminSection = canManageUsers || canManageRoles || canViewAuditLogs || canViewAnalytics || canViewSapLogs
+  const canManageMasterData = useHasPermission('master_data.view')
+  const showAdminSection = canManageUsers || canManageRoles || canViewAuditLogs || canViewAnalytics || canViewSapLogs || canManageMasterData
   const { data: automationStatus } = useAutomationStatus()
   const setCollapsed = onCollapsedChange
 
@@ -215,6 +217,15 @@ export function Sidebar({
                       icon={KeyRound}
                       label="SAP Logs"
                       active={location.pathname === '/admin/sap-logs'}
+                      collapsed={collapsed}
+                    />
+                  )}
+                  {canManageMasterData && (
+                    <NavItem
+                      path="/admin/master-data"
+                      icon={Database}
+                      label="Master Data"
+                      active={location.pathname === '/admin/master-data'}
                       collapsed={collapsed}
                     />
                   )}

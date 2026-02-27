@@ -13,6 +13,7 @@ from routes import dashboard, user_management, auth, automation
 from routes import api as api_routes
 from routes.role_routes import router as role_router
 from routes.actionable_cards import router as actionable_cards_router
+from routes.master_data_routes import router as master_data_router
 from config.config import SESSION_TIMEOUT_SECONDS
 import os
 
@@ -65,6 +66,9 @@ app.include_router(role_router)
 
 # Actionable Cards callback (Adaptive Card responses from Outlook)
 app.include_router(actionable_cards_router)
+
+# Master Data API router (Material Master + Keywords)
+app.include_router(master_data_router)
 
 if __name__ == "__main__":
     import uvicorn

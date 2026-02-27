@@ -138,6 +138,24 @@ export const ENDPOINTS = {
   AUDIT_LOGS: {
     LIST: `${API_PREFIX}/audit-logs`,
   },
+
+  // ==================== MASTER DATA (routes/master_data_routes.py) ====================
+  MASTER_DATA: {
+    MATERIALS: {
+      LIST:   `${API_PREFIX}/master-data/materials/list`,
+      CREATE: `${API_PREFIX}/master-data/materials/create`,
+      UPDATE: (id: string) => `${API_PREFIX}/master-data/materials/update/${id}`,
+      DELETE: (id: string) => `${API_PREFIX}/master-data/materials/delete/${id}`,
+      IMPORT: `${API_PREFIX}/master-data/materials/import`,
+    },
+    KEYWORDS: {
+      LIST:   `${API_PREFIX}/master-data/keywords/list`,
+      CREATE: `${API_PREFIX}/master-data/keywords/create`,
+      UPDATE: (id: string) => `${API_PREFIX}/master-data/keywords/update/${id}`,
+      DELETE: (id: string) => `${API_PREFIX}/master-data/keywords/delete/${id}`,
+      IMPORT: `${API_PREFIX}/master-data/keywords/import`,
+    },
+  },
 } as const
 
 // Type helper for endpoint values

@@ -19,6 +19,7 @@ const AnalyticsPage = lazy(() => import('@/pages/analytics'))
 const UserManagementPage = lazy(() => import('@/pages/admin/users'))
 const RoleManagementPage = lazy(() => import('@/pages/admin/roles'))
 const AuditLogsPage = lazy(() => import('@/pages/admin/audit-logs'))
+const MasterDataPage = lazy(() => import('@/pages/admin/master-data'))
 const SapPasswordLogsPage = lazy(() => import('@/pages/admin/sap-logs'))
 const MaterialInsightsPage = lazy(() => import('@/pages/material-insights'))
 
@@ -146,6 +147,11 @@ function ProtectedLayout() {
               <Route path="/admin/sap-logs" element={
                 <PermissionGuard permission="sap_password.view" fallback={<AccessDenied />}>
                   <SapPasswordLogsPage />
+                </PermissionGuard>
+              } />
+              <Route path="/admin/master-data" element={
+                <PermissionGuard permission="master_data.view" fallback={<AccessDenied />}>
+                  <MasterDataPage />
                 </PermissionGuard>
               } />
             </Routes>

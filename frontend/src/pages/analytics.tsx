@@ -183,13 +183,11 @@ export default function AnalyticsPage() {
   const declinedCount = rfps.filter((r: any) => r.status_key === 'declined').length
   const openCount = rfps.filter((r: any) => r.status_key === 'open').length
 
-  // Material matching analytics
+  // Material matched count (for stat card)
   const materialMatched = rfps.filter((r: any) => (r.Material_Matched || '').toLowerCase() === 'yes').length
-  const materialNotMatched = totalRfps - materialMatched
 
-  // Keyword matching analytics
+  // Keyword matched count (for stat card)
   const keywordMatched = rfps.filter((r: any) => (r.Keyword_Matched || '').toLowerCase() === 'yes').length
-  const keywordNotMatched = totalRfps - keywordMatched
 
   // Company analytics
   const companyStats: Record<string, number> = {}
@@ -222,16 +220,6 @@ export default function AnalyticsPage() {
     { label: 'Declined', value: declinedCount, color: '#ef4444' },
   ]
 
-  const materialData = [
-    { label: 'Material Matched', value: materialMatched, color: '#6366f1' },
-    { label: 'Material Not Matched', value: materialNotMatched, color: '#94a3b8' },
-  ]
-
-  const keywordData = [
-    { label: 'Keyword Matched', value: keywordMatched, color: '#8b5cf6' },
-    { label: 'Keyword Not Matched', value: keywordNotMatched, color: '#cbd5e1' },
-  ]
-
   const companyData = topCompanies.map(([company, count], index) => ({
     label: company,
     value: count,
@@ -251,16 +239,6 @@ export default function AnalyticsPage() {
 
   const handleCompanyClick = (company: string) => {
     navigate(`/dashboard/rfp-insights?company=${encodeURIComponent(company)}`)
-  }
-
-  const handleMaterialMatchClick = (label: string) => {
-    const materialValue = label === 'Material Matched' ? 'matched' : 'not_matched'
-    navigate(`/dashboard/rfp-insights?material_match=${materialValue}`)
-  }
-
-  const handleKeywordMatchClick = (label: string) => {
-    const keywordValue = label === 'Keyword Matched' ? 'matched' : 'not_matched'
-    navigate(`/dashboard/rfp-insights?keyword_match=${keywordValue}`)
   }
 
   const handleParticipationClick = (company: string, participationType: 'participated' | 'notParticipated' | 'declined') => {
@@ -326,7 +304,7 @@ export default function AnalyticsPage() {
               subtitle={`${((materialMatched / totalRfps) * 100).toFixed(1)}% of total`}
               icon={PieChart}
               className="stat-card-violet"
-              onClick={() => handleMaterialMatchClick('Material Matched')}
+              onClick={() => navigate('/dashboard/rfp-insights?material_match=matched')}
             />
             <StatCard
               title="Keyword Matched"
@@ -334,7 +312,7 @@ export default function AnalyticsPage() {
               subtitle={`${((keywordMatched / totalRfps) * 100).toFixed(1)}% of total`}
               icon={TrendingUp}
               className="stat-card-amber"
-              onClick={() => handleKeywordMatchClick('Keyword Matched')}
+              onClick={() => navigate('/dashboard/rfp-insights?keyword_match=matched')}
             />
           </div>
 
@@ -370,35 +348,6 @@ export default function AnalyticsPage() {
               </CardContent>
             </Card>
 
-            {/* Material Matching */}
-            <Card className="border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold text-slate-800">Material Matching Analysis</CardTitle>
-                <CardDescription>RFPs with material matches (click to drill down)</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <DonutChartComponent
-                  data={materialData}
-                  title=""
-                  onSegmentClick={handleMaterialMatchClick}
-                />
-              </CardContent>
-            </Card>
-
-            {/* Keyword Matching */}
-            <Card className="border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold text-slate-800">Keyword Matching Analysis</CardTitle>
-                <CardDescription>RFPs with keyword matches (click to drill down)</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <DonutChartComponent
-                  data={keywordData}
-                  title=""
-                  onSegmentClick={handleKeywordMatchClick}
-                />
-              </CardContent>
-            </Card>
           </div>
 
           {/* Participation by Company */}

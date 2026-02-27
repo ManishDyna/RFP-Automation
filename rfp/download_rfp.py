@@ -237,58 +237,85 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
         shutil.rmtree(temp_process_dir, ignore_errors=True)
         return pd.DataFrame(), "no_files", []
 
-    # 🔹 Download Master Material CSV to temp directory
-    master_csv_temp = os.path.join(temp_process_dir, "master_material.csv")
-    try:
-        print(f"🔄 Downloading 'Master material' from SharePoint...")
-        log_event("RFP", "Download Master", "Downloading", "Fetching master material CSV from SharePoint")
-        master_csv_path = graph_client.download_file_from_sharepoint(
-            sp_path=f"{SP_BASE_FOLDER}/master-files/material.csv",
-            local_path=master_csv_temp
-        )
-        print(f"✅ Master file downloaded: {master_csv_path}")
-        log_event("RFP", "Download Master", "Success", f"Master file downloaded: {master_csv_path}")
-        master = pd.read_csv(master_csv_path)
-    except Exception as e:
-        error_msg = f"Could not download master file from SharePoint: {e}"
-        log_event("RFP", "Download Master", "Fail", error_msg)
-        raise FileNotFoundError(f"❌ {error_msg}")
+    # 🔹 Load Material Master — Dataverse is now the source of truth.
+    #    Falls back to SharePoint CSV if the Dataverse table is empty.
+    from services.master_data_service import (
+        get_all_materials_for_matching,
+        get_all_keywords_for_matching,
+    )
 
-    # 🔹 Find 'material' column in master CSV
-    master_col = find_column_name(master.columns, "material")
-    if not master_col:
-        error_msg = "No 'material' column in master CSV"
-        log_event("RFP", "Process Folder", "Fail", error_msg)
-        raise ValueError(f"❌ {error_msg}")
+    print(f"🔄 Loading material master from Dataverse portal...")
+    log_event("RFP", "Load Master", "Loading", "Fetching material master from Dataverse")
+    dv_materials = get_all_materials_for_matching()
 
-    # 🔹 Download and load Keywords CSV for keyword matching
-    keywords_list = []
-    keywords_csv_local = os.path.join(temp_process_dir, "unique_keywords.csv")
-    try:
-        print(f"🔄 Downloading 'unique_keywords' from SharePoint...")
-        log_event("RFP", "Download Keywords", "Downloading", "Fetching unique keywords CSV from SharePoint")
-        keywords_csv_path = graph_client.download_file_from_sharepoint(
-            sp_path=f"{SP_BASE_FOLDER}/master-files/unique_keywords.csv",
-            local_path=keywords_csv_local
-        )
-        keywords_df = pd.read_csv(keywords_csv_path)
-        keywords_col = find_column_name(keywords_df.columns, "keywords") or find_column_name(keywords_df.columns, "keyword")
-        if keywords_col:
-            # Use to_dict('records') for better performance (faster than iterrows)
-            for row in keywords_df.to_dict('records'):
-                keyword_value = str(row.get(keywords_col, "")).strip()
-                if keyword_value and keyword_value.lower() != 'nan':
-                    for kw in keyword_value.split(','):
-                        kw_clean = kw.strip().upper()
-                        if kw_clean:
-                            keywords_list.append(kw_clean)
-        print(f"✅ Loaded {len(keywords_list)} keywords for matching")
-        log_event("RFP", "Download Keywords", "Success", f"Loaded {len(keywords_list)} keywords for matching")
-    except Exception as e:
-        error_msg = f"Could not load keywords: {e}"
-        print(f"⚠ {error_msg}")
-        log_event("RFP", "Download Keywords", "Warning", error_msg)
-        keywords_list = []  # Continue without keywords if file not found
+    if dv_materials:
+        # Build a DataFrame matching the old master format (single 'material' column)
+        master = pd.DataFrame({"material": dv_materials})
+        master_col = "material"
+        print(f"✅ Loaded {len(dv_materials)} material codes from Dataverse portal")
+        log_event("RFP", "Load Master", "Success", f"Loaded {len(dv_materials)} material codes from Dataverse")
+    else:
+        # Fallback: download from SharePoint CSV (legacy path)
+        master_csv_temp = os.path.join(temp_process_dir, "master_material.csv")
+        try:
+            print(f"⚠ Dataverse material table is empty — falling back to SharePoint CSV...")
+            log_event("RFP", "Load Master", "Fallback", "Dataverse empty — fetching material CSV from SharePoint")
+            master_csv_path = graph_client.download_file_from_sharepoint(
+                sp_path=f"{SP_BASE_FOLDER}/master-files/material.csv",
+                local_path=master_csv_temp
+            )
+            print(f"✅ Master file downloaded from SharePoint: {master_csv_path}")
+            log_event("RFP", "Load Master", "Success", f"Master file downloaded from SharePoint: {master_csv_path}")
+            master = pd.read_csv(master_csv_path)
+        except Exception as e:
+            error_msg = f"Could not load material master from Dataverse or SharePoint: {e}"
+            log_event("RFP", "Load Master", "Fail", error_msg)
+            raise FileNotFoundError(f"❌ {error_msg}")
+
+        master_col = find_column_name(master.columns, "material")
+        if not master_col:
+            error_msg = "No 'material' column in master CSV"
+            log_event("RFP", "Process Folder", "Fail", error_msg)
+            raise ValueError(f"❌ {error_msg}")
+
+    # 🔹 Load Keywords — Dataverse first, SharePoint fallback
+    print(f"🔄 Loading keywords from Dataverse portal...")
+    log_event("RFP", "Load Keywords", "Loading", "Fetching keywords from Dataverse")
+    keywords_list = get_all_keywords_for_matching()
+
+    if keywords_list:
+        print(f"✅ Loaded {len(keywords_list)} keywords from Dataverse portal")
+        log_event("RFP", "Load Keywords", "Success", f"Loaded {len(keywords_list)} keywords from Dataverse")
+    else:
+        # Fallback: SharePoint CSV
+        keywords_csv_local = os.path.join(temp_process_dir, "unique_keywords.csv")
+        try:
+            print(f"⚠ Dataverse keywords table is empty — falling back to SharePoint CSV...")
+            log_event("RFP", "Load Keywords", "Fallback", "Dataverse empty — fetching keywords CSV from SharePoint")
+            keywords_csv_path = graph_client.download_file_from_sharepoint(
+                sp_path=f"{SP_BASE_FOLDER}/master-files/unique_keywords.csv",
+                local_path=keywords_csv_local
+            )
+            keywords_df = pd.read_csv(keywords_csv_path)
+            keywords_col = (
+                find_column_name(keywords_df.columns, "keywords")
+                or find_column_name(keywords_df.columns, "keyword")
+            )
+            if keywords_col:
+                for row in keywords_df.to_dict('records'):
+                    keyword_value = str(row.get(keywords_col, "")).strip()
+                    if keyword_value and keyword_value.lower() != 'nan':
+                        for kw in keyword_value.split(','):
+                            kw_clean = kw.strip().upper()
+                            if kw_clean:
+                                keywords_list.append(kw_clean)
+            print(f"✅ Loaded {len(keywords_list)} keywords from SharePoint")
+            log_event("RFP", "Load Keywords", "Success", f"Loaded {len(keywords_list)} keywords from SharePoint")
+        except Exception as e:
+            error_msg = f"Could not load keywords: {e}"
+            print(f"⚠ {error_msg}")
+            log_event("RFP", "Load Keywords", "Warning", error_msg)
+            keywords_list = []  # Continue without keywords if unavailable
 
     # 🔹 Load RFP activity log — only for the RFPs we found locally
     rfp_ids = [os.path.splitext(os.path.basename(f))[0] for f in excel_files]

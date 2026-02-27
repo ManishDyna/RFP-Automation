@@ -546,6 +546,110 @@ export const api = {
     return handleResponse<{ ok: boolean; status: any }>(response)
   },
 
+  // ==================== Master Data — Materials ====================
+  getMaterials: async (params: { search?: string; page?: number; page_size?: number } = {}) => {
+    const searchParams = new URLSearchParams()
+    if (params.search) searchParams.append('search', params.search)
+    if (params.page) searchParams.append('page', String(params.page))
+    if (params.page_size) searchParams.append('page_size', String(params.page_size))
+    const url = searchParams.toString()
+      ? `${ENDPOINTS.MASTER_DATA.MATERIALS.LIST}?${searchParams}`
+      : ENDPOINTS.MASTER_DATA.MATERIALS.LIST
+    const response = await fetch(url, { credentials: 'include' })
+    return handleResponse<{ ok: boolean; materials: any[]; page: number; page_size: number }>(response)
+  },
+
+  createMaterial: async (data: { material_code: string; description?: string }) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.MATERIALS.CREATE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  updateMaterial: async (id: string, data: { material_code: string; description?: string }) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.MATERIALS.UPDATE(id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  deleteMaterial: async (id: string) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.MATERIALS.DELETE(id), {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  importMaterials: async (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    const response = await fetch(ENDPOINTS.MASTER_DATA.MATERIALS.IMPORT, {
+      method: 'POST',
+      body: form,
+      credentials: 'include',
+    })
+    return handleResponse<{ ok: boolean; created: number; skipped: number; failed: number; errors: string[] }>(response)
+  },
+
+  // ==================== Master Data — Keywords ====================
+  getKeywords: async (params: { search?: string; page?: number; page_size?: number } = {}) => {
+    const searchParams = new URLSearchParams()
+    if (params.search) searchParams.append('search', params.search)
+    if (params.page) searchParams.append('page', String(params.page))
+    if (params.page_size) searchParams.append('page_size', String(params.page_size))
+    const url = searchParams.toString()
+      ? `${ENDPOINTS.MASTER_DATA.KEYWORDS.LIST}?${searchParams}`
+      : ENDPOINTS.MASTER_DATA.KEYWORDS.LIST
+    const response = await fetch(url, { credentials: 'include' })
+    return handleResponse<{ ok: boolean; keywords: any[]; page: number; page_size: number }>(response)
+  },
+
+  createKeyword: async (data: { keyword: string }) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.KEYWORDS.CREATE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  updateKeyword: async (id: string, data: { keyword: string }) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.KEYWORDS.UPDATE(id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  deleteKeyword: async (id: string) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.KEYWORDS.DELETE(id), {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  importKeywords: async (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    const response = await fetch(ENDPOINTS.MASTER_DATA.KEYWORDS.IMPORT, {
+      method: 'POST',
+      body: form,
+      credentials: 'include',
+    })
+    return handleResponse<{ ok: boolean; created: number; skipped: number; failed: number; errors: string[] }>(response)
+  },
+
   // ==================== Audit Logs ====================
   getAuditLogs: async (params: {
     page?: number
