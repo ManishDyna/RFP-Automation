@@ -155,6 +155,13 @@ export const ENDPOINTS = {
       DELETE: (id: string) => `${API_PREFIX}/master-data/keywords/delete/${id}`,
       IMPORT: `${API_PREFIX}/master-data/keywords/import`,
     },
+    RFP_TEAM: {
+      LIST:   `${API_PREFIX}/master-data/rfp-team/list`,
+      CREATE: `${API_PREFIX}/master-data/rfp-team/create`,
+      UPDATE: (id: string) => `${API_PREFIX}/master-data/rfp-team/update/${id}`,
+      DELETE: (id: string) => `${API_PREFIX}/master-data/rfp-team/delete/${id}`,
+      IMPORT: `${API_PREFIX}/master-data/rfp-team/import`,
+    },
   },
 } as const
 

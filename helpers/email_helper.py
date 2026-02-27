@@ -48,7 +48,8 @@ def _build_rfp_notification_html(rfp_titles: list, rfp_end_dates: dict = None) -
       - Subject  : RFP title (single) or "New <N> RFP(s) Found" (multiple)
       - Body     : Greeting + Products/Name table + due-date note
     """
-    from config.config import RFP_TEAM_TABLE
+    from services.master_data_service import get_all_rfp_team_for_emails
+    RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
 
     rfp_end_dates = rfp_end_dates or {}
 
@@ -105,7 +106,8 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
     Shows the full team table with the current member's row highlighted,
     and input fields for Results and Remarks below the table.
     """
-    from config.config import RFP_TEAM_TABLE
+    from services.master_data_service import get_all_rfp_team_for_emails
+    RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
 
     # --- Build the team table rows ---
     # Header row
@@ -319,9 +321,11 @@ def send_actionable_rfp_emails(
     from email import encoders as email_encoders
     from helpers.core_helper import clean_rfp_title
     from config.config import (
-        RFP_TEAM_TABLE, SP_BASE_FOLDER,
+        SP_BASE_FOLDER,
         ACTIONABLE_CARD_ORIGINATOR_ID, ACTIONABLE_CARD_CALLBACK_URL,
     )
+    from services.master_data_service import get_all_rfp_team_for_emails
+    RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
     from core.log_events import log_rfp_activity
 
     # Get Graph API token for sending mail
@@ -501,11 +505,13 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     from helpers.core_helper import clean_rfp_title
     from helpers.sharepoint_helper import GraphClient
     from config.config import (
-        RFP_TEAM_TABLE, EMAIL_TO_NEW_RFP, SP_BASE_FOLDER,
+        EMAIL_TO_NEW_RFP, SP_BASE_FOLDER,
         ACTIONABLE_CARD_ORIGINATOR_ID, ACTIONABLE_CARD_CALLBACK_URL,
         CLIENT_ID, CLIENT_SECRET, TENANT_ID,
         SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME,
     )
+    from services.master_data_service import get_all_rfp_team_for_emails
+    RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
 
     # Get Graph API token for sending mail
     mail_token = _get_graph_mail_token()
@@ -730,9 +736,11 @@ def send_per_rfp_email(
     """
     from helpers.core_helper import clean_rfp_title, get_sharepoint_rfp_material_path
     from config.config import (
-        RFP_TEAM_TABLE, EMAIL_TO_NEW_RFP, FLOW_URL, SP_BASE_FOLDER,
+        EMAIL_TO_NEW_RFP, FLOW_URL, SP_BASE_FOLDER,
         ACTIONABLE_CARD_ORIGINATOR_ID, ACTIONABLE_CARD_CALLBACK_URL,
     )
+    from services.master_data_service import get_all_rfp_team_for_emails
+    RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
     from core.log_events import log_rfp_activity
 
     # === Use Adaptive Card emails if configured ===

@@ -380,7 +380,7 @@ export default function RoleManagementPage() {
                 Permissions ({selectedPermissions.length} selected)
               </Label>
             </div>
-            <ScrollArea className="h-0 flex-1 min-h-[200px] border rounded-md p-3" viewportClassName="!overflow-y-scroll">
+            <ScrollArea style={{ height: '100px', overflow: 'scroll' }}  className="h-0 flex-1 min-h-[200px] border rounded-md p-3" viewportClassName="!overflow-y-scroll">
               <div className="space-y-2">
                 {Object.entries(groups).map(([groupKey, group]) => {
                   const groupPerms = Object.keys(group.permissions)

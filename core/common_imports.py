@@ -41,7 +41,7 @@ CLIENT_ID, CLIENT_SECRET, TENANT_ID,
     EMAIL_TO_NEW_RFP,
     EMAIL_TO_NO_NEW_RFP,
     EMAIL_TO_RFP_REMINDER,
-    RFP_TEAM_TABLE,
+    # RFP_TEAM_TABLE removed — now fetched dynamically via get_all_rfp_team_for_emails()
     EMAIL_TO_RFP_SUBMITTED,
     EMAIL_TO_RFP_ERROR_IN_SUBMISSION,
     EMAIL_TO_RFP_DECLINED,

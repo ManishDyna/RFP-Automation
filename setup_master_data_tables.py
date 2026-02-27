@@ -1,9 +1,10 @@
 """
-Setup script to create the 2 Master Data Dataverse tables via the Web API.
+Setup script to create the 3 Master Data Dataverse tables via the Web API.
 
 Tables created:
   1. cr673_bahra_material_master  - Material master codes
   2. cr673_bahra_keywords         - Unique matching keywords
+  3. cr673_bahra_rfp_team         - RFP team assignment members
 
 Usage:
   python setup_master_data_tables.py
@@ -103,6 +104,20 @@ TABLE_DEFINITIONS = [
         "description": "Unique keywords for RFP content matching",
         "primary_attribute": primary_name_column("cr673_keyword", "keyword", 500),
         "extra_columns": [
+            string_column("cr673_is_active", "is_active", 10),
+            string_column("cr673_created_date", "created_date", 100),
+            string_column("cr673_updated_date", "updated_date", 100),
+        ],
+    },
+    {
+        "schema_name": "cr673_bahra_rfp_team",
+        "display_name": "Bahra RFP Team",
+        "display_name_plural": "Bahra RFP Team Members",
+        "description": "RFP team assignment members for product-based email routing",
+        "primary_attribute": primary_name_column("cr673_product", "product", 200),
+        "extra_columns": [
+            string_column("cr673_name", "name", 200),
+            string_column("cr673_email", "email", 300),
             string_column("cr673_is_active", "is_active", 10),
             string_column("cr673_created_date", "created_date", 100),
             string_column("cr673_updated_date", "updated_date", 100),
@@ -288,9 +303,20 @@ def main():
 
     if success_count == len(TABLE_DEFINITIONS):
         print("\nAll tables are ready!")
-        print("Next steps:")
-        print("  1. Update MATERIAL_MASTER_TABLE_API and KEYWORDS_TABLE_API in config/config.py")
-        print("     using the EntitySetName values printed above.")
+
+        # Seed RFP Team table from static config
+        try:
+            from services.master_data_service import bulk_import_rfp_team
+            from config.config import _PROD_RFP_TEAM_TABLE
+            print("\nSeeding RFP Team from static config...")
+            result = bulk_import_rfp_team(_PROD_RFP_TEAM_TABLE)
+            print(f"  Created: {result['created']}, Skipped: {result['skipped']}, Failed: {result['failed']}")
+        except Exception as e:
+            print(f"\n[WARN] Could not seed RFP Team: {e}")
+
+        print("\nNext steps:")
+        print("  1. Update MATERIAL_MASTER_TABLE_API, KEYWORDS_TABLE_API, and RFP_TEAM_TABLE_API")
+        print("     in config/config.py using the EntitySetName values printed above.")
         print("  2. Start the server:  python dashboard_main.py")
         print("  3. Navigate to /admin/master-data in the portal.")
     else:

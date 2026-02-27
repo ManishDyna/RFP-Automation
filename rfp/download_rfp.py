@@ -349,6 +349,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
     not_mateched_files = []
     files_with_any_match = set()   # track which files had at least one material match
     processed_rfps = set()
+    rfp_file_stats = {}  # per-RFP file stats: {rfp_id: {total_line_items, file_size_bytes}}
     files_processed = 0
     files_skipped = 0
     files_failed = 0
@@ -368,6 +369,12 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
 
         processed_rfps.add(rfp_id)
         log_event("RFP", "Process File", "Processing", f"Processing file: {file_name}", rfp_id)
+
+        # Capture file size
+        try:
+            rfp_file_stats[rfp_id] = {"file_size_bytes": os.path.getsize(excel_path)}
+        except Exception:
+            rfp_file_stats[rfp_id] = {}
 
         try:
             df = pd.read_excel(excel_path, sheet_name="Other Content")
@@ -406,7 +413,10 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
         
         # Find Description column for keyword matching
         col_desc = find_column_name(df.columns, "description")
-        
+
+        # Capture total line items for analytics
+        rfp_file_stats.setdefault(rfp_id, {})["total_line_items"] = len(df)
+
         for idx, value in df[col_name].items():
             if pd.isna(value):
                 continue
@@ -609,11 +619,24 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
             matches_in_file = result_df[result_df["RFP_Title"] == rfp_id]
 
             if not matches_in_file.empty:
+                # Calculate per-RFP match stats
+                _total = len(matches_in_file)
+                _matched = len(matches_in_file[matches_in_file["is_matched"] == True])
+                _exact = len(matches_in_file[matches_in_file["MatchMethod"] == "exact"])
+                _keyword = len(matches_in_file[matches_in_file["MatchMethod"] == "keyword"])
+                _rate = round((_matched / _total) * 100, 1) if _total > 0 else 0
+                _stats = rfp_file_stats.get(rfp_id, {})
+
                 log_rfp_activity(
                     rfp_id=rfp_id,
                     Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     Matched_Data=matches_in_file,
                     company_name=company_name,
+                    total_line_items=_stats.get("total_line_items"),
+                    file_size_bytes=_stats.get("file_size_bytes"),
+                    match_rate_pct=_rate,
+                    exact_match_count=_exact,
+                    keyword_match_count=_keyword,
                 )
     else:
         print("not_mateched_files:-", not_mateched_files)
@@ -678,13 +701,20 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
         # Ensure DB record exists (reuse existing_db_record from check above)
         if not existing_db_record:
             log_event("RFP", "Download", "Insert", "File exists locally but not in Dataverse — inserting", title)
+            _file_size = None
+            try:
+                _file_size = os.path.getsize(local_file_path)
+            except Exception:
+                pass
             log_rfp_activity(
                 rfp_id=title,
                 Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 RFP_End_Date=RFP_End_Date,
                 participated=participated,
                 link=link,
-                company_name=company_name
+                company_name=company_name,
+                rfp_type=row.get("Event Type", ""),
+                file_size_bytes=_file_size,
             )
         else:
             log_event("RFP", "Download", "Info", "File exists locally, email not yet sent — will process + email", title)
@@ -825,6 +855,11 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                 log_event("Sharepoint", "Upload", "Fail", error_msg, title)
 
         # Log RFP activity in Dataverse
+        _file_size = None
+        try:
+            _file_size = os.path.getsize(local_file_path)
+        except Exception:
+            pass
         log_rfp_activity(
             rfp_id=title,
             Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -833,7 +868,9 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
             publish_time=rfp_details['publish_time'] if rfp_details else None,
             participated=participated,
             link=link,
-            company_name=company_name
+            company_name=company_name,
+            rfp_type=row.get("Event Type", ""),
+            file_size_bytes=_file_size,
         )
         success = True
 
@@ -877,6 +914,11 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                         log_event("Sharepoint", "Upload", "Fail", error_msg, title)
 
                 # Log RFP activity in Dataverse
+                _fb_file_size = None
+                try:
+                    _fb_file_size = os.path.getsize(local_file_path)
+                except Exception:
+                    pass
                 log_rfp_activity(
                     rfp_id=title,
                     Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -885,7 +927,9 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                     publish_time=rfp_details['publish_time'] if rfp_details else None,
                     participated=participated,
                     link=link,
-                    company_name=company_name
+                    company_name=company_name,
+                    rfp_type=row.get("Event Type", ""),
+                    file_size_bytes=_fb_file_size,
                 )
                 success = True
             except Exception as e:

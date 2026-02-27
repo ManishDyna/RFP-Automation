@@ -57,12 +57,19 @@ const keywordSchema = z.object({
 })
 type KeywordForm = z.infer<typeof keywordSchema>
 
+const rfpTeamSchema = z.object({
+  product: z.string().min(1, 'Product is required').max(200),
+  name: z.string().min(1, 'Name is required').max(200),
+  email: z.string().min(1, 'Email is required').email('Must be a valid email').max(300),
+})
+type RfpTeamForm = z.infer<typeof rfpTeamSchema>
+
 // ─── Import Dialog ────────────────────────────────────────────────────────────
 
 interface ImportDialogProps {
   open: boolean
   onClose: () => void
-  type: 'materials' | 'keywords'
+  type: 'materials' | 'keywords' | 'rfp_team'
   onImport: (file: File) => Promise<void>
   isPending: boolean
 }
@@ -86,13 +93,17 @@ function ImportDialog({ open, onClose, type, onImport, isPending }: ImportDialog
   const hint =
     type === 'materials'
       ? 'Required column: material_code. Optional: description.'
-      : 'Required column: keyword (or the first column is used).'
+      : type === 'keywords'
+        ? 'Required column: keyword (or the first column is used).'
+        : 'Required columns: product, name, email.'
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Import {type === 'materials' ? 'Material Codes' : 'Keywords'}</DialogTitle>
+          <DialogTitle>
+            Import {type === 'materials' ? 'Material Codes' : type === 'keywords' ? 'Keywords' : 'RFP Team Members'}
+          </DialogTitle>
           <DialogDescription>{hint}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -596,13 +607,262 @@ function KeywordsTab() {
   )
 }
 
+// ─── RFP Team Tab ────────────────────────────────────────────────────────────
+
+function RfpTeamTab() {
+  const queryClient = useQueryClient()
+  const canCreate = useHasPermission('master_data.create')
+  const canEdit   = useHasPermission('master_data.edit')
+  const canDelete = useHasPermission('master_data.delete')
+
+  const [search, setSearch]           = useState('')
+  const [dialogOpen, setDialogOpen]   = useState(false)
+  const [editingItem, setEditingItem] = useState<any>(null)
+  const [deleteItem, setDeleteItem]   = useState<any>(null)
+  const [importOpen, setImportOpen]   = useState(false)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['rfp-team', search],
+    queryFn: () => api.getRfpTeam({ search: search || undefined, page_size: 500 }),
+  })
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<RfpTeamForm>({ resolver: zodResolver(rfpTeamSchema) })
+
+  const closeDialog = () => {
+    setDialogOpen(false)
+    setEditingItem(null)
+    reset()
+  }
+
+  const openAdd = () => {
+    setEditingItem(null)
+    reset({ product: '', name: '', email: '' })
+    setDialogOpen(true)
+  }
+
+  const openEdit = (item: any) => {
+    setEditingItem(item)
+    reset({ product: item.product ?? '', name: item.name ?? '', email: item.email ?? '' })
+    setDialogOpen(true)
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: (formData: RfpTeamForm) =>
+      editingItem
+        ? api.updateRfpTeamMember(editingItem.record_id, formData)
+        : api.createRfpTeamMember(formData),
+    onSuccess: () => {
+      toast.success(editingItem ? 'Team member updated' : 'Team member created')
+      queryClient.invalidateQueries({ queryKey: ['rfp-team'] })
+      closeDialog()
+    },
+    onError: (err: any) => toast.error(err.message || 'Operation failed'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteRfpTeamMember(id),
+    onSuccess: () => {
+      toast.success('Team member deleted')
+      queryClient.invalidateQueries({ queryKey: ['rfp-team'] })
+      setDeleteItem(null)
+    },
+    onError: (err: any) => toast.error(err.message || 'Delete failed'),
+  })
+
+  const importMutation = useMutation({
+    mutationFn: (file: File) => api.importRfpTeam(file),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ['rfp-team'] })
+      toast.success(
+        `Import complete — Created: ${res.created}, Skipped: ${res.skipped}, Failed: ${res.failed}`
+      )
+    },
+    onError: (err: any) => toast.error(err.message || 'Import failed'),
+  })
+
+  const members = data?.rfp_team ?? []
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search product, name, or email…"
+            className="pl-9"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        {canCreate && (
+          <>
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Import
+            </Button>
+            <Button onClick={openAdd}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Member
+            </Button>
+          </>
+        )}
+      </div>
+
+      {/* Count */}
+      {!isLoading && (
+        <p className="text-sm text-muted-foreground">
+          {members.length} team member{members.length !== 1 ? 's' : ''} found
+        </p>
+      )}
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+        </div>
+      ) : members.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <Database className="h-10 w-10 mx-auto mb-3 opacity-30" />
+          <p>No team members found. {canCreate ? 'Add one or import from a file.' : ''}</p>
+        </div>
+      ) : (
+        <ScrollArea className="h-[calc(100vh-400px)]">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[180px]">Product</TableHead>
+                <TableHead className="w-[180px]">Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead className="w-[120px]">Created</TableHead>
+                {(canEdit || canDelete) && <TableHead className="text-right w-[100px]">Actions</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {members.map((item: any) => (
+                <TableRow key={item.record_id}>
+                  <TableCell className="font-medium">{item.product}</TableCell>
+                  <TableCell>{item.name}</TableCell>
+                  <TableCell className="font-mono text-sm text-muted-foreground">{item.email}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {item.created_date ? item.created_date.slice(0, 10) : '—'}
+                  </TableCell>
+                  {(canEdit || canDelete) && (
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        {canEdit && (
+                          <Button variant="ghost" size="icon" onClick={() => openEdit(item)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setDeleteItem(item)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </ScrollArea>
+      )}
+
+      {/* Add / Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={(o) => !o && closeDialog()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingItem ? 'Edit Team Member' : 'Add Team Member'}</DialogTitle>
+            <DialogDescription>
+              {editingItem ? 'Update the team member details.' : 'Add a new RFP team member for product-based email routing.'}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit((d) => saveMutation.mutate(d))} className="space-y-4">
+            <div className="space-y-1">
+              <Label>Product *</Label>
+              <Input {...register('product')} placeholder="e.g. Cables" />
+              {errors.product && (
+                <p className="text-xs text-destructive">{errors.product.message}</p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label>Name *</Label>
+              <Input {...register('name')} placeholder="e.g. John Doe" />
+              {errors.name && (
+                <p className="text-xs text-destructive">{errors.name.message}</p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label>Email *</Label>
+              <Input {...register('email')} type="email" placeholder="e.g. john.doe@company.com" />
+              {errors.email && (
+                <p className="text-xs text-destructive">{errors.email.message}</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
+              <Button type="submit" loading={saveMutation.isPending}>
+                {editingItem ? 'Save Changes' : 'Add Member'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteItem} onOpenChange={(o) => !o && setDeleteItem(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Team Member</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete{' '}
+              <span className="font-semibold">{deleteItem?.name}</span> ({deleteItem?.product})?
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteItem && deleteMutation.mutate(deleteItem.record_id)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Import Dialog */}
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        type="rfp_team"
+        onImport={(file) => importMutation.mutateAsync(file)}
+        isPending={importMutation.isPending}
+      />
+    </div>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function MasterDataPage() {
   return (
     <PageWrapper
       title="Master Data"
-      description="Manage material master codes and unique keywords used for RFP matching."
+      description="Manage material master codes, keywords, and RFP team assignments."
     >
       <Card>
         <CardContent className="p-6">
@@ -610,12 +870,16 @@ export default function MasterDataPage() {
             <TabsList className="mb-6">
               <TabsTrigger value="materials">Material Codes</TabsTrigger>
               <TabsTrigger value="keywords">Keywords</TabsTrigger>
+              <TabsTrigger value="rfp-team">RFP Team</TabsTrigger>
             </TabsList>
             <TabsContent value="materials">
               <MaterialsTab />
             </TabsContent>
             <TabsContent value="keywords">
               <KeywordsTab />
+            </TabsContent>
+            <TabsContent value="rfp-team">
+              <RfpTeamTab />
             </TabsContent>
           </Tabs>
         </CardContent>

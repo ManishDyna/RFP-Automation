@@ -17,8 +17,8 @@ from config.config import (
     ACTIONABLE_CARD_CALLBACK_URL,
     RFP_RESPONSE_TABLE_API,
     RFP_RESPONSE_TABLE_LOGICAL,
-    RFP_TEAM_TABLE,
 )
+from services.master_data_service import get_all_rfp_team_for_emails
 
 router = APIRouter(prefix="/api/actionable-card", tags=["Actionable Cards"])
 
@@ -108,6 +108,7 @@ def _build_refresh_card(
     responded_count: int,
     total_count: int,
     callback_url: str,
+    team_table: list = None,
 ) -> dict:
     """
     Build the Adaptive Card JSON for refresh/post-submit display.
@@ -131,9 +132,12 @@ def _build_refresh_card(
         ],
     }
 
+    if team_table is None:
+        team_table = get_all_rfp_team_for_emails()
+
     # Data rows with actual response data
     data_rows = []
-    for member in RFP_TEAM_TABLE:
+    for member in team_table:
         m_email = member.get("email", "").lower()
         is_current = m_email == user_email_key
         resp = response_lookup.get(m_email)
@@ -342,10 +346,58 @@ async def receive_card_response(request: Request):
         raise HTTPException(status_code=500, detail="Failed to save response")
 
     # Step 5: Check if all team members have responded
+    rfp_team = get_all_rfp_team_for_emails()
     all_responses = _get_all_responses_for_rfp(rfp_id)
     responded_emails = {r.get("cr673_email", "").lower() for r in all_responses}
-    team_emails = {m.get("email", "").lower() for m in RFP_TEAM_TABLE if m.get("email")}
+    team_emails = {m.get("email", "").lower() for m in rfp_team if m.get("email")}
     all_responded = team_emails.issubset(responded_emails)
+
+    # Step 5a: Update response metrics on RFP activity log
+    try:
+        from config.config import RFP_ACTIVITY_LOG_TABLE_API, RFP_ACTIVITY_LOG_TABLE_LOGICAL
+
+        # Calculate response timestamps
+        _resp_timestamps = [
+            r.get("cr673_submitted_at", "") for r in all_responses
+            if r.get("cr673_submitted_at")
+        ]
+        _first_response = min(_resp_timestamps) if _resp_timestamps else ""
+        _all_responses_at = max(_resp_timestamps) if all_responded and _resp_timestamps else ""
+
+        # Find the activity log record for this RFP
+        _activity = _DATAVERSE.query_rows(
+            RFP_ACTIVITY_LOG_TABLE_API,
+            filter_expr=f"RFP_ID eq '{rfp_id}'",
+            top=1,
+            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            use_display_names=True,
+        )
+        if _activity and "value" in _activity and len(_activity["value"]) > 0:
+            _act_row = _activity["value"][0]
+            _pk_logical = f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"
+            try:
+                _colmap = _DATAVERSE.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)
+                _l2d = {v: k for k, v in _colmap.items()}
+            except Exception:
+                _l2d = {}
+            _pk_display = _l2d.get(_pk_logical)
+            _act_id = (_act_row.get(_pk_display) if _pk_display else None) or _act_row.get(_pk_logical)
+            if _act_id:
+                _update = {
+                    "response_count": str(len(responded_emails & team_emails)),
+                    "first_response_at": _first_response,
+                }
+                if _all_responses_at:
+                    _update["all_responses_at"] = _all_responses_at
+                _DATAVERSE.update_row(
+                    RFP_ACTIVITY_LOG_TABLE_API,
+                    _act_id,
+                    _update,
+                    table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+                    use_display_names=True,
+                )
+    except Exception as e:
+        print(f"⚠ Could not update response metrics on activity log: {e}")
 
     if all_responded and len(team_emails) > 0:
         # All team members have responded - send consolidated email with attachments + Decline button
@@ -406,6 +458,7 @@ async def receive_card_response(request: Request):
         responded_count=len(responded_emails & team_emails),
         total_count=len(team_emails),
         callback_url=ACTIONABLE_CARD_CALLBACK_URL,
+        team_table=rfp_team,
     )
 
     return JSONResponse(
@@ -456,7 +509,8 @@ async def refresh_card_status(request: Request):
     user_email_key = (expected_email or opener_email).lower()
     user_has_submitted = user_email_key in response_lookup
 
-    team_emails = {m.get("email", "").lower() for m in RFP_TEAM_TABLE if m.get("email")}
+    rfp_team = get_all_rfp_team_for_emails()
+    team_emails = {m.get("email", "").lower() for m in rfp_team if m.get("email")}
     responded_count = len(set(response_lookup.keys()) & team_emails)
 
     print(f"🔄 Refresh: rfp={rfp_id}, user={user_email_key}, submitted={user_has_submitted}, {responded_count}/{len(team_emails)}")
@@ -473,6 +527,7 @@ async def refresh_card_status(request: Request):
         responded_count=responded_count,
         total_count=len(team_emails),
         callback_url=ACTIONABLE_CARD_CALLBACK_URL,
+        team_table=rfp_team,
     )
 
     return JSONResponse(
@@ -571,8 +626,9 @@ async def get_rfp_responses(rfp_id: str):
         }
 
     # Build full team status
+    rfp_team = get_all_rfp_team_for_emails()
     team_status = []
-    for member in RFP_TEAM_TABLE:
+    for member in rfp_team:
         email = member.get("email", "").lower()
         resp = response_map.get(email)
         team_status.append({
@@ -588,7 +644,7 @@ async def get_rfp_responses(rfp_id: str):
     return JSONResponse(content={
         "ok": True,
         "rfp_id": rfp_id,
-        "total_members": len(RFP_TEAM_TABLE),
+        "total_members": len(rfp_team),
         "responses_received": len(response_map),
         "team_status": team_status,
     })

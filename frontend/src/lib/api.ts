@@ -650,6 +650,58 @@ export const api = {
     return handleResponse<{ ok: boolean; created: number; skipped: number; failed: number; errors: string[] }>(response)
   },
 
+  // ==================== Master Data — RFP Team ====================
+  getRfpTeam: async (params: { search?: string; page?: number; page_size?: number } = {}) => {
+    const searchParams = new URLSearchParams()
+    if (params.search) searchParams.append('search', params.search)
+    if (params.page) searchParams.append('page', String(params.page))
+    if (params.page_size) searchParams.append('page_size', String(params.page_size))
+    const url = searchParams.toString()
+      ? `${ENDPOINTS.MASTER_DATA.RFP_TEAM.LIST}?${searchParams}`
+      : ENDPOINTS.MASTER_DATA.RFP_TEAM.LIST
+    const response = await fetch(url, { credentials: 'include' })
+    return handleResponse<{ ok: boolean; rfp_team: any[]; page: number; page_size: number }>(response)
+  },
+
+  createRfpTeamMember: async (data: { product: string; name: string; email: string }) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM.CREATE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  updateRfpTeamMember: async (id: string, data: { product: string; name: string; email: string }) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM.UPDATE(id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  deleteRfpTeamMember: async (id: string) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM.DELETE(id), {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  importRfpTeam: async (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM.IMPORT, {
+      method: 'POST',
+      body: form,
+      credentials: 'include',
+    })
+    return handleResponse<{ ok: boolean; created: number; skipped: number; failed: number; errors: string[] }>(response)
+  },
+
   // ==================== Audit Logs ====================
   getAuditLogs: async (params: {
     page?: number

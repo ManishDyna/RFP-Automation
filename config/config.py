@@ -93,6 +93,10 @@ RFP_ACTIVITY_LOG_TABLE_LOGICAL = "cr673_requestforproposal"
 AUTOMATION_LOG_TABLE_API = "cr673_bahra_automation_log1s"
 RFP_ACTIVITY_LOG_TABLE_API = "cr673_requestforproposals"
 
+# Analytics columns on RFP Activity Log (added by setup_rfp_activity_columns.py)
+# rfp_type, total_line_items, match_rate_pct, exact_match_count, keyword_match_count,
+# file_size_bytes, first_response_at, all_responses_at, response_count
+
 # ===== Users (Dataverse) =====
 USERS_TABLE_LOGICAL = "cr673_bahra_users"     # logical name of your table (example)
 USERS_TABLE_API = "cr673_bahra_userses"       # pluralized API path (example)
@@ -251,10 +255,13 @@ ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/act
 # ===== Master Data (Dataverse) =====
 # Run setup_master_data_tables.py first, then confirm EntitySetName values below.
 MATERIAL_MASTER_TABLE_LOGICAL = "cr673_bahra_material_master"
-MATERIAL_MASTER_TABLE_API     = "cr673_bahra_material_master"   # confirm after setup
+MATERIAL_MASTER_TABLE_API     = "cr673_bahra_material_masters"   # confirm after setup
 
-KEYWORDS_TABLE_LOGICAL = "cr673_bahra_keywords" 
-KEYWORDS_TABLE_API     = "cr673_bahra_keywords"                 # confirm after setup
+KEYWORDS_TABLE_LOGICAL = "cr673_bahra_keywords"
+KEYWORDS_TABLE_API     = "cr673_bahra_keywordses"
+
+RFP_TEAM_DV_TABLE_LOGICAL = "cr673_bahra_rfp_team"
+RFP_TEAM_DV_TABLE_API     = "cr673_bahra_rfp_teams"           # confirm after setup
 
 # ===== RFP Team Responses (Dataverse) =====
 # Table for storing individual team member responses from Adaptive Card submissions

@@ -19,6 +19,8 @@ from config.config import (
     MATERIAL_MASTER_TABLE_LOGICAL,
     KEYWORDS_TABLE_API,
     KEYWORDS_TABLE_LOGICAL,
+    RFP_TEAM_DV_TABLE_API,
+    RFP_TEAM_DV_TABLE_LOGICAL,
 )
 
 
@@ -66,12 +68,12 @@ def list_materials(search: Optional[str] = None, page: int = 1, page_size: int =
     Return paginated materials.
     Response: {"materials": [...], "total": int, "page": int, "page_size": int}
     """
-    filter_expr = "cr673_is_active eq 'true'"
+    filter_expr = "is_active eq 'true'"
     if search:
         escaped = search.replace("'", "''")
         filter_expr += (
-            f" and (contains(cr673_material_code,'{escaped}')"
-            f" or contains(cr673_description,'{escaped}'))"
+            f" and (contains(material_code,'{escaped}')"
+            f" or contains(description,'{escaped}'))"
         )
 
     skip = (page - 1) * page_size
@@ -89,10 +91,10 @@ def list_materials(search: Optional[str] = None, page: int = 1, page_size: int =
 
     rows = result.get("value", []) if isinstance(result, dict) else []
 
-    # Attach record_id
+    # Attach record_id (uses display-name-aware helper)
     pk_logical = f"{MATERIAL_MASTER_TABLE_LOGICAL}id"
     for row in rows:
-        row["record_id"] = row.get(pk_logical) or row.get("record_id", "")
+        row["record_id"] = _extract_record_id(row, pk_logical)
 
     return {"materials": rows, "page": page, "page_size": page_size}
 
@@ -119,7 +121,7 @@ def get_material(record_id: str) -> Optional[dict]:
 def material_code_exists(code: str, exclude_record_id: str = "") -> bool:
     """Check whether a material_code already exists (for duplicate prevention)."""
     escaped = code.strip().replace("'", "''")
-    filter_expr = f"cr673_material_code eq '{escaped}' and cr673_is_active eq 'true'"
+    filter_expr = f"material_code eq '{escaped}' and is_active eq 'true'"
     result = DATAVERSE.query_rows(
         table_api_name=MATERIAL_MASTER_TABLE_API,
         filter_expr=filter_expr,
@@ -234,10 +236,10 @@ def get_all_materials_for_matching() -> List[str]:
 # ---------------------------------------------------------------------------
 
 def list_keywords(search: Optional[str] = None, page: int = 1, page_size: int = 200) -> dict:
-    filter_expr = "cr673_is_active eq 'true'"
+    filter_expr = "is_active eq 'true'"
     if search:
         escaped = search.replace("'", "''")
-        filter_expr += f" and contains(cr673_keyword,'{escaped}')"
+        filter_expr += f" and contains(keyword,'{escaped}')"
 
     skip = (page - 1) * page_size
 
@@ -255,7 +257,7 @@ def list_keywords(search: Optional[str] = None, page: int = 1, page_size: int = 
     rows = result.get("value", []) if isinstance(result, dict) else []
     pk_logical = f"{KEYWORDS_TABLE_LOGICAL}id"
     for row in rows:
-        row["record_id"] = row.get(pk_logical) or row.get("record_id", "")
+        row["record_id"] = _extract_record_id(row, pk_logical)
 
     return {"keywords": rows, "page": page, "page_size": page_size}
 
@@ -279,7 +281,7 @@ def get_keyword(record_id: str) -> Optional[dict]:
 
 def keyword_exists(kw: str, exclude_record_id: str = "") -> bool:
     escaped = kw.strip().upper().replace("'", "''")
-    filter_expr = f"cr673_keyword eq '{escaped}' and cr673_is_active eq 'true'"
+    filter_expr = f"keyword eq '{escaped}' and is_active eq 'true'"
     result = DATAVERSE.query_rows(
         table_api_name=KEYWORDS_TABLE_API,
         filter_expr=filter_expr,
@@ -383,3 +385,197 @@ def get_all_keywords_for_matching() -> List[str]:
     except Exception as e:
         print(f"[MasterData] Could not fetch keywords from Dataverse: {e}")
         return []
+
+
+# ---------------------------------------------------------------------------
+# RFP Team
+# ---------------------------------------------------------------------------
+
+def list_rfp_team(search: Optional[str] = None, page: int = 1, page_size: int = 100) -> dict:
+    # NOTE: use display names in filters (not cr673_ prefixed) because
+    # DataverseClient.query_rows does naive .replace(display, logical) which
+    # would double-prefix e.g. cr673_product → cr673_cr673_product.
+    filter_expr = "is_active eq 'true'"
+    if search:
+        escaped = search.replace("'", "''")
+        filter_expr += (
+            f" and (contains(product,'{escaped}')"
+            f" or contains(name,'{escaped}')"
+            f" or contains(email,'{escaped}'))"
+        )
+
+    skip = (page - 1) * page_size
+
+    result = DATAVERSE.query_rows(
+        table_api_name=RFP_TEAM_DV_TABLE_API,
+        filter_expr=filter_expr,
+        select="product,name,email,is_active,created_date,updated_date",
+        top=page_size,
+        skip=skip,
+        order_by="created_date desc",
+        table_logical_name=RFP_TEAM_DV_TABLE_LOGICAL,
+        use_display_names=True,
+    )
+
+    rows = result.get("value", []) if isinstance(result, dict) else []
+    pk_logical = f"{RFP_TEAM_DV_TABLE_LOGICAL}id"
+    for row in rows:
+        row["record_id"] = _extract_record_id(row, pk_logical)
+
+    return {"rfp_team": rows, "page": page, "page_size": page_size}
+
+
+def get_rfp_team_member(record_id: str) -> Optional[dict]:
+    url = f"{DATAVERSE.api_url}{RFP_TEAM_DV_TABLE_API}({record_id})"
+    resp = requests.get(url, headers=DATAVERSE._headers())
+    if resp.status_code != 200:
+        return None
+    row = resp.json()
+    try:
+        colmap = DATAVERSE.get_column_mapping(RFP_TEAM_DV_TABLE_LOGICAL)
+        logical_to_display = {v: k for k, v in colmap.items()}
+        mapped = {logical_to_display.get(k, k): v for k, v in row.items()}
+        mapped["record_id"] = record_id
+        return mapped
+    except Exception:
+        row["record_id"] = record_id
+        return row
+
+
+def rfp_team_member_exists(product: str, email: str, exclude_record_id: str = "") -> bool:
+    """Check if a product+email combination already exists."""
+    escaped_product = product.strip().replace("'", "''")
+    escaped_email = email.strip().lower().replace("'", "''")
+    # Use display names in filters (see note in list_rfp_team)
+    filter_expr = (
+        f"product eq '{escaped_product}' and "
+        f"email eq '{escaped_email}' and "
+        f"is_active eq 'true'"
+    )
+    result = DATAVERSE.query_rows(
+        table_api_name=RFP_TEAM_DV_TABLE_API,
+        filter_expr=filter_expr,
+        select="product,email",
+        top=5,
+        table_logical_name=RFP_TEAM_DV_TABLE_LOGICAL,
+        use_display_names=True,
+    )
+    rows = result.get("value", []) if isinstance(result, dict) else []
+    pk_logical = f"{RFP_TEAM_DV_TABLE_LOGICAL}id"
+    for row in rows:
+        rid = row.get(pk_logical, "")
+        if rid != exclude_record_id:
+            return True
+    return False
+
+
+def create_rfp_team_member(product: str, name: str, email: str) -> bool:
+    data = {
+        "product": product.strip(),
+        "name": name.strip(),
+        "email": email.strip().lower(),
+        "is_active": "true",
+        "created_date": _now_iso(),
+        "updated_date": _now_iso(),
+    }
+    return DATAVERSE.insert_row(
+        table_api_name=RFP_TEAM_DV_TABLE_API,
+        data=data,
+        table_logical_name=RFP_TEAM_DV_TABLE_LOGICAL,
+        use_display_names=True,
+    )
+
+
+def update_rfp_team_member(record_id: str, product: str, name: str, email: str) -> bool:
+    data = {
+        "product": product.strip(),
+        "name": name.strip(),
+        "email": email.strip().lower(),
+        "updated_date": _now_iso(),
+    }
+    return DATAVERSE.update_row(
+        table_api_name=RFP_TEAM_DV_TABLE_API,
+        record_id=record_id,
+        data=data,
+        table_logical_name=RFP_TEAM_DV_TABLE_LOGICAL,
+        use_display_names=True,
+    )
+
+
+def delete_rfp_team_member(record_id: str) -> bool:
+    return _hard_delete(RFP_TEAM_DV_TABLE_API, record_id)
+
+
+def bulk_import_rfp_team(rows: List[Dict]) -> dict:
+    """
+    Insert a list of {"product": ..., "name": ..., "email": ...} dicts.
+    Skips duplicates. Returns {created, skipped, failed, errors}.
+    """
+    created = skipped = failed = 0
+    errors: List[str] = []
+
+    for row in rows:
+        product = str(row.get("product") or "").strip()
+        name = str(row.get("name") or "").strip()
+        email = str(row.get("email") or "").strip().lower()
+
+        if not product or not name or not email:
+            skipped += 1
+            continue
+
+        if rfp_team_member_exists(product, email):
+            skipped += 1
+            continue
+
+        try:
+            ok = create_rfp_team_member(product, name, email)
+            if ok:
+                created += 1
+            else:
+                failed += 1
+                errors.append(f"Insert failed for {name} ({email})")
+        except Exception as e:
+            failed += 1
+            errors.append(f"Error for {name}: {str(e)[:100]}")
+
+    return {"created": created, "skipped": skipped, "failed": failed, "errors": errors}
+
+
+def get_all_rfp_team_for_emails() -> List[Dict[str, str]]:
+    """
+    Return all active RFP team members as a list of dicts:
+    [{"product": ..., "name": ..., "email": ...}, ...]
+
+    This is the dynamic replacement for config.RFP_TEAM_TABLE.
+    Applies EMAIL_MODE logic: in dev mode, overrides all emails with DEV_EMAIL.
+    Falls back to the static config table if Dataverse fetch fails.
+    """
+    from config.config import EMAIL_MODE, DEV_EMAIL, RFP_TEAM_TABLE as STATIC_FALLBACK
+
+    try:
+        rows = DATAVERSE.get_all_rows(
+            table_api_name=RFP_TEAM_DV_TABLE_API,
+            select_columns=["product", "name", "email", "is_active"],
+            table_logical_name=RFP_TEAM_DV_TABLE_LOGICAL,
+            use_display_names=True,
+        )
+        team = [
+            {
+                "product": str(r.get("product", "")).strip(),
+                "name": str(r.get("name", "")).strip(),
+                "email": (
+                    DEV_EMAIL if EMAIL_MODE != "prod"
+                    else str(r.get("email", "")).strip()
+                ),
+            }
+            for r in rows
+            if str(r.get("is_active", "")).lower() == "true"
+            and r.get("product") and r.get("name") and r.get("email")
+        ]
+        if team:
+            return team
+        print("[RFPTeam] Dataverse table empty, using static fallback")
+        return STATIC_FALLBACK
+    except Exception as e:
+        print(f"[RFPTeam] Could not fetch from Dataverse: {e}, using static fallback")
+        return STATIC_FALLBACK

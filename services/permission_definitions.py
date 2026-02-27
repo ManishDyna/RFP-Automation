@@ -46,10 +46,10 @@ PERMISSIONS = {
     "material_insights.view": "View material insights",
 
     # Master Data Management
-    "master_data.view":   "View material master codes and keywords",
-    "master_data.create": "Add new material codes or keywords",
-    "master_data.edit":   "Edit material codes or keywords",
-    "master_data.delete": "Delete material codes or keywords",
+    "master_data.view":   "View material codes, keywords, and RFP team assignments",
+    "master_data.create": "Add new material codes, keywords, or RFP team members",
+    "master_data.edit":   "Edit material codes, keywords, or RFP team members",
+    "master_data.delete": "Delete material codes, keywords, or RFP team members",
 }
 
 # Group permissions by module for UI display

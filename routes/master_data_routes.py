@@ -31,6 +31,14 @@ from services.master_data_service import (
     update_keyword,
     delete_keyword,
     bulk_import_keywords,
+    # RFP Team
+    list_rfp_team,
+    get_rfp_team_member,
+    rfp_team_member_exists,
+    create_rfp_team_member,
+    update_rfp_team_member,
+    delete_rfp_team_member,
+    bulk_import_rfp_team,
 )
 
 router = APIRouter(prefix="/api/master-data", tags=["master-data"])
@@ -217,7 +225,7 @@ async def api_import_materials(
         ip_address=get_request_ip(request),
     )
 
-    return JSONResponse({"ok": True, **result})
+    return JSONResponse({"ok": True, **result})  # materials import
 
 
 # ============================================================
@@ -388,6 +396,187 @@ async def api_import_keywords(
         actor_email=user.get("email", ""),
         actor_name=user.get("name", ""),
         target_type="Keyword",
+        target_id="bulk",
+        details=json.dumps({
+            "file": filename,
+            "created": result["created"],
+            "skipped": result["skipped"],
+            "failed": result["failed"],
+        }),
+        ip_address=get_request_ip(request),
+    )
+
+    return JSONResponse({"ok": True, **result})  # keywords import
+
+
+# ============================================================
+# RFP Team — CRUD
+# ============================================================
+
+@router.get("/rfp-team/list")
+async def api_list_rfp_team(
+    request: Request,
+    search: str = "",
+    page: int = 1,
+    page_size: int = 100,
+    user: dict = Depends(require_permission("master_data.view")),
+):
+    try:
+        result = list_rfp_team(search=search or None, page=page, page_size=page_size)
+        return JSONResponse({"ok": True, **result})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/rfp-team/create")
+async def api_create_rfp_team_member(
+    request: Request,
+    user: dict = Depends(require_permission("master_data.create")),
+):
+    data = await request.json()
+    product = (data.get("product") or "").strip()
+    name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+
+    if not product or not name or not email:
+        raise HTTPException(status_code=400, detail="product, name, and email are all required")
+
+    if rfp_team_member_exists(product, email):
+        raise HTTPException(status_code=409, detail=f"Team member with product '{product}' and email '{email}' already exists")
+
+    ok = create_rfp_team_member(product, name, email)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to create team member")
+
+    log_event(
+        action=_add_master_data_action("RFP_TEAM_CREATED"),
+        category=AuditCategory.SYSTEM,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="RFPTeam",
+        target_id=email,
+        details=json.dumps({"product": product, "name": name, "email": email}),
+        ip_address=get_request_ip(request),
+    )
+
+    return JSONResponse({"ok": True, "message": f"Team member '{name}' created successfully"})
+
+
+@router.put("/rfp-team/update/{record_id}")
+async def api_update_rfp_team_member(
+    request: Request,
+    record_id: str,
+    user: dict = Depends(require_permission("master_data.edit")),
+):
+    data = await request.json()
+    product = (data.get("product") or "").strip()
+    name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+
+    if not product or not name or not email:
+        raise HTTPException(status_code=400, detail="product, name, and email are all required")
+
+    existing = get_rfp_team_member(record_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Team member not found")
+
+    if rfp_team_member_exists(product, email, exclude_record_id=record_id):
+        raise HTTPException(status_code=409, detail=f"Team member with product '{product}' and email '{email}' already exists")
+
+    ok = update_rfp_team_member(record_id, product, name, email)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update team member")
+
+    log_event(
+        action=_add_master_data_action("RFP_TEAM_UPDATED"),
+        category=AuditCategory.SYSTEM,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="RFPTeam",
+        target_id=record_id,
+        details=json.dumps({"product": product, "name": name, "email": email}),
+        ip_address=get_request_ip(request),
+    )
+
+    return JSONResponse({"ok": True, "message": "Team member updated successfully"})
+
+
+@router.delete("/rfp-team/delete/{record_id}")
+async def api_delete_rfp_team_member(
+    request: Request,
+    record_id: str,
+    user: dict = Depends(require_permission("master_data.delete")),
+):
+    existing = get_rfp_team_member(record_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Team member not found")
+
+    ok = delete_rfp_team_member(record_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to delete team member")
+
+    log_event(
+        action=_add_master_data_action("RFP_TEAM_DELETED"),
+        category=AuditCategory.SYSTEM,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="RFPTeam",
+        target_id=record_id,
+        details=json.dumps({
+            "product": existing.get("product", ""),
+            "name": existing.get("name", ""),
+            "email": existing.get("email", ""),
+        }),
+        ip_address=get_request_ip(request),
+    )
+
+    return JSONResponse({"ok": True, "message": "Team member deleted successfully"})
+
+
+@router.post("/rfp-team/import")
+async def api_import_rfp_team(
+    request: Request,
+    file: UploadFile = File(...),
+    user: dict = Depends(require_permission("master_data.create")),
+):
+    """
+    Bulk import RFP team members from a CSV or Excel file.
+    Required columns: product, name, email
+    """
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower()
+
+    try:
+        contents = await file.read()
+        if ext in ("xlsx", "xls"):
+            df = pd.read_excel(io.BytesIO(contents), dtype=str)
+        elif ext == "csv":
+            df = pd.read_csv(io.BytesIO(contents), dtype=str)
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file type. Use .csv, .xlsx, or .xls")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read file: {e}")
+
+    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+
+    for required_col in ("product", "name", "email"):
+        if required_col not in df.columns:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File must have a '{required_col}' column. Found: {list(df.columns)}",
+            )
+
+    rows = df.to_dict("records")
+    result = bulk_import_rfp_team(rows)
+
+    log_event(
+        action=_add_master_data_action("RFP_TEAM_IMPORTED"),
+        category=AuditCategory.SYSTEM,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="RFPTeam",
         target_id="bulk",
         details=json.dumps({
             "file": filename,

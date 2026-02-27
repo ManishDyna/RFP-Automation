@@ -203,7 +203,13 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                      company_name=None,
                      run_id=None, insert_to_dataverse=True,
                      no_of_matched_materials=None,
-                     no_of_matched_keywords=None):
+                     no_of_matched_keywords=None,
+                     rfp_type=None,
+                     total_line_items=None,
+                     match_rate_pct=None,
+                     exact_match_count=None,
+                     keyword_match_count=None,
+                     file_size_bytes=None):
 
     if isinstance(Matched_Data, pd.DataFrame) and not Matched_Data.empty:
         Matched_Data_str = Matched_Data.to_json(orient="records")
@@ -243,6 +249,20 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
         row_data["Link"] = link.strip()
     if company_name is not None and company_name.strip():
         row_data["Company_Name"] = company_name.strip()
+
+    # Analytics columns — captured during portal scraping and file processing
+    if rfp_type is not None and str(rfp_type).strip():
+        row_data["rfp_type"] = str(rfp_type).strip()
+    if total_line_items is not None:
+        row_data["total_line_items"] = str(total_line_items)
+    if match_rate_pct is not None:
+        row_data["match_rate_pct"] = str(match_rate_pct)
+    if exact_match_count is not None:
+        row_data["exact_match_count"] = str(exact_match_count)
+    if keyword_match_count is not None:
+        row_data["keyword_match_count"] = str(keyword_match_count)
+    if file_size_bytes is not None:
+        row_data["file_size_bytes"] = str(file_size_bytes)
 
     # Auto-calculate match counts from Matched_Data if not explicitly provided
     if no_of_matched_materials is None and Matched_Data is not None:
@@ -310,6 +330,11 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                         has_meaningful_updates = True
                         print(f"🔄 Email sent — updating Email_Sent_At for: {rfp_id}")
 
+                    # Check if analytics fields are being provided
+                    if any(v is not None for v in [rfp_type, total_line_items, match_rate_pct,
+                                                    exact_match_count, keyword_match_count, file_size_bytes]):
+                        has_meaningful_updates = True
+
                     # Check if matched data is being added (and wasn't there before)
                     if Matched_Data_str and Matched_Data_str.strip():
                         existing_matched_data = existing_row.get("Matched_Data", "")
@@ -347,7 +372,21 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                             existing_link = existing_row.get("Link", "")
                             if not existing_link or existing_link.strip() != link.strip():
                                 update_data["Link"] = link.strip()
-                        
+
+                        # Analytics columns — always update if provided
+                        if rfp_type is not None and str(rfp_type).strip():
+                            update_data["rfp_type"] = str(rfp_type).strip()
+                        if total_line_items is not None:
+                            update_data["total_line_items"] = str(total_line_items)
+                        if match_rate_pct is not None:
+                            update_data["match_rate_pct"] = str(match_rate_pct)
+                        if exact_match_count is not None:
+                            update_data["exact_match_count"] = str(exact_match_count)
+                        if keyword_match_count is not None:
+                            update_data["keyword_match_count"] = str(keyword_match_count)
+                        if file_size_bytes is not None:
+                            update_data["file_size_bytes"] = str(file_size_bytes)
+
                         # Don't update Downloaded_At for re-downloads
                         # Only update other meaningful fields
                         if update_data:
