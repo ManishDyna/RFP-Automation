@@ -41,6 +41,76 @@ def create_file_names_and_source_files(rfp_titles: list, company_name: str = Non
     }
 
 
+def _build_input_widget(col_def: dict) -> dict:
+    """Build an Adaptive Card input element based on column type."""
+    key = col_def["column_key"]
+    col_type = col_def.get("column_type", "text")
+
+    if col_type == "dropdown":
+        options_raw = col_def.get("dropdown_options", "") or ""
+        try:
+            options = json.loads(options_raw) if options_raw else []
+        except (json.JSONDecodeError, TypeError):
+            options = []
+        choices = [{"title": opt, "value": opt} for opt in options]
+        return {
+            "type": "Input.ChoiceSet",
+            "id": key,
+            "placeholder": f"Select {col_def.get('column_label', key)}...",
+            "choices": choices,
+            "style": "compact",
+        }
+    elif col_type == "yes_no":
+        return {
+            "type": "Input.Toggle",
+            "id": key,
+            "title": col_def.get("column_label", key),
+            "valueOn": "Yes",
+            "valueOff": "No",
+        }
+    else:  # text
+        return {
+            "type": "Input.Text",
+            "id": key,
+            "placeholder": f"Enter {col_def.get('column_label', key).lower()}...",
+        }
+
+
+def _build_dynamic_html_table(columns: list, team_table: list, response_data: list = None) -> str:
+    """
+    Build an HTML <table> dynamically from column definitions.
+    If response_data is provided, fills input columns with response values.
+    Otherwise, input columns are left empty.
+    """
+    # Header row
+    headers = "".join(
+        f"<th style='border:1px solid #ccc;padding:6px 10px;'>{col.get('column_label', col['column_key'])}</th>"
+        for col in columns
+    )
+
+    # Data rows
+    data_source = response_data if response_data else team_table
+    rows_html = ""
+    for item in data_source:
+        cells = ""
+        for col in columns:
+            key = col["column_key"]
+            if response_data:
+                # Showing filled responses
+                value = item.get(key, "") or ""
+            elif col.get("column_category") == "display":
+                value = item.get(key, "") or ""
+            else:
+                value = ""  # Input columns are empty in initial email
+            cells += f"<td style='border:1px solid #ccc;padding:6px 10px;'>{value}</td>"
+        rows_html += f"<tr>{cells}</tr>"
+
+    return f"""<table style='border-collapse:collapse;margin:10px 0;'>
+      <tr style='background:#f0f0f0;'>{headers}</tr>
+      {rows_html}
+    </table>"""
+
+
 def _build_rfp_notification_html(rfp_titles: list, rfp_end_dates: dict = None) -> tuple:
     """
     Build the standard RFP notification email subject and HTML body
@@ -49,7 +119,9 @@ def _build_rfp_notification_html(rfp_titles: list, rfp_end_dates: dict = None) -
       - Body     : Greeting + Products/Name table + due-date note
     """
     from services.master_data_service import get_all_rfp_team_for_emails
+    from services.rfp_team_columns_service import get_all_columns
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
+    columns = get_all_columns()
 
     rfp_end_dates = rfp_end_dates or {}
 
@@ -59,25 +131,8 @@ def _build_rfp_notification_html(rfp_titles: list, rfp_end_dates: dict = None) -
     else:
         subject = f"New {len(rfp_titles)} RFP(s) Received ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
 
-    # Products / Name table rows
-    table_rows = "".join(
-        f"<tr><td style='border:1px solid #ccc;padding:6px 10px;'>{row['product']}</td>"
-        f"<td style='border:1px solid #ccc;padding:6px 10px;'>{row['name']}</td>"
-        f"<td style='border:1px solid #ccc;padding:6px 10px;'></td>"
-        f"<td style='border:1px solid #ccc;padding:6px 10px;'></td></tr>"
-        for row in RFP_TEAM_TABLE
-    )
-    table_html = f"""
-    <table style='border-collapse:collapse;margin:10px 0;'>
-      <tr style='background:#f0f0f0;'>
-        <th style='border:1px solid #ccc;padding:6px 10px;'>Products</th>
-        <th style='border:1px solid #ccc;padding:6px 10px;'>Name</th>
-        <th style='border:1px solid #ccc;padding:6px 10px;'>Results</th>
-        <th style='border:1px solid #ccc;padding:6px 10px;'>Remarks</th>
-      </tr>
-      {table_rows}
-    </table>
-    """
+    # Dynamic HTML table
+    table_html = _build_dynamic_html_table(columns, RFP_TEAM_TABLE)
 
     # Due-date notes (one per RFP)
     due_date_lines = ""
@@ -105,64 +160,64 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
     The card is embedded in the email HTML and rendered interactively in Outlook.
     Shows the full team table with the current member's row highlighted,
     and input fields for Results and Remarks below the table.
+    Columns are driven dynamically by the column definitions service.
     """
     from services.master_data_service import get_all_rfp_team_for_emails
+    from services.rfp_team_columns_service import get_all_columns, get_input_columns
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
+    columns = get_all_columns()
+    input_columns = get_input_columns()
 
-    # --- Build the team table rows ---
-    # Header row
+    # --- Build dynamic header row ---
+    header_cols = []
+    for col in columns:
+        header_cols.append({
+            "type": "Column", "width": "stretch", "padding": "None",
+            "items": [{"type": "TextBlock", "text": col.get("column_label", col["column_key"]),
+                        "weight": "Bolder", "horizontalAlignment": "Center"}],
+        })
     header_row = {
         "type": "ColumnSet",
         "style": "emphasis",
-        "columns": [
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Products", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Name", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Results", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Remarks", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-        ],
+        "columns": header_cols,
         "padding": "None",
     }
 
-    # Data rows — current member gets inline Input.Text, others get "Pending"
+    # --- Build dynamic data rows ---
     data_rows = []
     for member in RFP_TEAM_TABLE:
         is_current = member.get("email", "").lower() == email.lower()
+        row_columns = []
 
-        if is_current:
-            # Editable row — Input.Text fields inline
-            results_item = {"type": "Input.Text", "id": "results", "placeholder": "Enter results..."}
-            remarks_item = {"type": "Input.Text", "id": "remarks", "placeholder": "Enter remarks..."}
-        else:
-            # Read-only row
-            results_item = {"type": "TextBlock", "text": "Pending", "horizontalAlignment": "Center", "color": "Warning"}
-            remarks_item = {"type": "TextBlock", "text": "Pending", "horizontalAlignment": "Center", "color": "Warning"}
+        for col in columns:
+            key = col["column_key"]
+            if col.get("column_category") == "input" and is_current:
+                # Editable widget for current member
+                item = _build_input_widget(col)
+            elif col.get("column_category") == "input":
+                # Other members: show "Pending"
+                item = {"type": "TextBlock", "text": "Pending",
+                        "horizontalAlignment": "Center", "color": "Warning"}
+            else:
+                # Display column
+                value = member.get(key, "") or ""
+                if key == "name" and is_current:
+                    value = f"{value} (You)"
+                item = {"type": "TextBlock", "text": value,
+                        "horizontalAlignment": "Center",
+                        **({"weight": "Bolder"} if is_current else {})}
+
+            row_columns.append({
+                "type": "Column", "width": "stretch", "padding": "None",
+                "items": [item],
+            })
 
         row = {
             "type": "ColumnSet",
             "separator": True,
             "padding": "None",
             **({"style": "accent"} if is_current else {}),
-            "columns": [
-                {
-                    "type": "Column", "width": "stretch", "padding": "None",
-                    "items": [{"type": "TextBlock", "text": member["product"], "horizontalAlignment": "Center",
-                               **({"weight": "Bolder"} if is_current else {})}],
-                },
-                {
-                    "type": "Column", "width": "stretch", "padding": "None",
-                    "items": [{"type": "TextBlock", "text": f"{member['name']} (You)" if is_current else member["name"],
-                               "horizontalAlignment": "Center",
-                               **({"weight": "Bolder"} if is_current else {})}],
-                },
-                {
-                    "type": "Column", "width": "stretch", "padding": "None",
-                    "items": [results_item],
-                },
-                {
-                    "type": "Column", "width": "stretch", "padding": "None",
-                    "items": [remarks_item],
-                },
-            ],
+            "columns": row_columns,
         }
         data_rows.append(row)
 
@@ -242,8 +297,8 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
                     "name": name,
                     "email": email,
                     "company_name": company_name,
-                    "results": "{{results.value}}",
-                    "remarks": "{{remarks.value}}",
+                    # Dynamic input column bindings
+                    **{col["column_key"]: "{{" + col["column_key"] + ".value}}" for col in input_columns},
                 }),
                 "style": "positive",
                 "isPrimary": True,
@@ -399,13 +454,9 @@ def send_actionable_rfp_emails(
 
         # Build email HTML with embedded adaptive card
         # Adaptive Card is in <head>; <body> has a fallback for non-Outlook / unapproved originator
-        fallback_table_rows = "".join(
-            f"<tr><td style='border:1px solid #ccc;padding:6px 10px;'>{m['product']}</td>"
-            f"<td style='border:1px solid #ccc;padding:6px 10px;'>{m['name']}</td>"
-            f"<td style='border:1px solid #ccc;padding:6px 10px;'></td>"
-            f"<td style='border:1px solid #ccc;padding:6px 10px;'></td></tr>"
-            for m in RFP_TEAM_TABLE
-        )
+        from services.rfp_team_columns_service import get_all_columns as _get_cols
+        _columns = _get_cols()
+        fallback_table_html = _build_dynamic_html_table(_columns, RFP_TEAM_TABLE)
         body_html = f"""<html>
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
@@ -416,16 +467,8 @@ def send_actionable_rfp_emails(
 <body>
   <p>Dear {name},</p>
   <p>Kindly advise us regarding the attached RFP file for <b>{product}</b>.</p>
-  <p>Please fill in your Results and Remarks below.</p>
-  <table style='border-collapse:collapse;margin:10px 0;'>
-    <tr style='background:#f0f0f0;'>
-      <th style='border:1px solid #ccc;padding:6px 10px;'>Products</th>
-      <th style='border:1px solid #ccc;padding:6px 10px;'>Name</th>
-      <th style='border:1px solid #ccc;padding:6px 10px;'>Results</th>
-      <th style='border:1px solid #ccc;padding:6px 10px;'>Remarks</th>
-    </tr>
-    {fallback_table_rows}
-  </table>
+  <p>Please fill in your responses below.</p>
+  {fallback_table_html}
   <p style='background-color:#FFFF00;display:inline-block;padding:4px 8px;'>
     <b>Note: the due date for <u>{rfp_id}</u> is {rfp_end_date}</b>
   </p>
@@ -553,38 +596,48 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
                 print(f"⚠ Could not load attachment: {fname}")
 
     # --- Build Adaptive Card with filled response table + Decline button ---
-    # Table header
+    from services.rfp_team_columns_service import get_all_columns as _get_all_cols
+    columns = _get_all_cols()
+
+    # Dynamic header row
+    header_cols = []
+    for col in columns:
+        header_cols.append({
+            "type": "Column", "width": "stretch", "padding": "None",
+            "items": [{"type": "TextBlock", "text": col.get("column_label", col["column_key"]),
+                        "weight": "Bolder", "horizontalAlignment": "Center"}],
+        })
     header_row = {
         "type": "ColumnSet",
         "style": "emphasis",
         "padding": "None",
-        "columns": [
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Products", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Name", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Results", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Remarks", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-        ],
+        "columns": header_cols,
     }
 
-    # Filled data rows
+    # Dynamic filled data rows
     data_rows = []
     for resp in responses:
-        row = {
+        row_cols = []
+        for col in columns:
+            key = col["column_key"]
+            value = resp.get(key, "") or ""
+            if not value and col.get("column_category") == "input":
+                value = "-"
+            color = "Good" if col.get("column_category") == "input" and value != "-" else None
+            text_block = {"type": "TextBlock", "text": value,
+                          "horizontalAlignment": "Center", "wrap": True}
+            if color:
+                text_block["color"] = color
+            row_cols.append({
+                "type": "Column", "width": "stretch", "padding": "None",
+                "items": [text_block],
+            })
+        data_rows.append({
             "type": "ColumnSet",
             "separator": True,
             "padding": "None",
-            "columns": [
-                {"type": "Column", "width": "stretch", "padding": "None",
-                 "items": [{"type": "TextBlock", "text": resp.get("product", ""), "horizontalAlignment": "Center"}]},
-                {"type": "Column", "width": "stretch", "padding": "None",
-                 "items": [{"type": "TextBlock", "text": resp.get("name", ""), "horizontalAlignment": "Center"}]},
-                {"type": "Column", "width": "stretch", "padding": "None",
-                 "items": [{"type": "TextBlock", "text": resp.get("results", ""), "horizontalAlignment": "Center", "color": "Good"}]},
-                {"type": "Column", "width": "stretch", "padding": "None",
-                 "items": [{"type": "TextBlock", "text": resp.get("remarks", "") or "-", "horizontalAlignment": "Center", "color": "Good", "wrap": True}]},
-            ],
-        }
-        data_rows.append(row)
+            "columns": row_cols,
+        })
 
     # Footer items
     footer_items = [
@@ -645,14 +698,8 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     sender_email = "D365FOadmin@bahra-electric.com"
     recipients = ", ".join(all_emails)
 
-    # Build fallback table rows for non-Outlook clients
-    fallback_rows = "".join(
-        f"<tr><td style='border:1px solid #ccc;padding:6px 10px;'>{r.get('product','')}</td>"
-        f"<td style='border:1px solid #ccc;padding:6px 10px;'>{r.get('name','')}</td>"
-        f"<td style='border:1px solid #ccc;padding:6px 10px;'>{r.get('results','')}</td>"
-        f"<td style='border:1px solid #ccc;padding:6px 10px;'>{r.get('remarks','') or '-'}</td></tr>"
-        for r in responses
-    )
+    # Build fallback table for non-Outlook clients (dynamic columns with filled data)
+    fallback_table_html = _build_dynamic_html_table(columns, [], response_data=responses)
     body_html = f"""<html>
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
@@ -663,15 +710,7 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
 <body>
   <p>Dear Team,</p>
   <p>All team members have submitted their responses for <b>{rfp_id}</b>.</p>
-  <table style='border-collapse:collapse;margin:10px 0;'>
-    <tr style='background:#f0f0f0;'>
-      <th style='border:1px solid #ccc;padding:6px 10px;'>Products</th>
-      <th style='border:1px solid #ccc;padding:6px 10px;'>Name</th>
-      <th style='border:1px solid #ccc;padding:6px 10px;'>Results</th>
-      <th style='border:1px solid #ccc;padding:6px 10px;'>Remarks</th>
-    </tr>
-    {fallback_rows}
-  </table>
+  {fallback_table_html}
   <p style='background-color:#FFFF00;display:inline-block;padding:4px 8px;'>
     <b>Note: the due date for <u>{rfp_id}</u> is {rfp_end_date}</b>
   </p>
@@ -756,25 +795,10 @@ def send_per_rfp_email(
     # === Fallback: original HTML table email ===
     subject = rfp_id
 
-    # === Build team table ===
-    table_rows = "".join(
-        f"<tr><td style='border:1px solid #ccc;padding:6px 10px;'>{row['product']}</td>"
-        f"<td style='border:1px solid #ccc;padding:6px 10px;'>{row['name']}</td>"
-        f"<td style='border:1px solid #ccc;padding:6px 10px;'></td>"
-        f"<td style='border:1px solid #ccc;padding:6px 10px;'></td></tr>"
-        for row in RFP_TEAM_TABLE
-    )
-    table_html = f"""
-    <table style='border-collapse:collapse;margin:10px 0;'>
-      <tr style='background:#f0f0f0;'>
-        <th style='border:1px solid #ccc;padding:6px 10px;'>Products</th>
-        <th style='border:1px solid #ccc;padding:6px 10px;'>Name</th>
-        <th style='border:1px solid #ccc;padding:6px 10px;'>Results</th>
-        <th style='border:1px solid #ccc;padding:6px 10px;'>Remarks</th>
-      </tr>
-      {table_rows}
-    </table>
-    """
+    # === Build dynamic team table ===
+    from services.rfp_team_columns_service import get_all_columns as _get_cols_fallback
+    _cols_fb = _get_cols_fallback()
+    table_html = _build_dynamic_html_table(_cols_fb, RFP_TEAM_TABLE)
 
     # === Combined note section (due date + matched materials) ===
     if matched_csv_path and os.path.exists(matched_csv_path):

@@ -162,6 +162,14 @@ export const ENDPOINTS = {
       DELETE: (id: string) => `${API_PREFIX}/master-data/rfp-team/delete/${id}`,
       IMPORT: `${API_PREFIX}/master-data/rfp-team/import`,
     },
+    RFP_TEAM_COLUMNS: {
+      LIST:    `${API_PREFIX}/master-data/rfp-team-columns/list`,
+      ALL:     `${API_PREFIX}/master-data/rfp-team-columns/all`,
+      CREATE:  `${API_PREFIX}/master-data/rfp-team-columns/create`,
+      UPDATE:  (id: string) => `${API_PREFIX}/master-data/rfp-team-columns/update/${id}`,
+      DELETE:  (id: string) => `${API_PREFIX}/master-data/rfp-team-columns/delete/${id}`,
+      REORDER: `${API_PREFIX}/master-data/rfp-team-columns/reorder`,
+    },
   },
 } as const
 

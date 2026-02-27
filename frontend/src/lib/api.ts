@@ -663,7 +663,7 @@ export const api = {
     return handleResponse<{ ok: boolean; rfp_team: any[]; page: number; page_size: number }>(response)
   },
 
-  createRfpTeamMember: async (data: { product: string; name: string; email: string }) => {
+  createRfpTeamMember: async (data: Record<string, any>) => {
     const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM.CREATE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -673,7 +673,7 @@ export const api = {
     return handleResponse(response)
   },
 
-  updateRfpTeamMember: async (id: string, data: { product: string; name: string; email: string }) => {
+  updateRfpTeamMember: async (id: string, data: Record<string, any>) => {
     const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM.UPDATE(id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -700,6 +700,71 @@ export const api = {
       credentials: 'include',
     })
     return handleResponse<{ ok: boolean; created: number; skipped: number; failed: number; errors: string[] }>(response)
+  },
+
+  // ==================== Master Data — RFP Team Columns ====================
+  getRfpTeamColumns: async (params: { search?: string; page?: number; page_size?: number } = {}) => {
+    const searchParams = new URLSearchParams()
+    if (params.search) searchParams.append('search', params.search)
+    if (params.page) searchParams.append('page', String(params.page))
+    if (params.page_size) searchParams.append('page_size', String(params.page_size))
+    const url = searchParams.toString()
+      ? `${ENDPOINTS.MASTER_DATA.RFP_TEAM_COLUMNS.LIST}?${searchParams}`
+      : ENDPOINTS.MASTER_DATA.RFP_TEAM_COLUMNS.LIST
+    const response = await fetch(url, { credentials: 'include' })
+    return handleResponse<{ ok: boolean; columns: any[]; page: number; page_size: number }>(response)
+  },
+
+  getAllRfpTeamColumns: async () => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM_COLUMNS.ALL, { credentials: 'include' })
+    return handleResponse<{ ok: boolean; columns: any[] }>(response)
+  },
+
+  createRfpTeamColumn: async (data: {
+    column_key: string
+    column_label: string
+    column_type: string
+    column_category: string
+    sort_order?: string
+    dropdown_options?: string
+    is_required?: string
+    is_team_field?: string
+  }) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM_COLUMNS.CREATE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  updateRfpTeamColumn: async (id: string, data: Record<string, any>) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM_COLUMNS.UPDATE(id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  deleteRfpTeamColumn: async (id: string) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM_COLUMNS.DELETE(id), {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  reorderRfpTeamColumns: async (orderedIds: string[]) => {
+    const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM_COLUMNS.REORDER, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ordered_ids: orderedIds }),
+      credentials: 'include',
+    })
+    return handleResponse(response)
   },
 
   // ==================== Audit Logs ====================

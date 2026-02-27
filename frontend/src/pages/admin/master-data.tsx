@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Database, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowUp, Columns3, Database, Lock, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
 import { Card, CardContent } from '@/components/ui/card'
@@ -38,6 +38,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
@@ -57,12 +65,20 @@ const keywordSchema = z.object({
 })
 type KeywordForm = z.infer<typeof keywordSchema>
 
-const rfpTeamSchema = z.object({
-  product: z.string().min(1, 'Product is required').max(200),
-  name: z.string().min(1, 'Name is required').max(200),
-  email: z.string().min(1, 'Email is required').email('Must be a valid email').max(300),
+const columnSchema = z.object({
+  column_key: z.string()
+    .min(1, 'Key is required')
+    .max(100)
+    .regex(/^[a-z][a-z0-9_]*$/, 'Lowercase letters, numbers, underscores only. Must start with a letter.'),
+  column_label: z.string().min(1, 'Label is required').max(200),
+  column_type: z.enum(['text', 'dropdown', 'yes_no']),
+  column_category: z.enum(['display', 'input']),
+  sort_order: z.string().optional(),
+  dropdown_options: z.string().optional(),
+  is_required: z.boolean().optional(),
+  is_team_field: z.boolean().optional(),
 })
-type RfpTeamForm = z.infer<typeof rfpTeamSchema>
+type ColumnForm = z.infer<typeof columnSchema>
 
 // ─── Import Dialog ────────────────────────────────────────────────────────────
 
@@ -607,7 +623,7 @@ function KeywordsTab() {
   )
 }
 
-// ─── RFP Team Tab ────────────────────────────────────────────────────────────
+// ─── RFP Team Tab (Dynamic Columns) ──────────────────────────────────────────
 
 function RfpTeamTab() {
   const queryClient = useQueryClient()
@@ -620,39 +636,68 @@ function RfpTeamTab() {
   const [editingItem, setEditingItem] = useState<any>(null)
   const [deleteItem, setDeleteItem]   = useState<any>(null)
   const [importOpen, setImportOpen]   = useState(false)
+  const [formValues, setFormValues]   = useState<Record<string, string>>({})
+
+  // Fetch column definitions
+  const { data: colData } = useQuery({
+    queryKey: ['rfp-team-columns-all'],
+    queryFn: () => api.getAllRfpTeamColumns(),
+  })
+  const allColumns: any[] = colData?.columns ?? []
+  // Team fields are shown in the add/edit dialog and table
+  const teamFieldColumns = allColumns.filter((c: any) => String(c.is_team_field).toLowerCase() === 'true')
 
   const { data, isLoading } = useQuery({
     queryKey: ['rfp-team', search],
     queryFn: () => api.getRfpTeam({ search: search || undefined, page_size: 500 }),
   })
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm<RfpTeamForm>({ resolver: zodResolver(rfpTeamSchema) })
-
   const closeDialog = () => {
     setDialogOpen(false)
     setEditingItem(null)
-    reset()
+    setFormValues({})
   }
 
   const openAdd = () => {
     setEditingItem(null)
-    reset({ product: '', name: '', email: '' })
+    const defaults: Record<string, string> = {}
+    teamFieldColumns.forEach((col: any) => { defaults[col.column_key] = '' })
+    setFormValues(defaults)
     setDialogOpen(true)
   }
 
   const openEdit = (item: any) => {
     setEditingItem(item)
-    reset({ product: item.product ?? '', name: item.name ?? '', email: item.email ?? '' })
+    const vals: Record<string, string> = {}
+    teamFieldColumns.forEach((col: any) => { vals[col.column_key] = item[col.column_key] ?? '' })
+    setFormValues(vals)
     setDialogOpen(true)
   }
 
+  const handleFormChange = (key: string, value: string) => {
+    setFormValues((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    // Validate required fields
+    for (const col of teamFieldColumns) {
+      if (String(col.is_required).toLowerCase() === 'true' && !formValues[col.column_key]?.trim()) {
+        toast.error(`${col.column_label} is required`)
+        return
+      }
+    }
+    // Validate email format if email field exists
+    const emailVal = formValues['email']
+    if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
+      toast.error('Must be a valid email')
+      return
+    }
+    saveMutation.mutate(formValues)
+  }
+
   const saveMutation = useMutation({
-    mutationFn: (formData: RfpTeamForm) =>
+    mutationFn: (formData: Record<string, string>) =>
       editingItem
         ? api.updateRfpTeamMember(editingItem.record_id, formData)
         : api.createRfpTeamMember(formData),
@@ -721,7 +766,7 @@ function RfpTeamTab() {
         </p>
       )}
 
-      {/* Table */}
+      {/* Table — dynamic columns */}
       {isLoading ? (
         <div className="space-y-2">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
@@ -736,9 +781,9 @@ function RfpTeamTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[180px]">Product</TableHead>
-                <TableHead className="w-[180px]">Name</TableHead>
-                <TableHead>Email</TableHead>
+                {teamFieldColumns.map((col: any) => (
+                  <TableHead key={col.column_key}>{col.column_label}</TableHead>
+                ))}
                 <TableHead className="w-[120px]">Created</TableHead>
                 {(canEdit || canDelete) && <TableHead className="text-right w-[100px]">Actions</TableHead>}
               </TableRow>
@@ -746,9 +791,11 @@ function RfpTeamTab() {
             <TableBody>
               {members.map((item: any) => (
                 <TableRow key={item.record_id}>
-                  <TableCell className="font-medium">{item.product}</TableCell>
-                  <TableCell>{item.name}</TableCell>
-                  <TableCell className="font-mono text-sm text-muted-foreground">{item.email}</TableCell>
+                  {teamFieldColumns.map((col: any) => (
+                    <TableCell key={col.column_key} className={col.column_key === 'email' ? 'font-mono text-sm text-muted-foreground' : ''}>
+                      {item[col.column_key] || <span className="italic opacity-50">—</span>}
+                    </TableCell>
+                  ))}
                   <TableCell className="text-sm text-muted-foreground">
                     {item.created_date ? item.created_date.slice(0, 10) : '—'}
                   </TableCell>
@@ -780,7 +827,7 @@ function RfpTeamTab() {
         </ScrollArea>
       )}
 
-      {/* Add / Edit Dialog */}
+      {/* Add / Edit Dialog — dynamic fields */}
       <Dialog open={dialogOpen} onOpenChange={(o) => !o && closeDialog()}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -789,28 +836,57 @@ function RfpTeamTab() {
               {editingItem ? 'Update the team member details.' : 'Add a new RFP team member for product-based email routing.'}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit((d) => saveMutation.mutate(d))} className="space-y-4">
-            <div className="space-y-1">
-              <Label>Product *</Label>
-              <Input {...register('product')} placeholder="e.g. Cables" />
-              {errors.product && (
-                <p className="text-xs text-destructive">{errors.product.message}</p>
-              )}
-            </div>
-            <div className="space-y-1">
-              <Label>Name *</Label>
-              <Input {...register('name')} placeholder="e.g. John Doe" />
-              {errors.name && (
-                <p className="text-xs text-destructive">{errors.name.message}</p>
-              )}
-            </div>
-            <div className="space-y-1">
-              <Label>Email *</Label>
-              <Input {...register('email')} type="email" placeholder="e.g. john.doe@company.com" />
-              {errors.email && (
-                <p className="text-xs text-destructive">{errors.email.message}</p>
-              )}
-            </div>
+          <form onSubmit={handleFormSubmit} className="space-y-4">
+            {teamFieldColumns.map((col: any) => {
+              const isRequired = String(col.is_required).toLowerCase() === 'true'
+              return (
+                <div key={col.column_key} className="space-y-1">
+                  <Label>{col.column_label}{isRequired ? ' *' : ''}</Label>
+                  {col.column_type === 'dropdown' ? (
+                    <Select
+                      value={formValues[col.column_key] || ''}
+                      onValueChange={(v) => handleFormChange(col.column_key, v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={`Select ${col.column_label}`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(() => {
+                          try {
+                            const opts = JSON.parse(col.dropdown_options || '[]')
+                            return opts.map((opt: string) => (
+                              <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                            ))
+                          } catch {
+                            return null
+                          }
+                        })()}
+                      </SelectContent>
+                    </Select>
+                  ) : col.column_type === 'yes_no' ? (
+                    <Select
+                      value={formValues[col.column_key] || ''}
+                      onValueChange={(v) => handleFormChange(col.column_key, v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={`Select ${col.column_label}`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Yes">Yes</SelectItem>
+                        <SelectItem value="No">No</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      type={col.column_key === 'email' ? 'email' : 'text'}
+                      value={formValues[col.column_key] || ''}
+                      onChange={(e) => handleFormChange(col.column_key, e.target.value)}
+                      placeholder={`Enter ${col.column_label.toLowerCase()}`}
+                    />
+                  )}
+                </div>
+              )
+            })}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
               <Button type="submit" loading={saveMutation.isPending}>
@@ -856,13 +932,381 @@ function RfpTeamTab() {
   )
 }
 
+// ─── Column Config Tab ───────────────────────────────────────────────────────
+
+function ColumnConfigTab() {
+  const queryClient = useQueryClient()
+  const canCreate = useHasPermission('master_data.create')
+  const canEdit   = useHasPermission('master_data.edit')
+  const canDelete = useHasPermission('master_data.delete')
+
+  const [dialogOpen, setDialogOpen]     = useState(false)
+  const [editingItem, setEditingItem]   = useState<any>(null)
+  const [deleteItem, setDeleteItem]     = useState<any>(null)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['rfp-team-columns'],
+    queryFn: () => api.getRfpTeamColumns({ page_size: 100 }),
+  })
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    control,
+    watch,
+    formState: { errors },
+  } = useForm<ColumnForm>({
+    resolver: zodResolver(columnSchema),
+    defaultValues: {
+      column_type: 'text',
+      column_category: 'display',
+      is_required: false,
+      is_team_field: false,
+    },
+  })
+
+  const watchType = watch('column_type')
+
+  const closeDialog = () => {
+    setDialogOpen(false)
+    setEditingItem(null)
+    reset({
+      column_key: '', column_label: '', column_type: 'text',
+      column_category: 'display', sort_order: '', dropdown_options: '',
+      is_required: false, is_team_field: false,
+    })
+  }
+
+  const openAdd = () => {
+    setEditingItem(null)
+    reset({
+      column_key: '', column_label: '', column_type: 'text',
+      column_category: 'display', sort_order: '', dropdown_options: '',
+      is_required: false, is_team_field: false,
+    })
+    setDialogOpen(true)
+  }
+
+  const openEdit = (item: any) => {
+    setEditingItem(item)
+    reset({
+      column_key: item.column_key ?? '',
+      column_label: item.column_label ?? '',
+      column_type: item.column_type ?? 'text',
+      column_category: item.column_category ?? 'display',
+      sort_order: item.sort_order ?? '',
+      dropdown_options: item.dropdown_options ?? '',
+      is_required: String(item.is_required).toLowerCase() === 'true',
+      is_team_field: String(item.is_team_field).toLowerCase() === 'true',
+    })
+    setDialogOpen(true)
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: (formData: ColumnForm) => {
+      const payload: any = {
+        ...formData,
+        is_required: formData.is_required ? 'true' : 'false',
+        is_team_field: formData.is_team_field ? 'true' : 'false',
+      }
+      return editingItem
+        ? api.updateRfpTeamColumn(editingItem.record_id, payload)
+        : api.createRfpTeamColumn(payload)
+    },
+    onSuccess: () => {
+      toast.success(editingItem ? 'Column updated' : 'Column created')
+      queryClient.invalidateQueries({ queryKey: ['rfp-team-columns'] })
+      queryClient.invalidateQueries({ queryKey: ['rfp-team-columns-all'] })
+      closeDialog()
+    },
+    onError: (err: any) => toast.error(err.message || 'Operation failed'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteRfpTeamColumn(id),
+    onSuccess: () => {
+      toast.success('Column deleted')
+      queryClient.invalidateQueries({ queryKey: ['rfp-team-columns'] })
+      queryClient.invalidateQueries({ queryKey: ['rfp-team-columns-all'] })
+      setDeleteItem(null)
+    },
+    onError: (err: any) => toast.error(err.message || 'Delete failed'),
+  })
+
+  const reorderMutation = useMutation({
+    mutationFn: (ids: string[]) => api.reorderRfpTeamColumns(ids),
+    onSuccess: () => {
+      toast.success('Column order updated')
+      queryClient.invalidateQueries({ queryKey: ['rfp-team-columns'] })
+      queryClient.invalidateQueries({ queryKey: ['rfp-team-columns-all'] })
+    },
+    onError: (err: any) => toast.error(err.message || 'Reorder failed'),
+  })
+
+  const columns: any[] = data?.columns ?? []
+
+  const moveColumn = (index: number, direction: 'up' | 'down') => {
+    const ordered = [...columns]
+    const swapIdx = direction === 'up' ? index - 1 : index + 1
+    if (swapIdx < 0 || swapIdx >= ordered.length) return
+    ;[ordered[index], ordered[swapIdx]] = [ordered[swapIdx], ordered[index]]
+    reorderMutation.mutate(ordered.map((c) => c.record_id))
+  }
+
+  const categoryLabel = (cat: string) =>
+    cat === 'display' ? 'Display' : cat === 'input' ? 'Input' : cat
+
+  const typeLabel = (t: string) =>
+    t === 'text' ? 'Text' : t === 'dropdown' ? 'Dropdown' : t === 'yes_no' ? 'Yes/No' : t
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-sm text-muted-foreground">
+          Define columns for RFP Team table, email cards, and response forms.
+        </p>
+        {canCreate && (
+          <Button onClick={openAdd}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Column
+          </Button>
+        )}
+      </div>
+
+      {columns.length > 6 && (
+        <div className="rounded-md border border-yellow-500/50 bg-yellow-500/10 p-3 text-sm text-yellow-700">
+          You have {columns.length} columns. Adaptive Cards in Outlook have limited horizontal space — consider keeping it under 6 columns for best readability.
+        </div>
+      )}
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+        </div>
+      ) : columns.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <Columns3 className="h-10 w-10 mx-auto mb-3 opacity-30" />
+          <p>No column definitions found. Add one to get started.</p>
+        </div>
+      ) : (
+        <ScrollArea className="h-[calc(100vh-420px)]">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[60px]">Order</TableHead>
+                <TableHead className="w-[140px]">Key</TableHead>
+                <TableHead>Label</TableHead>
+                <TableHead className="w-[100px]">Type</TableHead>
+                <TableHead className="w-[100px]">Category</TableHead>
+                <TableHead className="w-[80px]">Required</TableHead>
+                <TableHead className="w-[90px]">Team Field</TableHead>
+                {(canEdit || canDelete) && <TableHead className="text-right w-[140px]">Actions</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {columns.map((item: any, idx: number) => {
+                const isProtected = String(item.is_protected).toLowerCase() === 'true'
+                return (
+                  <TableRow key={item.record_id}>
+                    <TableCell>
+                      <div className="flex gap-0.5">
+                        {canEdit && (
+                          <>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" disabled={idx === 0} onClick={() => moveColumn(idx, 'up')}>
+                              <ArrowUp className="h-3 w-3" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" disabled={idx === columns.length - 1} onClick={() => moveColumn(idx, 'down')}>
+                              <ArrowDown className="h-3 w-3" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {item.column_key}
+                      {isProtected && <Lock className="inline ml-1 h-3 w-3 text-muted-foreground" />}
+                    </TableCell>
+                    <TableCell className="font-medium">{item.column_label}</TableCell>
+                    <TableCell><Badge variant="outline">{typeLabel(item.column_type)}</Badge></TableCell>
+                    <TableCell><Badge variant="secondary">{categoryLabel(item.column_category)}</Badge></TableCell>
+                    <TableCell>{String(item.is_required).toLowerCase() === 'true' ? 'Yes' : 'No'}</TableCell>
+                    <TableCell>{String(item.is_team_field).toLowerCase() === 'true' ? 'Yes' : 'No'}</TableCell>
+                    {(canEdit || canDelete) && (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          {canEdit && (
+                            <Button variant="ghost" size="icon" onClick={() => openEdit(item)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              disabled={isProtected}
+                              onClick={() => setDeleteItem(item)}
+                              title={isProtected ? 'Protected column cannot be deleted' : 'Delete column'}
+                            >
+                              {isProtected ? <Lock className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </ScrollArea>
+      )}
+
+      {/* Add / Edit Column Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={(o) => !o && closeDialog()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingItem ? 'Edit Column' : 'Add Column'}</DialogTitle>
+            <DialogDescription>
+              {editingItem ? 'Update column definition.' : 'Add a new column definition for team table and email cards.'}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit((d) => saveMutation.mutate(d))} className="space-y-4">
+            <div className="space-y-1">
+              <Label>Column Key *</Label>
+              <Input
+                {...register('column_key')}
+                placeholder="e.g. department"
+                disabled={!!editingItem && String(editingItem.is_protected).toLowerCase() === 'true'}
+              />
+              {errors.column_key && (
+                <p className="text-xs text-destructive">{errors.column_key.message}</p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label>Display Label *</Label>
+              <Input {...register('column_label')} placeholder="e.g. Department" />
+              {errors.column_label && (
+                <p className="text-xs text-destructive">{errors.column_label.message}</p>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label>Type *</Label>
+                <Controller
+                  name="column_type"
+                  control={control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="text">Text</SelectItem>
+                        <SelectItem value="dropdown">Dropdown</SelectItem>
+                        <SelectItem value="yes_no">Yes / No</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Category *</Label>
+                <Controller
+                  name="column_category"
+                  control={control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="display">Display (read-only)</SelectItem>
+                        <SelectItem value="input">Input (editable)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+            </div>
+            {watchType === 'dropdown' && (
+              <div className="space-y-1">
+                <Label>Dropdown Options (JSON array)</Label>
+                <Input
+                  {...register('dropdown_options')}
+                  placeholder='["Option A", "Option B", "Option C"]'
+                />
+                <p className="text-xs text-muted-foreground">Enter a JSON array of strings.</p>
+              </div>
+            )}
+            <div className="space-y-1">
+              <Label>Sort Order</Label>
+              <Input {...register('sort_order')} placeholder="e.g. 6" type="number" />
+            </div>
+            <div className="flex items-center gap-6">
+              <Controller
+                name="is_required"
+                control={control}
+                render={({ field }) => (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                    <span className="text-sm">Required</span>
+                  </label>
+                )}
+              />
+              <Controller
+                name="is_team_field"
+                control={control}
+                render={({ field }) => (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                    <span className="text-sm">Team Field</span>
+                  </label>
+                )}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
+              <Button type="submit" loading={saveMutation.isPending}>
+                {editingItem ? 'Save Changes' : 'Add Column'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Column Confirmation */}
+      <AlertDialog open={!!deleteItem} onOpenChange={(o) => !o && setDeleteItem(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Column</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete column{' '}
+              <span className="font-mono font-semibold">{deleteItem?.column_key}</span> ({deleteItem?.column_label})?
+              This cannot be undone and will affect all email cards and response forms.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteItem && deleteMutation.mutate(deleteItem.record_id)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function MasterDataPage() {
   return (
     <PageWrapper
       title="Master Data"
-      description="Manage material master codes, keywords, and RFP team assignments."
+      description="Manage material master codes, keywords, RFP team assignments, and column definitions."
     >
       <Card>
         <CardContent className="p-6">
@@ -871,6 +1315,7 @@ export default function MasterDataPage() {
               <TabsTrigger value="materials">Material Codes</TabsTrigger>
               <TabsTrigger value="keywords">Keywords</TabsTrigger>
               <TabsTrigger value="rfp-team">RFP Team</TabsTrigger>
+              <TabsTrigger value="column-config">Column Config</TabsTrigger>
             </TabsList>
             <TabsContent value="materials">
               <MaterialsTab />
@@ -880,6 +1325,9 @@ export default function MasterDataPage() {
             </TabsContent>
             <TabsContent value="rfp-team">
               <RfpTeamTab />
+            </TabsContent>
+            <TabsContent value="column-config">
+              <ColumnConfigTab />
             </TabsContent>
           </Tabs>
         </CardContent>

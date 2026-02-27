@@ -40,6 +40,16 @@ from services.master_data_service import (
     delete_rfp_team_member,
     bulk_import_rfp_team,
 )
+from services.rfp_team_columns_service import (
+    list_columns as list_team_columns,
+    get_column as get_team_column,
+    column_key_exists,
+    create_column as create_team_column,
+    update_column as update_team_column,
+    delete_column as delete_team_column,
+    reorder_columns as reorder_team_columns,
+    get_all_columns as get_all_team_columns,
+)
 
 router = APIRouter(prefix="/api/master-data", tags=["master-data"])
 
@@ -410,6 +420,177 @@ async def api_import_keywords(
 
 
 # ============================================================
+# RFP Team Column Definitions — CRUD + Reorder
+# ============================================================
+
+@router.get("/rfp-team-columns/list")
+async def api_list_rfp_team_columns(
+    request: Request,
+    search: str = "",
+    page: int = 1,
+    page_size: int = 100,
+    user: dict = Depends(require_permission("master_data.view")),
+):
+    try:
+        result = list_team_columns(search=search or None, page=page, page_size=page_size)
+        return JSONResponse({"ok": True, **result})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/rfp-team-columns/all")
+async def api_get_all_rfp_team_columns(
+    request: Request,
+    user: dict = Depends(require_permission("master_data.view")),
+):
+    """Return all active columns sorted by sort_order (used by frontend forms)."""
+    try:
+        columns = get_all_team_columns()
+        return JSONResponse({"ok": True, "columns": columns})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/rfp-team-columns/create")
+async def api_create_rfp_team_column(
+    request: Request,
+    user: dict = Depends(require_permission("master_data.create")),
+):
+    data = await request.json()
+    key = (data.get("column_key") or "").strip().lower()
+    label = (data.get("column_label") or "").strip()
+
+    if not key or not label:
+        raise HTTPException(status_code=400, detail="column_key and column_label are required")
+
+    # Validate column_key format: lowercase alphanumeric + underscores
+    import re
+    if not re.match(r'^[a-z][a-z0-9_]*$', key):
+        raise HTTPException(
+            status_code=400,
+            detail="column_key must start with a letter and contain only lowercase letters, numbers, and underscores"
+        )
+
+    if column_key_exists(key):
+        raise HTTPException(status_code=409, detail=f"Column key '{key}' already exists")
+
+    ok = create_team_column(data)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to create column definition")
+
+    log_event(
+        action=_add_master_data_action("RFP_TEAM_COLUMN_CREATED"),
+        category=AuditCategory.SYSTEM,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="RFPTeamColumn",
+        target_id=key,
+        details=json.dumps({"column_key": key, "column_label": label, "column_type": data.get("column_type", "text")}),
+        ip_address=get_request_ip(request),
+    )
+
+    return JSONResponse({"ok": True, "message": f"Column '{label}' created successfully"})
+
+
+@router.put("/rfp-team-columns/update/{record_id}")
+async def api_update_rfp_team_column(
+    request: Request,
+    record_id: str,
+    user: dict = Depends(require_permission("master_data.edit")),
+):
+    data = await request.json()
+    label = (data.get("column_label") or "").strip()
+
+    if not label:
+        raise HTTPException(status_code=400, detail="column_label is required")
+
+    existing = get_team_column(record_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Column definition not found")
+
+    ok = update_team_column(record_id, data)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update column definition")
+
+    log_event(
+        action=_add_master_data_action("RFP_TEAM_COLUMN_UPDATED"),
+        category=AuditCategory.SYSTEM,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="RFPTeamColumn",
+        target_id=record_id,
+        details=json.dumps({"column_label": label, "column_type": data.get("column_type", "")}),
+        ip_address=get_request_ip(request),
+    )
+
+    return JSONResponse({"ok": True, "message": "Column definition updated successfully"})
+
+
+@router.delete("/rfp-team-columns/delete/{record_id}")
+async def api_delete_rfp_team_column(
+    request: Request,
+    record_id: str,
+    user: dict = Depends(require_permission("master_data.delete")),
+):
+    existing = get_team_column(record_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Column definition not found")
+
+    # Block deletion of protected columns (e.g. email)
+    if str(existing.get("is_protected", "")).lower() == "true":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Column '{existing.get('column_label', '')}' is protected and cannot be deleted"
+        )
+
+    ok = delete_team_column(record_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to delete column definition")
+
+    log_event(
+        action=_add_master_data_action("RFP_TEAM_COLUMN_DELETED"),
+        category=AuditCategory.SYSTEM,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="RFPTeamColumn",
+        target_id=record_id,
+        details=json.dumps({"column_key": existing.get("column_key", ""), "column_label": existing.get("column_label", "")}),
+        ip_address=get_request_ip(request),
+    )
+
+    return JSONResponse({"ok": True, "message": "Column definition deleted successfully"})
+
+
+@router.post("/rfp-team-columns/reorder")
+async def api_reorder_rfp_team_columns(
+    request: Request,
+    user: dict = Depends(require_permission("master_data.edit")),
+):
+    data = await request.json()
+    ordered_ids = data.get("ordered_ids", [])
+
+    if not ordered_ids or not isinstance(ordered_ids, list):
+        raise HTTPException(status_code=400, detail="ordered_ids must be a non-empty list of record IDs")
+
+    ok = reorder_team_columns(ordered_ids)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to reorder columns")
+
+    log_event(
+        action=_add_master_data_action("RFP_TEAM_COLUMNS_REORDERED"),
+        category=AuditCategory.SYSTEM,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="RFPTeamColumn",
+        target_id="reorder",
+        details=json.dumps({"count": len(ordered_ids)}),
+        ip_address=get_request_ip(request),
+    )
+
+    return JSONResponse({"ok": True, "message": "Columns reordered successfully"})
+
+
+# ============================================================
 # RFP Team — CRUD
 # ============================================================
 
@@ -444,7 +625,11 @@ async def api_create_rfp_team_member(
     if rfp_team_member_exists(product, email):
         raise HTTPException(status_code=409, detail=f"Team member with product '{product}' and email '{email}' already exists")
 
-    ok = create_rfp_team_member(product, name, email)
+    # Collect extra dynamic fields (anything beyond the core 3 fields)
+    known_keys = {"product", "name", "email"}
+    extra_fields = {k: v for k, v in data.items() if k not in known_keys and v}
+
+    ok = create_rfp_team_member(product, name, email, extra_fields=extra_fields or None)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to create team member")
 
@@ -455,7 +640,7 @@ async def api_create_rfp_team_member(
         actor_name=user.get("name", ""),
         target_type="RFPTeam",
         target_id=email,
-        details=json.dumps({"product": product, "name": name, "email": email}),
+        details=json.dumps({"product": product, "name": name, "email": email, **extra_fields}),
         ip_address=get_request_ip(request),
     )
 
@@ -483,7 +668,11 @@ async def api_update_rfp_team_member(
     if rfp_team_member_exists(product, email, exclude_record_id=record_id):
         raise HTTPException(status_code=409, detail=f"Team member with product '{product}' and email '{email}' already exists")
 
-    ok = update_rfp_team_member(record_id, product, name, email)
+    # Collect extra dynamic fields (anything beyond the core 3 fields)
+    known_keys = {"product", "name", "email"}
+    extra_fields = {k: v for k, v in data.items() if k not in known_keys}
+
+    ok = update_rfp_team_member(record_id, product, name, email, extra_fields=extra_fields if extra_fields else None)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to update team member")
 
@@ -494,7 +683,7 @@ async def api_update_rfp_team_member(
         actor_name=user.get("name", ""),
         target_type="RFPTeam",
         target_id=record_id,
-        details=json.dumps({"product": product, "name": name, "email": email}),
+        details=json.dumps({"product": product, "name": name, "email": email, **extra_fields}),
         ip_address=get_request_ip(request),
     )
 

@@ -9,6 +9,7 @@ field names in payloads match the display names defined in
 setup_master_data_tables.py.
 """
 
+import json
 import requests
 from datetime import datetime, timezone
 from typing import Optional, List, Dict
@@ -409,7 +410,7 @@ def list_rfp_team(search: Optional[str] = None, page: int = 1, page_size: int = 
     result = DATAVERSE.query_rows(
         table_api_name=RFP_TEAM_DV_TABLE_API,
         filter_expr=filter_expr,
-        select="product,name,email,is_active,created_date,updated_date",
+        select="product,name,email,extra_data,is_active,created_date,updated_date",
         top=page_size,
         skip=skip,
         order_by="created_date desc",
@@ -421,6 +422,14 @@ def list_rfp_team(search: Optional[str] = None, page: int = 1, page_size: int = 
     pk_logical = f"{RFP_TEAM_DV_TABLE_LOGICAL}id"
     for row in rows:
         row["record_id"] = _extract_record_id(row, pk_logical)
+        # Merge extra_data JSON into the row for frontend consumption
+        extra_raw = row.pop("extra_data", "") or ""
+        if extra_raw:
+            try:
+                extra = json.loads(extra_raw)
+                row.update(extra)
+            except (json.JSONDecodeError, TypeError):
+                pass
 
     return {"rfp_team": rows, "page": page, "page_size": page_size}
 
@@ -469,7 +478,7 @@ def rfp_team_member_exists(product: str, email: str, exclude_record_id: str = ""
     return False
 
 
-def create_rfp_team_member(product: str, name: str, email: str) -> bool:
+def create_rfp_team_member(product: str, name: str, email: str, extra_fields: Dict = None) -> bool:
     data = {
         "product": product.strip(),
         "name": name.strip(),
@@ -478,6 +487,9 @@ def create_rfp_team_member(product: str, name: str, email: str) -> bool:
         "created_date": _now_iso(),
         "updated_date": _now_iso(),
     }
+    # Pack extra dynamic fields into extra_data JSON
+    if extra_fields:
+        data["extra_data"] = json.dumps(extra_fields)
     return DATAVERSE.insert_row(
         table_api_name=RFP_TEAM_DV_TABLE_API,
         data=data,
@@ -486,13 +498,16 @@ def create_rfp_team_member(product: str, name: str, email: str) -> bool:
     )
 
 
-def update_rfp_team_member(record_id: str, product: str, name: str, email: str) -> bool:
+def update_rfp_team_member(record_id: str, product: str, name: str, email: str, extra_fields: Dict = None) -> bool:
     data = {
         "product": product.strip(),
         "name": name.strip(),
         "email": email.strip().lower(),
         "updated_date": _now_iso(),
     }
+    # Pack extra dynamic fields into extra_data JSON
+    if extra_fields is not None:
+        data["extra_data"] = json.dumps(extra_fields) if extra_fields else ""
     return DATAVERSE.update_row(
         table_api_name=RFP_TEAM_DV_TABLE_API,
         record_id=record_id,
@@ -555,12 +570,17 @@ def get_all_rfp_team_for_emails() -> List[Dict[str, str]]:
     try:
         rows = DATAVERSE.get_all_rows(
             table_api_name=RFP_TEAM_DV_TABLE_API,
-            select_columns=["product", "name", "email", "is_active"],
+            select_columns=["product", "name", "email", "extra_data", "is_active"],
             table_logical_name=RFP_TEAM_DV_TABLE_LOGICAL,
             use_display_names=True,
         )
-        team = [
-            {
+        team = []
+        for r in rows:
+            if str(r.get("is_active", "")).lower() != "true":
+                continue
+            if not r.get("product") or not r.get("name") or not r.get("email"):
+                continue
+            member = {
                 "product": str(r.get("product", "")).strip(),
                 "name": str(r.get("name", "")).strip(),
                 "email": (
@@ -568,10 +588,16 @@ def get_all_rfp_team_for_emails() -> List[Dict[str, str]]:
                     else str(r.get("email", "")).strip()
                 ),
             }
-            for r in rows
-            if str(r.get("is_active", "")).lower() == "true"
-            and r.get("product") and r.get("name") and r.get("email")
-        ]
+            # Merge extra_data fields into member dict
+            extra_raw = r.get("extra_data", "") or ""
+            if extra_raw:
+                try:
+                    extra = json.loads(extra_raw)
+                    member.update(extra)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            team.append(member)
+
         if team:
             return team
         print("[RFPTeam] Dataverse table empty, using static fallback")

@@ -19,6 +19,8 @@ from config.config import (
     RFP_RESPONSE_TABLE_LOGICAL,
 )
 from services.master_data_service import get_all_rfp_team_for_emails
+from services.rfp_team_columns_service import get_all_columns, get_input_columns
+from helpers.email_helper import _build_input_widget
 
 router = APIRouter(prefix="/api/actionable-card", tags=["Actionable Cards"])
 
@@ -119,23 +121,29 @@ def _build_refresh_card(
     user_email_key = email.lower()
     refresh_url = callback_url + "/refresh"
 
-    # Table header row
+    # Fetch dynamic column definitions
+    columns = get_all_columns()
+    input_columns = get_input_columns()
+
+    # Dynamic header row
+    header_cols = []
+    for col in columns:
+        header_cols.append({
+            "type": "Column", "width": "stretch", "padding": "None",
+            "items": [{"type": "TextBlock", "text": col.get("column_label", col["column_key"]),
+                        "weight": "Bolder", "horizontalAlignment": "Center"}],
+        })
     header_row = {
         "type": "ColumnSet",
         "style": "emphasis",
         "padding": "None",
-        "columns": [
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Products", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Name", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Results", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-            {"type": "Column", "width": "stretch", "padding": "None", "items": [{"type": "TextBlock", "text": "Remarks", "weight": "Bolder", "horizontalAlignment": "Center"}]},
-        ],
+        "columns": header_cols,
     }
 
     if team_table is None:
         team_table = get_all_rfp_team_for_emails()
 
-    # Data rows with actual response data
+    # Dynamic data rows with actual response data
     data_rows = []
     for member in team_table:
         m_email = member.get("email", "").lower()
@@ -143,44 +151,39 @@ def _build_refresh_card(
         resp = response_lookup.get(m_email)
         has_responded = resp is not None
 
-        # For current user who hasn't submitted: inline Input.Text fields
-        if is_current and not user_has_submitted:
-            results_item = {"type": "Input.Text", "id": "results", "placeholder": "Enter results..."}
-            remarks_item = {"type": "Input.Text", "id": "remarks", "placeholder": "Enter remarks..."}
-        else:
-            results_text = resp["results"] if has_responded else "Pending"
-            remarks_text = resp["remarks"] if has_responded else "Pending"
-            results_color = "Good" if has_responded else "Warning"
-            remarks_color = "Good" if has_responded else "Warning"
-            results_item = {"type": "TextBlock", "text": results_text, "horizontalAlignment": "Center", "color": results_color}
-            remarks_item = {"type": "TextBlock", "text": remarks_text or "-", "horizontalAlignment": "Center", "color": remarks_color, "wrap": True}
+        row_columns = []
+        for col in columns:
+            key = col["column_key"]
+
+            if col.get("column_category") == "input":
+                # Input column: editable for current user who hasn't submitted
+                if is_current and not user_has_submitted:
+                    item = _build_input_widget(col)
+                else:
+                    value = resp.get(key, "") if has_responded else "Pending"
+                    color = "Good" if has_responded else "Warning"
+                    item = {"type": "TextBlock", "text": value or "-",
+                            "horizontalAlignment": "Center", "color": color, "wrap": True}
+            else:
+                # Display column: always read-only
+                value = member.get(key, "") or ""
+                if key == "name" and is_current:
+                    value = f"{value} (You)"
+                item = {"type": "TextBlock", "text": value,
+                        "horizontalAlignment": "Center",
+                        **({"weight": "Bolder"} if is_current else {})}
+
+            row_columns.append({
+                "type": "Column", "width": "stretch", "padding": "None",
+                "items": [item],
+            })
 
         row = {
             "type": "ColumnSet",
             "separator": True,
             "padding": "None",
             **({"style": "accent"} if is_current else {}),
-            "columns": [
-                {
-                    "type": "Column", "width": "stretch", "padding": "None",
-                    "items": [{"type": "TextBlock", "text": member["product"], "horizontalAlignment": "Center",
-                               **({"weight": "Bolder"} if is_current else {})}],
-                },
-                {
-                    "type": "Column", "width": "stretch", "padding": "None",
-                    "items": [{"type": "TextBlock", "text": f"{member['name']} (You)" if is_current else member["name"],
-                               "horizontalAlignment": "Center",
-                               **({"weight": "Bolder"} if is_current else {})}],
-                },
-                {
-                    "type": "Column", "width": "stretch", "padding": "None",
-                    "items": [results_item],
-                },
-                {
-                    "type": "Column", "width": "stretch", "padding": "None",
-                    "items": [remarks_item],
-                },
-            ],
+            "columns": row_columns,
         }
         data_rows.append(row)
 
@@ -220,8 +223,8 @@ def _build_refresh_card(
                 "name": name,
                 "email": email,
                 "company_name": company_name,
-                "results": "{{results.value}}",
-                "remarks": "{{remarks.value}}",
+                # Dynamic input column bindings
+                **{col["column_key"]: "{{" + col["column_key"] + ".value}}" for col in input_columns},
             }),
             "style": "positive",
             "isPrimary": True,
@@ -280,8 +283,16 @@ async def receive_card_response(request: Request):
     name = body.get("name", "")
     expected_email = body.get("email", "")
     company_name = body.get("company_name", "")
-    results = body.get("results", "")
-    remarks = body.get("remarks", "")
+
+    # Extract dynamic input column values
+    input_cols = get_input_columns()
+    response_data = {}
+    for col in input_cols:
+        response_data[col["column_key"]] = body.get(col["column_key"], "")
+
+    # Backward compat: also extract legacy fields directly
+    results = response_data.get("results", body.get("results", ""))
+    remarks = response_data.get("remarks", body.get("remarks", ""))
 
     # Step 3: Verify that the submitter matches the expected email
     if expected_email and submitter_email.lower() != expected_email.lower():
@@ -296,8 +307,9 @@ async def receive_card_response(request: Request):
         "cr673_product": product,
         "cr673_name": name,
         "cr673_email": expected_email or submitter_email,
-        "cr673_results": results,
-        "cr673_remarks": remarks,
+        "cr673_results": results,            # backward compat
+        "cr673_remarks": remarks,            # backward compat
+        "cr673_response_data": json.dumps(response_data),  # all dynamic fields
         "cr673_submitted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "cr673_company_name": company_name,
     }
@@ -405,15 +417,24 @@ async def receive_card_response(request: Request):
             from helpers.email_helper import send_consolidated_response_email
             from config.config import RFP_ACTIVITY_LOG_TABLE_API, RFP_ACTIVITY_LOG_TABLE_LOGICAL
 
-            responses_for_email = [
-                {
+            responses_for_email = []
+            for r in all_responses:
+                resp_item = {
                     "product": r.get("cr673_product", ""),
                     "name": r.get("cr673_name", ""),
-                    "results": r.get("cr673_results", ""),
-                    "remarks": r.get("cr673_remarks", ""),
                 }
-                for r in all_responses
-            ]
+                # Merge dynamic response_data fields
+                raw_json = r.get("cr673_response_data") or r.get("response_data", "")
+                if raw_json:
+                    try:
+                        resp_item.update(json.loads(raw_json))
+                    except (json.JSONDecodeError, TypeError):
+                        resp_item["results"] = r.get("cr673_results", "")
+                        resp_item["remarks"] = r.get("cr673_remarks", "")
+                else:
+                    resp_item["results"] = r.get("cr673_results", "")
+                    resp_item["remarks"] = r.get("cr673_remarks", "")
+                responses_for_email.append(resp_item)
 
             # Look up RFP end date from Dataverse activity log
             rfp_end_date = "-"
@@ -438,14 +459,20 @@ async def receive_card_response(request: Request):
     response_lookup = {}
     for r in all_responses:
         r_email = r.get("cr673_email", "").lower()
-        response_lookup[r_email] = {
-            "results": r.get("cr673_results", ""),
-            "remarks": r.get("cr673_remarks", ""),
-        }
+        # Try new JSON field first, fallback to legacy fields
+        raw_json = r.get("cr673_response_data") or r.get("response_data", "")
+        if raw_json:
+            try:
+                fields = json.loads(raw_json)
+            except (json.JSONDecodeError, TypeError):
+                fields = {"results": r.get("cr673_results", ""), "remarks": r.get("cr673_remarks", "")}
+        else:
+            fields = {"results": r.get("cr673_results", ""), "remarks": r.get("cr673_remarks", "")}
+        response_lookup[r_email] = fields
     # Ensure the current submission is in the lookup (in case query didn't return it yet)
     submitter_key = (expected_email or submitter_email).lower()
     if submitter_key not in response_lookup:
-        response_lookup[submitter_key] = {"results": results, "remarks": remarks}
+        response_lookup[submitter_key] = response_data
 
     refresh_card = _build_refresh_card(
         rfp_id=rfp_id,
@@ -496,14 +523,19 @@ async def refresh_card_status(request: Request):
     # Step 3: Query Dataverse for latest responses
     all_responses = _get_all_responses_for_rfp(rfp_id)
 
-    # Step 4: Build response lookup
+    # Step 4: Build response lookup (supports dynamic fields via response_data JSON)
     response_lookup = {}
     for r in all_responses:
         r_email = r.get("cr673_email", "").lower()
-        response_lookup[r_email] = {
-            "results": r.get("cr673_results", ""),
-            "remarks": r.get("cr673_remarks", ""),
-        }
+        raw_json = r.get("cr673_response_data") or r.get("response_data", "")
+        if raw_json:
+            try:
+                fields = json.loads(raw_json)
+            except (json.JSONDecodeError, TypeError):
+                fields = {"results": r.get("cr673_results", ""), "remarks": r.get("cr673_remarks", "")}
+        else:
+            fields = {"results": r.get("cr673_results", ""), "remarks": r.get("cr673_remarks", "")}
+        response_lookup[r_email] = fields
 
     # Step 5: Check if current user has already submitted
     user_email_key = (expected_email or opener_email).lower()
@@ -613,33 +645,49 @@ async def get_rfp_responses(rfp_id: str):
     """
     all_responses = _get_all_responses_for_rfp(rfp_id)
 
-    # Build response map: email -> response data
+    # Build response map: email -> response data (dynamic fields)
     response_map = {}
     for r in all_responses:
         email = r.get("cr673_email", "").lower()
-        response_map[email] = {
+        # Parse dynamic response_data JSON; fallback to legacy fields
+        resp_entry = {
             "name": r.get("cr673_name", ""),
             "product": r.get("cr673_product", ""),
-            "results": r.get("cr673_results", ""),
-            "remarks": r.get("cr673_remarks", ""),
             "submitted_at": r.get("cr673_submitted_at", ""),
         }
+        raw_json = r.get("cr673_response_data") or ""
+        if raw_json:
+            try:
+                resp_entry.update(json.loads(raw_json))
+            except Exception:
+                pass
+        # Fallback: legacy results/remarks
+        if "results" not in resp_entry:
+            resp_entry["results"] = r.get("cr673_results", "")
+        if "remarks" not in resp_entry:
+            resp_entry["remarks"] = r.get("cr673_remarks", "")
+        response_map[email] = resp_entry
 
-    # Build full team status
+    # Build full team status with dynamic column values
+    all_columns = get_all_columns()
     rfp_team = get_all_rfp_team_for_emails()
     team_status = []
     for member in rfp_team:
         email = member.get("email", "").lower()
         resp = response_map.get(email)
-        team_status.append({
-            "product": member["product"],
-            "name": member["name"],
+        entry = {
             "email": email,
             "responded": resp is not None,
-            "results": resp["results"] if resp else "",
-            "remarks": resp["remarks"] if resp else "",
             "submitted_at": resp["submitted_at"] if resp else "",
-        })
+        }
+        # Include all column values dynamically
+        for col in all_columns:
+            key = col["column_key"]
+            if resp:
+                entry[key] = resp.get(key, member.get(key, ""))
+            else:
+                entry[key] = member.get(key, "")
+        team_status.append(entry)
 
     return JSONResponse(content={
         "ok": True,

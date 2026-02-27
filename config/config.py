@@ -263,6 +263,11 @@ KEYWORDS_TABLE_API     = "cr673_bahra_keywordses"
 RFP_TEAM_DV_TABLE_LOGICAL = "cr673_bahra_rfp_team"
 RFP_TEAM_DV_TABLE_API     = "cr673_bahra_rfp_teams"           # confirm after setup
 
+# ===== RFP Team Column Definitions (Dataverse) =====
+# Run setup_dynamic_columns_table.py first, then confirm EntitySetName below.
+RFP_TEAM_COLUMNS_TABLE_LOGICAL = "cr673_bahra_rfp_team_columns"
+RFP_TEAM_COLUMNS_TABLE_API     = "cr673_bahra_rfp_team_columnses"  # confirm after setup
+
 # ===== RFP Team Responses (Dataverse) =====
 # Table for storing individual team member responses from Adaptive Card submissions
 RFP_RESPONSE_TABLE_LOGICAL = "cr6db_cr673_bahra_rfp_response"
