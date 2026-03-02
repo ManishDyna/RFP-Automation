@@ -728,7 +728,6 @@ export const api = {
     sort_order?: string
     dropdown_options?: string
     is_required?: string
-    is_team_field?: string
   }) => {
     const response = await fetch(ENDPOINTS.MASTER_DATA.RFP_TEAM_COLUMNS.CREATE, {
       method: 'POST',

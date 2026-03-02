@@ -125,7 +125,7 @@ def _build_refresh_card(
     columns = get_all_columns()
     input_columns = get_input_columns()
 
-    # Dynamic header row
+    # Dynamic header row (all columns)
     header_cols = []
     for col in columns:
         header_cols.append({
@@ -143,7 +143,7 @@ def _build_refresh_card(
     if team_table is None:
         team_table = get_all_rfp_team_for_emails()
 
-    # Dynamic data rows with actual response data
+    # Dynamic data rows with inline inputs for current member
     data_rows = []
     for member in team_table:
         m_email = member.get("email", "").lower()
@@ -231,7 +231,10 @@ def _build_refresh_card(
         }
         actions = [submit_action, refresh_action]
 
-    # Same card layout regardless of submission state
+    # Card layout with inline inputs in the table
+    instruction_text = ("Please fill in your Results and Remarks using the interactive form below."
+                        if not user_has_submitted
+                        else "Your response has been submitted. You can refresh to see team status.")
     card = {
         "type": "AdaptiveCard",
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -241,7 +244,7 @@ def _build_refresh_card(
              "wrap": True},
             {"type": "TextBlock", "text": f"Kindly advise us regarding the attached RFP file for **{product}**.",
              "wrap": True, "spacing": "Small"},
-            {"type": "TextBlock", "text": "Please fill in your Results and Remarks using the interactive form below.",
+            {"type": "TextBlock", "text": instruction_text,
              "wrap": True, "spacing": "Small"},
             {"type": "TextBlock", "text": "Team Assignment", "weight": "Bolder",
              "separator": True, "spacing": "Medium"},
@@ -266,9 +269,15 @@ async def receive_card_response(request: Request):
     Verifies the bearer token, extracts the response, and saves to Dataverse.
     When all team members have responded, sends a consolidated email.
     """
+    print(f"📩 /response endpoint hit! Method={request.method}, URL={request.url}")
+    print(f"📩 Headers: Authorization={'present' if request.headers.get('Authorization') else 'MISSING'}")
     # Step 1: Verify the bearer token from Microsoft
     auth_header = request.headers.get("Authorization", "")
-    claims = _verify_actionable_message_token(auth_header)
+    try:
+        claims = _verify_actionable_message_token(auth_header)
+    except Exception as e:
+        print(f"❌ Token verification FAILED: {e}")
+        raise
     # Substrate token has the user email in 'sub' claim
     submitter_email = claims.get("sub") or claims.get("preferred_username") or claims.get("upn", "unknown")
 

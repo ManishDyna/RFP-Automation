@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  PieChart, Pie, Cell, ResponsiveContainer,
+  ResponsiveContainer,
 } from 'recharts'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -49,8 +49,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { api } from '@/lib/api'
-
-const PIE_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#f43f5e', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16']
 
 function StatCard({
   title,
@@ -140,12 +138,6 @@ export default function MaterialInsightsPage() {
   const topKeywordsChart = useMemo(() => {
     if (!keywordChart.length) return []
     return keywordChart.slice(0, 10)
-  }, [keywordChart])
-
-  // Pie chart data for keyword frequency
-  const keywordPieData = useMemo(() => {
-    if (!keywordChart.length) return []
-    return keywordChart.map((k: any) => ({ name: k.keyword, value: k.rfp_count }))
   }, [keywordChart])
 
   const handleFilterChange = (key: string, value: string) => {
@@ -264,11 +256,11 @@ export default function MaterialInsightsPage() {
       </div>
 
       {/* Charts Section */}
-      {(topMaterialsChart.length > 0 || topKeywordsChart.length > 0 || keywordPieData.length > 0) && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+      {(topMaterialsChart.length > 0 || topKeywordsChart.length > 0) && (
+        <div className="mb-6">
           {/* Top Items Bar Chart - switches based on active tab */}
           {activeTab === 'materials' && topMaterialsChart.length > 0 && (
-            <Card className="border-slate-200 shadow-sm lg:col-span-2">
+            <Card className="border-slate-200 shadow-sm">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
                   <BarChart3 className="h-4 w-4 text-indigo-500" />
@@ -311,7 +303,7 @@ export default function MaterialInsightsPage() {
           )}
 
           {activeTab === 'keywords' && topKeywordsChart.length > 0 && (
-            <Card className="border-slate-200 shadow-sm lg:col-span-2">
+            <Card className="border-slate-200 shadow-sm">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
                   <BarChart3 className="h-4 w-4 text-amber-500" />
@@ -350,42 +342,6 @@ export default function MaterialInsightsPage() {
             </Card>
           )}
 
-          {/* Keyword Frequency Pie Chart */}
-          {keywordPieData.length > 0 && (
-            <Card className="border-slate-200 shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
-                  <Tag className="h-4 w-4 text-amber-500" />
-                  Keyword Frequency
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={280}>
-                  <PieChart>
-                    <Pie
-                      data={keywordPieData}
-                      cx="50%"
-                      cy="45%"
-                      innerRadius={50}
-                      outerRadius={85}
-                      dataKey="value"
-                      paddingAngle={2}
-                      label={({ name, percent }: any) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
-                      labelLine={false}
-                    >
-                      {keywordPieData.map((_: any, index: number) => (
-                        <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
-                      formatter={(value: any) => [`${value} RFPs`, '']}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          )}
         </div>
       )}
 

@@ -924,7 +924,22 @@ export default function DashboardPage() {
       {/* Material Breakdown Dialog */}
       <MaterialBreakdownDialog
         open={breakdownDialogOpen}
-        onOpenChange={setBreakdownDialogOpen}
+        onOpenChange={(open) => {
+          setBreakdownDialogOpen(open)
+          // When dialog closes, re-fetch match percentage for this RFP
+          // (dialog may have downloaded the Excel / resolved data from Dataverse)
+          if (!open && breakdownRfpId) {
+            const rfpId = breakdownRfpId
+            const company = breakdownCompany || rfpCompanyMap[rfpId] || undefined
+            const companiesForFetch: Record<string, string> = {}
+            if (company) companiesForFetch[rfpId] = company
+            api.getBatchMatchPercentages([rfpId], companiesForFetch)
+              .then((result) => {
+                setMatchPercentages((prev) => ({ ...prev, ...result }))
+              })
+              .catch(() => {})
+          }
+        }}
         rfpId={breakdownRfpId}
         company={breakdownCompany}
       />

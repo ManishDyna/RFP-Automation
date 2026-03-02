@@ -38,7 +38,10 @@
       "Bash(c:/python/RFP-automation/env/Scripts/python.exe:*)",
       "Bash(cat:*)",
       "Bash(PYTHONIOENCODING=utf-8 python:*)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(git ls-tree -r --name-only main)",
+      "Bash(git ls-tree -r --name-only dev_main)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

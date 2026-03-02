@@ -121,6 +121,17 @@ def get_all_columns(force_refresh: bool = False) -> List[Dict]:
         # Sort by sort_order (stored as string)
         columns.sort(key=lambda c: int(c.get("sort_order", "999") or "999"))
 
+        # Debug: log column definitions being used
+        if columns:
+            print(f"[RFPTeamColumns] Loaded {len(columns)} columns from Dataverse:")
+            for c in columns:
+                print(f"  - key={c.get('column_key')}, label={c.get('column_label')}, "
+                      f"type={c.get('column_type')}, category={c.get('column_category')}, "
+                      f"dropdown_options={(c.get('dropdown_options') or '')[:50]}")
+            # Debug: show raw keys of first row to detect mapping issues
+            if rows:
+                print(f"[RFPTeamColumns] Raw row keys: {list(rows[0].keys())}")
+
         if columns:
             _column_cache = columns
             _column_cache_ts = time.time()

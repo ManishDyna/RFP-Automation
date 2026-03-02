@@ -167,8 +167,7 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
     columns = get_all_columns()
     input_columns = get_input_columns()
-
-    # --- Build dynamic header row ---
+    # --- Build dynamic header row (all columns) ---
     header_cols = []
     for col in columns:
         header_cols.append({
@@ -183,7 +182,7 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
         "padding": "None",
     }
 
-    # --- Build dynamic data rows ---
+    # --- Build dynamic data rows (inputs inline for current member) ---
     data_rows = []
     for member in RFP_TEAM_TABLE:
         is_current = member.get("email", "").lower() == email.lower()
@@ -253,6 +252,7 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
         "type": "AdaptiveCard",
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
         "version": "1.0",
+        "hideOriginalBody": True,
         "body": [
             {
                 "type": "TextBlock",
@@ -453,10 +453,7 @@ def send_actionable_rfp_emails(
         )
 
         # Build email HTML with embedded adaptive card
-        # Adaptive Card is in <head>; <body> has a fallback for non-Outlook / unapproved originator
-        from services.rfp_team_columns_service import get_all_columns as _get_cols
-        _columns = _get_cols()
-        fallback_table_html = _build_dynamic_html_table(_columns, RFP_TEAM_TABLE)
+        # Adaptive Card is in <head>; <body> has a minimal fallback for non-Outlook clients
         body_html = f"""<html>
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
@@ -466,13 +463,9 @@ def send_actionable_rfp_emails(
 </head>
 <body>
   <p>Dear {name},</p>
-  <p>Kindly advise us regarding the attached RFP file for <b>{product}</b>.</p>
-  <p>Please fill in your responses below.</p>
-  {fallback_table_html}
-  <p style='background-color:#FFFF00;display:inline-block;padding:4px 8px;'>
-    <b>Note: the due date for <u>{rfp_id}</u> is {rfp_end_date}</b>
-  </p>
-  <br><p>Best Regards,<br>Automation System</p>
+  <p>This email contains an interactive form for <b>{rfp_id}</b> (due: {rfp_end_date}).</p>
+  <p>Please open this email in <b>Microsoft Outlook</b> to view the interactive card and submit your response.</p>
+  <p>Best Regards,<br>Automation System</p>
 </body>
 </html>"""
 
@@ -658,6 +651,7 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
         "type": "AdaptiveCard",
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
         "version": "1.0",
+        "hideOriginalBody": True,
         "body": [
             {"type": "TextBlock", "text": "Dear Team,", "wrap": True},
             {"type": "TextBlock", "text": "Kindly advise us regarding the attached RFP file.",
@@ -698,8 +692,7 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     sender_email = "D365FOadmin@bahra-electric.com"
     recipients = ", ".join(all_emails)
 
-    # Build fallback table for non-Outlook clients (dynamic columns with filled data)
-    fallback_table_html = _build_dynamic_html_table(columns, [], response_data=responses)
+    # Minimal fallback body for non-Outlook clients
     body_html = f"""<html>
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
@@ -709,12 +702,9 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
 </head>
 <body>
   <p>Dear Team,</p>
-  <p>All team members have submitted their responses for <b>{rfp_id}</b>.</p>
-  {fallback_table_html}
-  <p style='background-color:#FFFF00;display:inline-block;padding:4px 8px;'>
-    <b>Note: the due date for <u>{rfp_id}</u> is {rfp_end_date}</b>
-  </p>
-  <br><p>Best Regards,<br>Automation System</p>
+  <p>All team members have submitted their responses for <b>{rfp_id}</b> (due: {rfp_end_date}).</p>
+  <p>Please open this email in <b>Microsoft Outlook</b> to view the response summary.</p>
+  <p>Best Regards,<br>Automation System</p>
 </body>
 </html>"""
 

@@ -4,7 +4,7 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { ArrowDown, ArrowUp, Columns3, Database, Lock, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowUp, Columns3, Database, Eye, Lock, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
 import { Card, CardContent } from '@/components/ui/card'
@@ -76,7 +76,6 @@ const columnSchema = z.object({
   sort_order: z.string().optional(),
   dropdown_options: z.string().optional(),
   is_required: z.boolean().optional(),
-  is_team_field: z.boolean().optional(),
 })
 type ColumnForm = z.infer<typeof columnSchema>
 
@@ -943,10 +942,18 @@ function ColumnConfigTab() {
   const [dialogOpen, setDialogOpen]     = useState(false)
   const [editingItem, setEditingItem]   = useState<any>(null)
   const [deleteItem, setDeleteItem]     = useState<any>(null)
+  const [previewOpen, setPreviewOpen]   = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['rfp-team-columns'],
     queryFn: () => api.getRfpTeamColumns({ page_size: 100 }),
+  })
+
+  // Fetch team members only when preview is open
+  const { data: teamData, isLoading: teamLoading } = useQuery({
+    queryKey: ['rfp-team-preview'],
+    queryFn: () => api.getRfpTeam({ page_size: 500 }),
+    enabled: previewOpen,
   })
 
   const {
@@ -962,7 +969,6 @@ function ColumnConfigTab() {
       column_type: 'text',
       column_category: 'display',
       is_required: false,
-      is_team_field: false,
     },
   })
 
@@ -974,7 +980,7 @@ function ColumnConfigTab() {
     reset({
       column_key: '', column_label: '', column_type: 'text',
       column_category: 'display', sort_order: '', dropdown_options: '',
-      is_required: false, is_team_field: false,
+      is_required: false,
     })
   }
 
@@ -983,7 +989,7 @@ function ColumnConfigTab() {
     reset({
       column_key: '', column_label: '', column_type: 'text',
       column_category: 'display', sort_order: '', dropdown_options: '',
-      is_required: false, is_team_field: false,
+      is_required: false,
     })
     setDialogOpen(true)
   }
@@ -998,7 +1004,6 @@ function ColumnConfigTab() {
       sort_order: item.sort_order ?? '',
       dropdown_options: item.dropdown_options ?? '',
       is_required: String(item.is_required).toLowerCase() === 'true',
-      is_team_field: String(item.is_team_field).toLowerCase() === 'true',
     })
     setDialogOpen(true)
   }
@@ -1008,7 +1013,6 @@ function ColumnConfigTab() {
       const payload: any = {
         ...formData,
         is_required: formData.is_required ? 'true' : 'false',
-        is_team_field: formData.is_team_field ? 'true' : 'false',
       }
       return editingItem
         ? api.updateRfpTeamColumn(editingItem.record_id, payload)
@@ -1067,12 +1071,18 @@ function ColumnConfigTab() {
         <p className="text-sm text-muted-foreground">
           Define columns for RFP Team table, email cards, and response forms.
         </p>
-        {canCreate && (
-          <Button onClick={openAdd}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Column
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setPreviewOpen(true)}>
+            <Eye className="h-4 w-4 mr-2" />
+            Preview Email
           </Button>
-        )}
+          {canCreate && (
+            <Button onClick={openAdd}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Column
+            </Button>
+          )}
+        </div>
       </div>
 
       {columns.length > 6 && (
@@ -1102,7 +1112,6 @@ function ColumnConfigTab() {
                 <TableHead className="w-[100px]">Type</TableHead>
                 <TableHead className="w-[100px]">Category</TableHead>
                 <TableHead className="w-[80px]">Required</TableHead>
-                <TableHead className="w-[90px]">Team Field</TableHead>
                 {(canEdit || canDelete) && <TableHead className="text-right w-[140px]">Actions</TableHead>}
               </TableRow>
             </TableHeader>
@@ -1133,7 +1142,6 @@ function ColumnConfigTab() {
                     <TableCell><Badge variant="outline">{typeLabel(item.column_type)}</Badge></TableCell>
                     <TableCell><Badge variant="secondary">{categoryLabel(item.column_category)}</Badge></TableCell>
                     <TableCell>{String(item.is_required).toLowerCase() === 'true' ? 'Yes' : 'No'}</TableCell>
-                    <TableCell>{String(item.is_team_field).toLowerCase() === 'true' ? 'Yes' : 'No'}</TableCell>
                     {(canEdit || canDelete) && (
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
@@ -1253,16 +1261,6 @@ function ColumnConfigTab() {
                   </label>
                 )}
               />
-              <Controller
-                name="is_team_field"
-                control={control}
-                render={({ field }) => (
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                    <span className="text-sm">Team Field</span>
-                  </label>
-                )}
-              />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
@@ -1296,6 +1294,254 @@ function ColumnConfigTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Email Preview Dialog */}
+      <Dialog open={previewOpen} onOpenChange={(o) => !o && setPreviewOpen(false)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="px-6 pt-6 pb-3 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5" />
+              Email Preview — Outlook
+            </DialogTitle>
+            <DialogDescription>
+              Preview how the RFP notification email table will appear in Outlook.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto px-6 pb-6">
+            {teamLoading ? (
+              <div className="space-y-3 py-8">
+                <Skeleton className="h-6 w-48" />
+                <Skeleton className="h-40 w-full" />
+              </div>
+            ) : (
+              <EmailPreviewContent columns={columns} teamMembers={teamData?.rfp_team ?? []} />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+// ─── Email Preview Component ─────────────────────────────────────────────────
+
+function EmailPreviewContent({
+  columns,
+  teamMembers,
+}: {
+  columns: any[]
+  teamMembers: any[]
+}) {
+  // Render an Outlook Adaptive Card-style input widget based on column type
+  const renderInputWidget = (col: any) => {
+    const widgetStyle: React.CSSProperties = {
+      width: '100%',
+      padding: '4px 8px',
+      fontSize: 12,
+      border: '1px solid #bbb',
+      borderRadius: 3,
+      backgroundColor: '#fff',
+      color: '#333',
+      fontFamily: 'Segoe UI, Calibri, Arial, sans-serif',
+    }
+
+    if (col.column_type === 'dropdown') {
+      let options: string[] = []
+      try {
+        options = JSON.parse(col.dropdown_options || '[]')
+      } catch { /* ignore */ }
+      return (
+        <select style={{ ...widgetStyle, cursor: 'pointer' }}>
+          <option value="">{`Select ${col.column_label}...`}</option>
+          {options.map((opt: string) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      )
+    }
+
+    if (col.column_type === 'yes_no') {
+      return (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            style={{ width: 16, height: 16, accentColor: '#0078d4', cursor: 'pointer' }}
+          />
+          <span>{col.column_label}</span>
+        </label>
+      )
+    }
+
+    // Default: text input
+    return (
+      <input
+        type="text"
+        placeholder={`Enter ${(col.column_label || '').toLowerCase()}...`}
+        style={widgetStyle}
+      />
+    )
+  }
+
+  // Use sample data if no team members exist
+  const members = teamMembers.length > 0
+    ? teamMembers
+    : [
+        { product: 'Cables', name: 'John Doe', email: 'john@example.com' },
+        { product: 'Transformers', name: 'Jane Smith', email: 'jane@example.com' },
+      ]
+
+  return (
+    <div className="mt-4">
+      {/* Outlook-like email shell */}
+      <div
+        style={{
+          border: '1px solid #d0d0d0',
+          borderRadius: 6,
+          overflow: 'hidden',
+          backgroundColor: '#ffffff',
+          fontFamily: 'Segoe UI, Calibri, Arial, sans-serif',
+        }}
+      >
+        {/* Email header bar */}
+        <div
+          style={{
+            backgroundColor: '#0078d4',
+            color: '#fff',
+            padding: '10px 16px',
+            fontSize: 13,
+            fontWeight: 600,
+            letterSpacing: 0.3,
+          }}
+        >
+          Outlook — Message Preview
+        </div>
+
+        {/* Email metadata */}
+        <div
+          style={{
+            padding: '12px 20px',
+            borderBottom: '1px solid #e8e8e8',
+            fontSize: 13,
+            color: '#333',
+            lineHeight: 1.8,
+          }}
+        >
+          <div><strong>From:</strong> Automation System &lt;automation@bahra-cables.com&gt;</div>
+          <div><strong>To:</strong> RFP Team Members</div>
+          <div><strong>Subject:</strong> <span style={{ fontWeight: 600 }}>New RFP — Sample RFP Title</span></div>
+        </div>
+
+        {/* Email body */}
+        <div
+          style={{
+            padding: '20px 24px',
+            fontSize: 14,
+            color: '#1a1a1a',
+            lineHeight: 1.6,
+          }}
+        >
+          <p style={{ margin: '0 0 12px' }}>Dear's,</p>
+          <p style={{ margin: '0 0 16px' }}>Kindly advise us regarding to the attached file</p>
+
+          {/* Dynamic HTML table — matches _build_dynamic_html_table output */}
+          <table
+            style={{
+              borderCollapse: 'collapse',
+              margin: '10px 0',
+              width: '100%',
+              fontSize: 13,
+            }}
+          >
+            <thead>
+              <tr style={{ backgroundColor: '#f0f0f0' }}>
+                {columns.map((col: any) => (
+                  <th
+                    key={col.column_key}
+                    style={{
+                      border: '1px solid #ccc',
+                      padding: '6px 10px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {col.column_label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((member: any, idx: number) => {
+                const isHighlighted = idx === 0
+                return (
+                  <tr
+                    key={idx}
+                    style={isHighlighted ? { backgroundColor: '#e8f4fd' } : undefined}
+                  >
+                    {columns.map((col: any) => {
+                      const isInput = col.column_category === 'input'
+                      const value = member[col.column_key] ?? ''
+
+                      let cellContent: React.ReactNode = value
+
+                      if (isInput && isHighlighted) {
+                        // Show actual widget for the highlighted (current) member
+                        cellContent = renderInputWidget(col)
+                      } else if (isInput) {
+                        // Other members: show "Pending" like Adaptive Card
+                        cellContent = (
+                          <span style={{ color: '#b8860b', fontStyle: 'italic', fontSize: 12 }}>
+                            Pending
+                          </span>
+                        )
+                      } else if (col.column_key === 'name' && isHighlighted) {
+                        cellContent = <strong>{value} (You)</strong>
+                      }
+
+                      return (
+                        <td
+                          key={col.column_key}
+                          style={{
+                            border: '1px solid #ccc',
+                            padding: '6px 10px',
+                            verticalAlign: 'middle',
+                          }}
+                        >
+                          {cellContent}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {/* Due date highlight */}
+          <p
+            style={{
+              backgroundColor: '#FFFF00',
+              display: 'inline-block',
+              padding: '4px 8px',
+              margin: '8px 0',
+              fontWeight: 600,
+            }}
+          >
+            Note: the due date for <u>Sample RFP Title</u> is 3/15/2026
+          </p>
+
+          <br />
+          <p style={{ margin: '16px 0 0' }}>
+            Best Regards,<br />
+            Automation System
+          </p>
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground mt-3">
+        * The first row (highlighted) shows the Adaptive Card view for that team member — with actual input widgets. Other rows show "Pending" until they respond.
+      </p>
     </div>
   )
 }

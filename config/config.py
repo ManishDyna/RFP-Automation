@@ -168,8 +168,8 @@ SP_FAILURE_LOGS_FOLDER = "RFP-logs/automation-error-logs"
 # Set to "dev" or "prod"
 #   "dev"  → ALL emails go to DEV_EMAIL only
 #   "prod" → emails go to the production recipient lists below
-EMAIL_MODE = "prod"  # ← Change to "prod" for production
-DEV_EMAIL = "Manish.soni@dynatechconsultancy.com"
+EMAIL_MODE = "dev"  # ← Change to "prod" for production
+DEV_EMAIL = "KSAGov.tenders@bahra-cables.com"
 
 # ===== Production Email Recipients =====s
 # These are only used when EMAIL_MODE = "prod"
@@ -250,7 +250,7 @@ else:
 ACTIONABLE_CARD_ORIGINATOR_ID = "6d54540e-0657-4b98-aad6-6ac8204d7b41"
 # Public HTTPS callback URL that Outlook will POST to when users submit the card
 # ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
-ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/"
+ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
 
 # ===== Master Data (Dataverse) =====
 # Run setup_master_data_tables.py first, then confirm EntitySetName values below.

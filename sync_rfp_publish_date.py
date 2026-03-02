@@ -1,23 +1,24 @@
 """
-Sync RFP Publish Date from ALL-RFPs File to Dataverse.
+Sync RFP Publish Date & Owner Name from RFP_Info CSV to Dataverse.
 
-Reads an ALL-RFPs file (Excel .xls/.xlsx or CSV) and updates the
-'publish_time' field in the Dataverse RFP Activity Log table.
+Reads the RFP_Info_All-RFPs.csv file and updates both 'publish_time' and
+'owner_name' fields in the Dataverse RFP Activity Log table.
 
-Matches file rows by Title → DB RFP_ID.
-Updates only the publish_time field, nothing else.
+Matches file rows by RFP_ID.
+Supports resume: tracks progress in a JSON file so if the script is
+interrupted, it restarts from where it stopped.
 
 Usage:
-  python sync_rfp_publish_date.py                             # uses default All-RFPs.xls
-  python sync_rfp_publish_date.py --file path/to/file.xls     # custom file
-  python sync_rfp_publish_date.py --dry-run                    # preview without updating
-  python sync_rfp_publish_date.py --col "Publish Date"         # custom source column name
+  python sync_rfp_publish_date.py                              # uses default CSV
+  python sync_rfp_publish_date.py --file path/to/file.csv      # custom file
+  python sync_rfp_publish_date.py --dry-run                     # preview without updating
+  python sync_rfp_publish_date.py --reset                       # clear progress and start fresh
 """
 
 import argparse
+import json
 import os
 import sys
-import logging
 
 import pandas as pd
 
@@ -29,21 +30,19 @@ from config.config import (
     RFP_ACTIVITY_LOG_TABLE_API, RFP_ACTIVITY_LOG_TABLE_LOGICAL,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger(__name__)
+DEFAULT_FILE = os.path.join(os.getcwd(), "RFP_Info_All-RFPs.csv")
 
-DEFAULT_FILE = os.path.join(os.getcwd(), "ALLRFPs", "Portal-Rfps", "All-RFPs.xls")
+# Source column names in the CSV
+SRC_COL_PUBLISH_DATE = "Publish_Date"
+SRC_COL_OWNER = "Owner"
+SRC_COL_RFP_ID = "RFP_ID"
 
-# Source column name in the All-RFPs portal file.
-# Change this if the portal file uses a different header (e.g. "Publish Date", "Start Date").
-DEFAULT_SOURCE_COLUMN = "Start Time"
+# Dataverse display-name columns to update
+DB_FIELD_PUBLISH = "publish_time"
+DB_FIELD_OWNER = "owner_name"
 
-# Display name of the Dataverse column to update.
-DB_FIELD = "publish_time"
+# Progress tracking file (for resume support)
+PROGRESS_FILE = os.path.join(os.getcwd(), ".sync_rfp_progress.json")
 
 
 # ---------------------------------------------------------------------------
@@ -51,36 +50,27 @@ DB_FIELD = "publish_time"
 # ---------------------------------------------------------------------------
 
 def normalize_date(val) -> str:
-    """Parse any date format from the Excel file and return consistent 'MM/DD/YYYY HH:MM AM/PM' string.
-
-    Handles two formats found in portal Excel files:
-      - Slash format: 'MM/DD/YYYY HH:MM AM/PM' → parse directly (already correct)
-      - Dash format:  'YYYY-DD-MM HH:MM:SS'    → day and month are swapped by Excel
-        (portal uses DD/MM but Excel with US locale stored them as MM/DD datetime,
-         so the YYYY-MM-DD string actually has day in month position and vice-versa)
-    """
+    """Parse any date format and return consistent 'MM/DD/YYYY HH:MM AM/PM' string."""
     if pd.isna(val) or str(val).strip() == "":
         return ""
     val = str(val).strip()
     try:
         if "-" in val and "/" not in val:
-            # Dash format: YYYY-DD-MM HH:MM:SS (day/month swapped by Excel)
             parts = val.split(" ", 1)
-            date_part = parts[0]                        # e.g. 2026-04-02
+            date_part = parts[0]
             time_part = parts[1] if len(parts) > 1 else "00:00:00"
-            y, d, m = date_part.split("-")              # swap: treat as YYYY-DD-MM
-            fixed = f"{y}-{m}-{d} {time_part}"          # → YYYY-MM-DD HH:MM:SS
+            y, d, m = date_part.split("-")
+            fixed = f"{y}-{m}-{d} {time_part}"
             dt = pd.to_datetime(fixed)
         else:
-            # Slash format: MM/DD/YYYY HH:MM AM/PM → already correct
             dt = pd.to_datetime(val)
-        return dt.strftime("%m/%d/%Y %I:%M %p")
+        return dt.strftime("%#m/%#d/%Y %#I:%M %p")
     except Exception:
         return str(val).strip()
 
 
-def read_rfp_file(file_path: str, source_col: str) -> pd.DataFrame:
-    """Read an ALL-RFPs file (Excel or CSV). Read all columns as strings to preserve date format."""
+def read_rfp_file(file_path: str) -> pd.DataFrame:
+    """Read an RFP info file (Excel or CSV) as strings."""
     ext = os.path.splitext(file_path)[1].lower()
     if ext in (".xls", ".xlsx"):
         df = pd.read_excel(file_path, dtype=str)
@@ -89,31 +79,53 @@ def read_rfp_file(file_path: str, source_col: str) -> pd.DataFrame:
     else:
         raise ValueError(f"Unsupported file format: {ext}. Use .xls, .xlsx, or .csv")
 
-    required = {"Title", source_col}
+    required = {SRC_COL_RFP_ID}
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(
-            f"File is missing required columns: {missing}. Found: {list(df.columns)}\n"
-            f"Tip: use --col to specify the correct publish-date column name."
-        )
+        raise ValueError(f"File is missing required columns: {missing}. Found: {list(df.columns)}")
 
-    logger.info(f"Read {len(df)} rows from {file_path}")
+    print(f"  Read {len(df)} rows from {file_path}")
     return df
+
+
+def load_progress() -> set:
+    """Load set of already-updated RFP IDs from progress file."""
+    if not os.path.exists(PROGRESS_FILE):
+        return set()
+    try:
+        with open(PROGRESS_FILE, "r") as f:
+            data = json.load(f)
+        return set(data.get("completed", []))
+    except Exception:
+        return set()
+
+
+def save_progress(completed: set):
+    """Save completed RFP IDs to progress file."""
+    with open(PROGRESS_FILE, "w") as f:
+        json.dump({"completed": list(completed)}, f)
+
+
+def clear_progress():
+    """Remove the progress file to start fresh."""
+    if os.path.exists(PROGRESS_FILE):
+        os.remove(PROGRESS_FILE)
+        print("  Progress file cleared.")
 
 
 def build_db_lookup(dataverse: DataverseClient) -> dict:
     """
     Fetch all RFP activity rows and build lookup.
-    Returns: {rfp_id: {"record_id": ..., "publish_time": ...}}
+    Returns: {rfp_id: {"record_id": ..., "publish_time": ..., "owner_name": ...}}
     """
-    logger.info("Fetching all RFP records from Dataverse...")
+    print("  Fetching all RFP records from Dataverse...")
     rows = dataverse.get_all_rows(
         table_api_name=RFP_ACTIVITY_LOG_TABLE_API,
-        select_columns=["RFP_ID", DB_FIELD],
+        select_columns=["RFP_ID", DB_FIELD_PUBLISH, DB_FIELD_OWNER],
         table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
         use_display_names=True,
     )
-    logger.info(f"Fetched {len(rows)} RFP records from Dataverse")
+    print(f"  Fetched {len(rows)} RFP records from Dataverse")
 
     try:
         colmap = dataverse.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)
@@ -131,11 +143,10 @@ def build_db_lookup(dataverse: DataverseClient) -> dict:
             continue
 
         record_id = row.get(pk_display) or row.get(pk_logical)
-        publish_time = row.get(DB_FIELD, "") or ""
-
         lookup[rfp_id] = {
             "record_id": record_id,
-            DB_FIELD: publish_time,
+            DB_FIELD_PUBLISH: row.get(DB_FIELD_PUBLISH, "") or "",
+            DB_FIELD_OWNER: row.get(DB_FIELD_OWNER, "") or "",
         }
 
     return lookup
@@ -145,9 +156,9 @@ def build_db_lookup(dataverse: DataverseClient) -> dict:
 # Main sync
 # ---------------------------------------------------------------------------
 
-def sync_publish_dates(file_path: str, source_col: str, dry_run: bool = False):
-    """Read file, compare with DB, update publish_time where needed."""
-    df = read_rfp_file(file_path, source_col)
+def sync_rfp_data(file_path: str, dry_run: bool = False):
+    """Read file, compare with DB, update publish_time and owner_name where needed."""
+    df = read_rfp_file(file_path)
 
     dataverse = DataverseClient(
         tenant_id=TENANT_ID,
@@ -158,50 +169,78 @@ def sync_publish_dates(file_path: str, source_col: str, dry_run: bool = False):
 
     db_lookup = build_db_lookup(dataverse)
 
+    # Load resume progress
+    completed = load_progress() if not dry_run else set()
+
     total = len(df)
     skipped_not_found = 0
+    skipped_already_done = 0
+    skipped_no_change = 0
     updated = 0
     failed = 0
 
-    logger.info(f"{'DRY RUN - ' if dry_run else ''}Starting sync of {total} RFPs...")
+    has_publish_col = SRC_COL_PUBLISH_DATE in df.columns
+    has_owner_col = SRC_COL_OWNER in df.columns
+
     print(f"\n{'='*70}")
-    print(f"  Sync RFP Publish Date to Dataverse")
-    print(f"  File:        {file_path}")
-    print(f"  Source col:  {source_col}")
-    print(f"  DB field:    {DB_FIELD}")
-    print(f"  Mode:        {'DRY RUN (no changes)' if dry_run else 'LIVE'}")
-    print(f"  Total RFPs in file: {total}")
-    print(f"  Total RFPs in DB:   {len(db_lookup)}")
+    print(f"  Sync RFP Publish Date & Owner Name to Dataverse")
+    print(f"  File:             {file_path}")
+    print(f"  Publish col:      {SRC_COL_PUBLISH_DATE} {'(found)' if has_publish_col else '(NOT in file)'}")
+    print(f"  Owner col:        {SRC_COL_OWNER} {'(found)' if has_owner_col else '(NOT in file)'}")
+    print(f"  Mode:             {'DRY RUN (no changes)' if dry_run else 'LIVE'}")
+    print(f"  Total in file:    {total}")
+    print(f"  Total in DB:      {len(db_lookup)}")
+    print(f"  Already done:     {len(completed)} (resume)")
     print(f"{'='*70}\n")
 
     for idx, row in df.iterrows():
-        rfp_id = str(row.get("Title", "")).strip()
-        file_publish_time = row.get(source_col, "")
-
+        rfp_id = str(row.get(SRC_COL_RFP_ID, "")).strip()
         if not rfp_id:
             continue
 
-        new_date = normalize_date(file_publish_time)
-        if not new_date:
+        # Resume: skip already completed
+        if rfp_id in completed:
+            skipped_already_done += 1
             continue
 
         db_entry = db_lookup.get(rfp_id)
         if not db_entry:
             skipped_not_found += 1
-            logger.debug(f"  [{idx+1}/{total}] {rfp_id} — NOT FOUND in DB, skipping")
             continue
 
-        old_date = db_entry[DB_FIELD] or ""
         record_id = db_entry["record_id"]
+        update_data = {}
+
+        # Check publish_time
+        if has_publish_col:
+            file_publish = row.get(SRC_COL_PUBLISH_DATE, "")
+            new_date = normalize_date(file_publish)
+            old_date = db_entry[DB_FIELD_PUBLISH]
+            if new_date and new_date != old_date:
+                update_data[DB_FIELD_PUBLISH] = new_date
+
+        # Check owner_name
+        if has_owner_col:
+            file_owner = str(row.get(SRC_COL_OWNER, "") or "").strip()
+            old_owner = db_entry[DB_FIELD_OWNER]
+            if file_owner and file_owner != "nan" and file_owner != old_owner:
+                update_data[DB_FIELD_OWNER] = file_owner
+
+        if not update_data:
+            skipped_no_change += 1
+            # Mark as done even if no change needed (so resume skips it)
+            if not dry_run:
+                completed.add(rfp_id)
+                save_progress(completed)
+            continue
 
         if dry_run:
-            print(f"  [DRY] {rfp_id}: '{old_date}' -> '{new_date}'")
+            changes = ", ".join(f"{k}: '{db_entry[k]}' -> '{v}'" for k, v in update_data.items())
+            print(f"  [DRY] {rfp_id}: {changes}")
             updated += 1
             continue
 
-        # Update only publish_time field
         try:
-            update_data = {DB_FIELD: new_date}
             success = dataverse.update_row(
                 RFP_ACTIVITY_LOG_TABLE_API,
                 record_id,
@@ -210,13 +249,16 @@ def sync_publish_dates(file_path: str, source_col: str, dry_run: bool = False):
             )
             if success:
                 updated += 1
-                logger.info(f"  [{idx+1}/{total}] {rfp_id}: '{old_date}' -> '{new_date}'")
+                changes = ", ".join(f"{k}: '{db_entry[k]}' -> '{v}'" for k, v in update_data.items())
+                print(f"  [{updated}] {rfp_id}: {changes}")
+                completed.add(rfp_id)
+                save_progress(completed)
             else:
                 failed += 1
-                logger.error(f"  [{idx+1}/{total}] {rfp_id}: UPDATE FAILED")
+                print(f"  [FAIL] {rfp_id}: UPDATE FAILED")
         except Exception as e:
             failed += 1
-            logger.error(f"  [{idx+1}/{total}] {rfp_id}: ERROR — {e}")
+            print(f"  [FAIL] {rfp_id}: {e}")
 
     print(f"\n{'='*70}")
     print(f"  SYNC COMPLETE {'(DRY RUN)' if dry_run else ''}")
@@ -224,8 +266,15 @@ def sync_publish_dates(file_path: str, source_col: str, dry_run: bool = False):
     print(f"  Total in file:           {total}")
     print(f"  Updated:                 {updated}")
     print(f"  Skipped (not in DB):     {skipped_not_found}")
+    print(f"  Skipped (no change):     {skipped_no_change}")
+    print(f"  Skipped (already done):  {skipped_already_done}")
     print(f"  Failed:                  {failed}")
     print(f"{'='*70}\n")
+
+    # Clean up progress file on full completion (no failures)
+    if not dry_run and failed == 0:
+        clear_progress()
+        print("  All done. Progress file removed.")
 
 
 # ---------------------------------------------------------------------------
@@ -234,30 +283,33 @@ def sync_publish_dates(file_path: str, source_col: str, dry_run: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Sync RFP Publish Date from ALL-RFPs file to Dataverse"
+        description="Sync RFP Publish Date & Owner Name from RFP_Info CSV to Dataverse"
     )
     parser.add_argument(
         "--file", "-f",
         default=DEFAULT_FILE,
-        help=f"Path to ALL-RFPs file (.xls, .xlsx, or .csv). Default: {DEFAULT_FILE}",
-    )
-    parser.add_argument(
-        "--col", "-c",
-        default=DEFAULT_SOURCE_COLUMN,
-        help=f"Column name in the file that holds the publish date. Default: '{DEFAULT_SOURCE_COLUMN}'",
+        help=f"Path to RFP info file (.xls, .xlsx, or .csv). Default: {DEFAULT_FILE}",
     )
     parser.add_argument(
         "--dry-run", "-d",
         action="store_true",
         help="Preview changes without actually updating Dataverse",
     )
+    parser.add_argument(
+        "--reset", "-r",
+        action="store_true",
+        help="Clear progress file and start fresh from the beginning",
+    )
     args = parser.parse_args()
 
+    if args.reset:
+        clear_progress()
+
     if not os.path.exists(args.file):
-        logger.error(f"File not found: {args.file}")
+        print(f"  File not found: {args.file}")
         sys.exit(1)
 
-    sync_publish_dates(args.file, source_col=args.col, dry_run=args.dry_run)
+    sync_rfp_data(args.file, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

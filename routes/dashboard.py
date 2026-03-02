@@ -733,25 +733,89 @@ def ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client):
     return None
 
 
+def _get_match_percentage_from_dataverse(rfp_id: str):
+    """
+    Try to get match percentage summary from stored Matched_Data in Dataverse.
+    Returns dict with match_percentage/total_materials/matched_count, or None if not available.
+    """
+    try:
+        filter_val = rfp_id.replace("'", "''")
+        result = DATAVERSE.query_rows(
+            RFP_ACTIVITY_LOG_TABLE_API,
+            filter_expr=f"RFP_ID eq '{filter_val}'",
+            select="RFP_ID,Matched_Data",
+            top=1,
+            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            use_display_names=True
+        )
+        rows = result.get("value", []) if isinstance(result, dict) else []
+        if not rows:
+            return None
+
+        matched_data_str = (rows[0].get("Matched_Data") or "").strip()
+        if not matched_data_str:
+            return None
+
+        items = json.loads(matched_data_str)
+        if not isinstance(items, list) or not items:
+            return None
+
+        # Only use new format data (has is_matched field)
+        has_new_format = any("is_matched" in item for item in items)
+        if not has_new_format:
+            return None
+
+        total_materials = len(items)
+        matched_count = sum(1 for item in items if bool(item.get("is_matched", True)))
+        match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
+
+        return {
+            "match_percentage": match_percentage,
+            "total_materials": total_materials,
+            "matched_count": matched_count,
+        }
+    except Exception as e:
+        print(f"[BatchMatch] Dataverse lookup failed for {rfp_id}: {e}")
+        return None
+
+
 def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list, company: str = None, graph_client=None):
     """
     Calculate match percentage for a single RFP (optimized with caching).
     Uses ALL items from Excel (no intent filter).
     Matching uses exact code + keyword matching (same logic as download time).
-    Only uses locally available files — never downloads from SharePoint.
+    Primary: checks Dataverse for stored Matched_Data.
+    Fallback: uses locally available Excel files.
     """
-    # Local-only lookup: pass None for graph_client to skip SharePoint downloads
+    # Check cache first
+    if rfp_id in _MATCH_PERCENTAGE_CACHE:
+        cached = _MATCH_PERCENTAGE_CACHE[rfp_id]
+        if cached.get("cache_version") == _MATCH_CACHE_VERSION:
+            # For Dataverse-sourced cache, no file_mtime to check
+            if cached.get("source") == "dataverse":
+                return cached
+            # For file-sourced cache, validate file_mtime
+            file_mtime = cached.get("file_mtime")
+            if file_mtime:
+                excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, company, None)
+                if excel_path and os.path.exists(excel_path) and os.path.getmtime(excel_path) == file_mtime:
+                    return cached
+
+    # Primary: try Dataverse stored data
+    dv_result = _get_match_percentage_from_dataverse(rfp_id)
+    if dv_result is not None:
+        dv_result["source"] = "dataverse"
+        dv_result["cache_version"] = _MATCH_CACHE_VERSION
+        _MATCH_PERCENTAGE_CACHE[rfp_id] = dv_result
+        return dv_result
+
+    # Fallback: local Excel file matching
     excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, company, None)
 
     if not excel_path or not os.path.exists(excel_path):
         return {"match_percentage": 0, "total_materials": 0, "matched_count": 0, "file_mtime": None}
 
-    # Check cache first (invalidate if file changed or match logic version changed)
     file_mtime = os.path.getmtime(excel_path)
-    if rfp_id in _MATCH_PERCENTAGE_CACHE:
-        cached = _MATCH_PERCENTAGE_CACHE[rfp_id]
-        if cached.get("file_mtime") == file_mtime and cached.get("cache_version") == _MATCH_CACHE_VERSION:
-            return cached
 
     # Extract ALL materials from Excel (no intent filter)
     materials_data = extract_materials_from_excel(excel_path, include_details=True, filter_by_intent=False)
