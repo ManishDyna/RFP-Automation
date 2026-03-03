@@ -21,6 +21,7 @@ import os
 import sys
 
 import pandas as pd
+import pytz
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -50,7 +51,8 @@ PROGRESS_FILE = os.path.join(os.getcwd(), ".sync_rfp_progress.json")
 # ---------------------------------------------------------------------------
 
 def normalize_date(val) -> str:
-    """Parse any date format and return consistent 'MM/DD/YYYY HH:MM AM/PM' string."""
+    """Parse any date format and return consistent 'M/D/YYYY H:MM AM/PM' string in KSA time."""
+    KSA_TZ = pytz.timezone("Asia/Riyadh")
     if pd.isna(val) or str(val).strip() == "":
         return ""
     val = str(val).strip()
@@ -64,6 +66,9 @@ def normalize_date(val) -> str:
             dt = pd.to_datetime(fixed)
         else:
             dt = pd.to_datetime(val)
+        # If timezone-aware, convert to KSA; if naive, assume already KSA
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(KSA_TZ)
         return dt.strftime("%#m/%#d/%Y %#I:%M %p")
     except Exception:
         return str(val).strip()

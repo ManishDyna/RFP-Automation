@@ -125,13 +125,17 @@ def _build_refresh_card(
     columns = get_all_columns()
     input_columns = get_input_columns()
 
-    # Dynamic header row (all columns)
+    if team_table is None:
+        team_table = get_all_rfp_team_for_emails()
+
+    # --- Build ColumnSet-based table ---
     header_cols = []
     for col in columns:
+        col_width = 2 if col["column_key"] == "email" else 1
         header_cols.append({
-            "type": "Column", "width": "stretch", "padding": "None",
+            "type": "Column", "width": col_width, "padding": "None",
             "items": [{"type": "TextBlock", "text": col.get("column_label", col["column_key"]),
-                        "weight": "Bolder", "horizontalAlignment": "Center"}],
+                        "weight": "Bolder", "wrap": True}],
         })
     header_row = {
         "type": "ColumnSet",
@@ -140,10 +144,6 @@ def _build_refresh_card(
         "columns": header_cols,
     }
 
-    if team_table is None:
-        team_table = get_all_rfp_team_for_emails()
-
-    # Dynamic data rows with inline inputs for current member
     data_rows = []
     for member in team_table:
         m_email = member.get("email", "").lower()
@@ -154,38 +154,35 @@ def _build_refresh_card(
         row_columns = []
         for col in columns:
             key = col["column_key"]
+            col_width = 2 if key == "email" else 1
 
             if col.get("column_category") == "input":
-                # Input column: editable for current user who hasn't submitted
                 if is_current and not user_has_submitted:
                     item = _build_input_widget(col)
                 else:
                     value = resp.get(key, "") if has_responded else "Pending"
                     color = "Good" if has_responded else "Warning"
                     item = {"type": "TextBlock", "text": value or "-",
-                            "horizontalAlignment": "Center", "color": color, "wrap": True}
+                            "color": color, "wrap": True, "size": "Small"}
             else:
-                # Display column: always read-only
                 value = member.get(key, "") or ""
                 if key == "name" and is_current:
                     value = f"{value} (You)"
-                item = {"type": "TextBlock", "text": value,
-                        "horizontalAlignment": "Center",
+                item = {"type": "TextBlock", "text": value, "wrap": True,
+                        "size": "Small",
                         **({"weight": "Bolder"} if is_current else {})}
 
             row_columns.append({
-                "type": "Column", "width": "stretch", "padding": "None",
+                "type": "Column", "width": col_width, "padding": "None",
                 "items": [item],
             })
 
-        row = {
+        data_rows.append({
             "type": "ColumnSet",
             "separator": True,
             "padding": "None",
-            **({"style": "accent"} if is_current else {}),
             "columns": row_columns,
-        }
-        data_rows.append(row)
+        })
 
     # Common refresh payload (for autoInvokeAction and manual Refresh button)
     refresh_body = json.dumps({
@@ -235,28 +232,31 @@ def _build_refresh_card(
     instruction_text = ("Please fill in your Results and Remarks using the interactive form below."
                         if not user_has_submitted
                         else "Your response has been submitted. You can refresh to see team status.")
+    body_items = [
+        {"type": "TextBlock", "text": f"Dear {name},",
+         "wrap": True, "size": "Small"},
+        {"type": "TextBlock", "text": f"Kindly advise us regarding the attached RFP file for **{product}**.",
+         "wrap": True, "spacing": "Small", "size": "Small"},
+        {"type": "TextBlock", "text": instruction_text,
+         "wrap": True, "spacing": "Small", "size": "Small"},
+        {"type": "TextBlock", "text": "Team Assignment", "weight": "Bolder",
+         "separator": True, "spacing": "Medium"},
+        header_row,
+        *data_rows,
+        {"type": "TextBlock", "text": status_text,
+         "isSubtle": True, "wrap": True, "spacing": "Medium", "size": "Small"},
+        {"type": "TextBlock", "text": "Best Regards,",
+         "wrap": True, "spacing": "Medium", "separator": True, "size": "Small"},
+        {"type": "TextBlock", "text": "Automation System",
+         "wrap": True, "spacing": "None", "size": "Small"},
+    ]
     card = {
         "type": "AdaptiveCard",
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
         "version": "1.0",
-        "body": [
-            {"type": "TextBlock", "text": f"Dear {name},",
-             "wrap": True},
-            {"type": "TextBlock", "text": f"Kindly advise us regarding the attached RFP file for **{product}**.",
-             "wrap": True, "spacing": "Small"},
-            {"type": "TextBlock", "text": instruction_text,
-             "wrap": True, "spacing": "Small"},
-            {"type": "TextBlock", "text": "Team Assignment", "weight": "Bolder",
-             "separator": True, "spacing": "Medium"},
-            header_row,
-            *data_rows,
-            {"type": "TextBlock", "text": status_text,
-             "isSubtle": True, "wrap": True, "spacing": "Medium"},
-            {"type": "TextBlock", "text": "Best Regards,\nAutomation System",
-             "wrap": True, "spacing": "Medium", "separator": True},
-        ],
+        "padding": "Default",
+        "body": body_items,
         "actions": actions,
-        "padding": "None",
     }
 
     return card
@@ -456,9 +456,13 @@ async def receive_card_response(request: Request):
                     use_display_names=True,
                 )
                 if activity and "value" in activity and len(activity["value"]) > 0:
-                    rfp_end_date = activity["value"][0].get("RFP_End_Date", "-") or "-"
-            except Exception:
-                pass
+                    row = activity["value"][0]
+                    rfp_end_date = row.get("RFP_End_Date") or row.get("RFP End Date") or row.get("rfp_end_date") or "-"
+                    print(f"📅 End date lookup for {rfp_id}: '{rfp_end_date}' (available keys: {list(row.keys())[:10]})")
+                else:
+                    print(f"⚠ No activity log record found for {rfp_id}")
+            except Exception as e:
+                print(f"⚠ End date lookup failed for {rfp_id}: {e}")
 
             send_consolidated_response_email(rfp_id, responses_for_email, company_name, rfp_end_date)
         except Exception as e:

@@ -169,16 +169,17 @@ SP_FAILURE_LOGS_FOLDER = "RFP-logs/automation-error-logs"
 #   "dev"  → ALL emails go to DEV_EMAIL only
 #   "prod" → emails go to the production recipient lists below
 EMAIL_MODE = "dev"  # ← Change to "prod" for production
-DEV_EMAIL = "KSAGov.tenders@bahra-cables.com"
+# DEV_EMAIL = "KSAGov.tenders@bahra-cables.com"
+DEV_EMAIL = "Manish.soni@dynatechconsultancy.com"
 
 # ===== Production Email Recipients =====s
 # These are only used when EMAIL_MODE = "prod"
 
 # ── Case 1: New RFP found on portal (one email per RFP with RFP file + matched materials) ──
-_PROD_EMAIL_TO_NEW_RFP = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_NEW_RFP = "Manish.soni@dynatechconsultancy.com"
 
 # ── Case 2: Automation ran but NO new RFP was found on portal ──
-_PROD_EMAIL_TO_NO_NEW_RFP = "abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_NO_NEW_RFP = "Manish.soni@dynatechconsultancy.com"
 
 _PROD_EMAIL_TO_RFP_DECLINED = "abdullah.rawah@bahra-cables.com"
 _PROD_EMAIL_TO_RFP_ERROR_IN_SUBMISSION = "Manish.soni@dynatechconsultancy.com"
@@ -187,13 +188,12 @@ _PROD_EMAIL_TO_AUTOMATION_FAILURE = "Manish.soni@dynatechconsultancy.com"
 _PROD_EMAIL_TO_RFP_SUBMITTED = "abdullah.rawah@bahra-cables.com"
 _PROD_EMAIL_TO_RFP_SAVED_DRAFT = "arawah@bahra-cables.com"
 _PROD_EMAIL_TO_RFP_REMINDER = "abdullah.rawah@bahra-cables.com"
-_PROD_EMAIL_TO_NEW_RFP_WITH_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
-_PROD_EMAIL_TO_NO_MATCHED_DATA = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
-_PROD_EMAIL_TO_NEW_RFP_NO_MATCH = "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_NEW_RFP_WITH_MATCH = "Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_NO_MATCHED_DATA = "Manish.soni@dynatechconsultancy.com"
+_PROD_EMAIL_TO_NEW_RFP_NO_MATCH = "Manish.soni@dynatechconsultancy.com"
 
 # Production RFP Team Assignment Table
 _PROD_RFP_TEAM_TABLE = [
-    
     {"product": "Cables",             "name": "Lotfy Idrees",    "email": "lotfy.mohammad@bahra-electric.com"},
     {"product": "Cable Accessories",  "name": "Ahmed Ebeed",     "email": "ahmed.ebeed@bahra-cables.com"},
     {"product": "Non-Cables",         "name": "Karim Nour",      "email": "karim.nour@bahra-cables.com"},
@@ -242,6 +242,13 @@ else:
     EMAIL_TO_NEW_RFP_NO_MATCH = DEV_EMAIL
     RFP_TEAM_TABLE = _DEV_RFP_TEAM_TABLE
 
+# ===== Decline Button Visibility =====
+# Only these emails will see the "Decline RFP" button in the consolidated response email.
+# Add multiple emails as comma-separated values. Case-insensitive matching.
+DECLINE_BUTTON_EMAILS = [
+    "Shubham.kumbhar@dynatechconsultancy.com",
+]
+
 # ===== Actionable Messages (Adaptive Cards in Outlook) =====
 # Originator ID from Microsoft Actionable Email Developer Dashboard
 # Register at https://aka.ms/publishactionableemails (Organization scope)
@@ -249,7 +256,9 @@ else:
 # ACTIONABLE_CARD_ORIGINATOR_ID = "f97cfa6f-eaf0-4d8e-a464-8f4646a22c7b"
 # ACTIONABLE_CARD_ORIGINATOR_ID = "6d54540e-0657-4b98-aad6-6ac8204d7b41"
 
-ACTIONABLE_CARD_ORIGINATOR_ID = "af45a1f4-23d6-4bfa-863e-cd1915e1b439"
+# ACTIONABLE_CARD_ORIGINATOR_ID = "af45a1f4-23d6-4bfa-863e-cd1915e1b439"
+ACTIONABLE_CARD_ORIGINATOR_ID = "0528b4b8-fcbe-47ab-94a1-fa698a9d76ab"
+
 # Public HTTPS callback URL that Outlook will POST to when users submit the card
 # ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
 ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
