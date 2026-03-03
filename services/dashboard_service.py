@@ -274,11 +274,23 @@ def get_dashboard_data():
             "prev_downloaded_rfps": prev_downloaded_rfps,
         }
 
+        # Get last step details (auto_df is sorted by RunDate descending)
+        last_run_id = "-"
+        last_run_time = "-"
+        last_run_action = "-"
+        if not auto_df.empty and "RunDate" in auto_df.columns and auto_df["RunDate"].notna().any():
+            last_row = auto_df.iloc[0]
+            last_run_time = last_row["RunDate"].strftime("%Y-%m-%d %H:%M")
+            last_run_id = str(last_row.get("RunID", "-")) if last_row.get("RunID", "") else "-"
+            last_run_action = str(last_row.get("Action", "-")) if last_row.get("Action", "") else "-"
+
         automation_stats = {
             "total_runs": int(len(auto_df)),
             "successful_runs": int((auto_df.get("automation_status", pd.Series(dtype=str)).astype(str).str.lower() == "success").sum()) if not auto_df.empty else 0,
             "failed_runs": int((auto_df.get("automation_status", pd.Series(dtype=str)).astype(str).str.lower() == "failed").sum()) if not auto_df.empty else 0,
-            "last_run_time": auto_df["RunDate"].max().strftime("%Y-%m-%d %H:%M") if ("RunDate" in auto_df.columns and auto_df["RunDate"].notna().any()) else "-"
+            "last_run_time": last_run_time,
+            "last_run_id": last_run_id,
+            "last_run_action": last_run_action,
         }
 
         unique_companies_list = sorted(list(unique_companies))

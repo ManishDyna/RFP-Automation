@@ -622,6 +622,8 @@ export default function DashboardPage() {
   const companies = data?.unique_companies || []
   const companiesRfps = data?.companies_rfps || {}
   const lastRunTime = data?.automation?.last_run_time
+  const lastRunId = data?.automation?.last_run_id
+  const lastRunAction = data?.automation?.last_run_action
 
   // Collect all RFP IDs and their company mappings for batch fetch
   const { allRfpIds, rfpCompanyMap } = useMemo(() => {
@@ -672,9 +674,10 @@ export default function DashboardPage() {
     setBreakdownDialogOpen(true)
   }, [rfpCompanyMap])
 
-  // Format last run time
-  const formatLastRun = (time: string) => {
+  // Format last run step info
+  const formatLastRun = (time: string, runId?: string) => {
     if (!time || time === '-') return 'Never'
+    // if (runId && runId !== '-') return `${runId} • ${time}`
     return time
   }
 
@@ -726,7 +729,8 @@ export default function DashboardPage() {
             />
             <MetricCard
               title="Last Automation"
-              value={formatLastRun(lastRunTime)}
+              value={formatLastRun(lastRunTime, lastRunId)}
+              // trend={lastRunAction && lastRunAction !== '-' ? lastRunAction : undefined}
               icon={<Clock className="h-5 w-5" />}
               variant="info"
             />

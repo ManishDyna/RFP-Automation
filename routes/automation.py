@@ -322,51 +322,58 @@ async def dashboard_submit_rfp_endpoint(
         # ==== Upload technical PDF files (if provided) to new folder structure ====
         # New structure: RFP-logs/ALLRFPs/CompanyName/RFP_title/TDS-files/
         # Also save locally: ALLRFPs/CompanyName/RFP_title/TDS-files/
-        try:
-            if technical_files:
-                sp_tds_folder = get_sharepoint_rfp_tds_path(rfp_id, target_company)
-                local_tds_folder = get_rfp_tds_folder_path(rfp_id, target_company)  # Get local TDS folder path
-                
-                for uf in technical_files:
-                    if not uf:  # safety
-                        continue
-                    pdf_ext = os.path.splitext(uf.filename or "")[1].lower()
-                    if pdf_ext != ".pdf":
-                        continue
-                    
-                    # Read file content
+        # Filter to actual PDF files only
+        valid_tds_files = []
+        for uf in technical_files:
+            if not uf or not (uf.filename or "").strip():
+                continue
+            pdf_ext = os.path.splitext(uf.filename or "")[1].lower()
+            if pdf_ext == ".pdf":
+                valid_tds_files.append(uf)
+
+        print(f"📎 TDS files received: {len(valid_tds_files)} PDF(s) — {[uf.filename for uf in valid_tds_files]}")
+
+        if valid_tds_files:
+            sp_tds_folder = get_sharepoint_rfp_tds_path(rfp_id, target_company)
+            local_tds_folder = get_rfp_tds_folder_path(rfp_id, target_company)
+            uploaded_count = 0
+
+            for uf in valid_tds_files:
+                try:
                     content = await uf.read()
                     if not content:
+                        print(f"⚠️ TDS file '{uf.filename}' has empty content, skipping")
                         continue
-                    
-                    # Build remote name keeping original
+
                     remote_name = os.path.basename(uf.filename or "").strip()
                     if not remote_name:
-                        # Generate a name if not provided
-                        remote_name = f"TDS_{datetime.now().strftime('%Y%m%d_%H%M%S')}{pdf_ext}"
-                    
+                        remote_name = f"TDS_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+
                     # Save to temp file for SharePoint upload
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=pdf_ext) as tpdf:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tpdf:
                         tpdf.write(content)
                         temp_pdf_paths.append(tpdf.name)
-                    
+
                     # Upload to SharePoint
-                    print(f"☁️ Uploading technical PDF to SharePoint: {sp_tds_folder}/{remote_name}")
+                    print(f"☁️ Uploading TDS to SharePoint: {sp_tds_folder}/{remote_name}")
                     graph_client.upload_file_as(
                         temp_pdf_paths[-1],
                         sp_tds_folder,
                         remote_name
                     )
-                    
-                    # Save to local folder structure: ALLRFPs/RFP_title/TDS-files/
+                    print(f"✅ TDS uploaded to SharePoint: {remote_name}")
+
+                    # Save to local folder
                     local_tds_path = os.path.join(local_tds_folder, remote_name)
                     with open(local_tds_path, "wb") as local_file:
                         local_file.write(content)
-                    print(f"💾 Saved TDS file locally: {local_tds_path}")
-                    
-                print("✅ Technical PDFs uploaded to SharePoint and saved locally")
-        except Exception as e:
-            print(f"⚠️ Technical PDFs upload/save error: {e}")
+                    print(f"💾 TDS saved locally: {local_tds_path}")
+                    uploaded_count += 1
+
+                except Exception as e:
+                    print(f"❌ Failed to upload TDS file '{uf.filename}': {e}")
+
+            print(f"📦 TDS upload complete: {uploaded_count}/{len(valid_tds_files)} files saved to TDS-files folder")
         
         # Now trigger the automation in background
         # Thread-safe atomic check-and-set

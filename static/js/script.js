@@ -3113,7 +3113,7 @@ function initViewExcelButtons() {
                 
                 // Get the filename from Content-Disposition header if available
                 const contentDisposition = response.headers.get('Content-Disposition');
-                let filename = `${rfpId}_unprotected.xls`;
+                let filename = `${rfpId}.xls`;
                 if (contentDisposition) {
                     const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
                     if (filenameMatch) {

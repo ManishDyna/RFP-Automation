@@ -309,27 +309,66 @@ async def upload_attachments_via_bidding_console(
 
 async def build_materials_dict_from_excel_reuse(excel_local_path: str, graph_client, rfp_title: str, company_name: str) -> Dict[str, str]:
     """
-    Builds { material_code: local_pdf_path } using new folder structure:
-      RFP-logs/ALLRFPs/CompanyName/RFP_title/TDS-files/{material}_TDS.pdf
-    Uses fetch_from_sharepoint_temp to cache locally.
+    Builds { material_code: local_pdf_path } by listing all PDFs in the TDS folder
+    and matching them to material codes found in the Excel file.
+    Matches when a material code appears anywhere in the filename.
     """
     codes = extract_materials_from_excel(excel_local_path, include_details=False)
-    print("codes:-",codes)
+    print(f"📋 Material codes from Excel: {sorted(codes)}")
     mapping: Dict[str, str] = {}
-    
-    # Use new folder structure: RFP-logs/ALLRFPs/CompanyName/RFP_title/TDS-files/
-    for code in codes:
-        sp_path = get_sharepoint_rfp_tds_path(rfp_title, company_name, code)
-        print("sp_path:-",sp_path)
+
+    if not codes:
+        print("⚠ No material codes found in Excel, skipping TDS lookup")
+        return mapping
+
+    # List all PDF files in the TDS SharePoint folder
+    tds_folder = get_sharepoint_rfp_tds_path(rfp_title, company_name)
+    print(f"📂 Listing TDS files in: {tds_folder}")
+
+    try:
+        tds_files = graph_client.list_files_in_directory(tds_folder, ['.pdf'])
+    except Exception as e:
+        print(f"⚠ Could not list TDS folder: {e}")
+        tds_files = []
+
+    print(f"📎 Found {len(tds_files)} PDF(s) in TDS folder: {[f['name'] for f in tds_files]}")
+
+    if not tds_files:
+        print("⚠ No TDS files found in SharePoint folder")
+        return mapping
+
+    # Match files to material codes: check if any code appears in the filename
+    matched_files = set()
+    for file_info in tds_files:
+        filename = file_info["name"]
+        sp_path = file_info["path"]
+        for code in codes:
+            if code in filename and code not in mapping:
+                try:
+                    local_path = fetch_from_sharepoint_temp(graph_client, sp_path)
+                    if local_path:
+                        mapping[code] = local_path
+                        matched_files.add(filename)
+                        print(f"✅ Matched TDS: {filename} → material {code}")
+                except Exception as e:
+                    print(f"⚠ Failed to fetch TDS '{filename}' for {code}: {e}")
+                break
+
+    # Fallback: if exactly 1 unmatched code and 1 unmatched file remain, auto-map
+    unmatched_codes = codes - set(mapping.keys())
+    unmatched_files = [f for f in tds_files if f["name"] not in matched_files]
+    if len(unmatched_codes) == 1 and len(unmatched_files) == 1:
+        code = next(iter(unmatched_codes))
+        file_info = unmatched_files[0]
         try:
-            local_path = fetch_from_sharepoint_temp(graph_client, sp_path)
-            print("local_path:-",local_path)
+            local_path = fetch_from_sharepoint_temp(graph_client, file_info["path"])
             if local_path:
                 mapping[code] = local_path
+                print(f"✅ Auto-mapped TDS: {file_info['name']} → material {code} (single unmatched pair)")
         except Exception as e:
-            print(f"🕳 Missing or unreadable TDS for {code}: {sp_path} ({e})")
+            print(f"⚠ Failed to fetch auto-mapped TDS '{file_info['name']}' for {code}: {e}")
 
-    print(f"📦 TDS mapping ready for {len(mapping)} materials.")
+    print(f"📦 TDS mapping ready: {len(mapping)}/{len(codes)} materials matched")
     return mapping
 
 
@@ -426,7 +465,7 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
             pass
     except Exception:
         await page.get_by_text("Select Using Excel").click()
-        await download_button.click()
+        # await download_button.click()
         try:
             log_event("RFP", "Submit", "Click", "Clicked 'Download Content' after re-opening menu", title)
         except Exception:

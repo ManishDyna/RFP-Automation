@@ -551,10 +551,10 @@ def unprotect_excel_bytes(data: bytes, filename: str = "") -> tuple[bytes, str]:
 
     if real_type == 'xlsx':
         out_bytes = unprotect_xlsx_bytes(data)
-        return out_bytes, f"{base}_unprotected.xlsx"
+        return out_bytes, f"{base}.xlsx"
     elif real_type == 'xls':
         out_bytes = unprotect_xls_bytes_to_xlsx(data)
-        return out_bytes, f"{base}_unprotected.xlsx"
+        return out_bytes, f"{base}.xlsx"
     else:
         # Return as-is if not a recognized Excel format
         return data, filename

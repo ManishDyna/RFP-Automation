@@ -247,7 +247,9 @@ else:
 # Register at https://aka.ms/publishactionableemails (Organization scope)
 # Leave empty to disable Adaptive Cards and use the original HTML-table email
 # ACTIONABLE_CARD_ORIGINATOR_ID = "f97cfa6f-eaf0-4d8e-a464-8f4646a22c7b"
-ACTIONABLE_CARD_ORIGINATOR_ID = "6d54540e-0657-4b98-aad6-6ac8204d7b41"
+# ACTIONABLE_CARD_ORIGINATOR_ID = "6d54540e-0657-4b98-aad6-6ac8204d7b41"
+
+ACTIONABLE_CARD_ORIGINATOR_ID = "af45a1f4-23d6-4bfa-863e-cd1915e1b439"
 # Public HTTPS callback URL that Outlook will POST to when users submit the card
 # ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
 ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
