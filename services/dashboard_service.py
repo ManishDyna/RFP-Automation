@@ -91,6 +91,7 @@ def _automation_fetch_from_dataverse(top=200):
             table_api_name=AUTOMATION_LOG_TABLE_API,
             select_columns=select_cols,
             top=top,
+            order_by="Timestamp desc",
             table_logical_name=AUTOMATION_LOG_TABLE_LOGICAL,
             use_display_names=True
         )
