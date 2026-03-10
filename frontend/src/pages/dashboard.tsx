@@ -495,15 +495,23 @@ export default function DashboardPage() {
     queryFn: api.getDashboardData,
   })
 
-  // Auto-refresh dashboard when submit automation finishes
+  // Auto-refresh dashboard when submit or sync automation finishes
   const { data: automationStatus } = useAutomationStatus()
   const prevSubmitRunning = useRef(false)
+  const prevSyncRunning = useRef(false)
   useEffect(() => {
     if (prevSubmitRunning.current && !automationStatus?.submit_running) {
       refetch()
     }
     prevSubmitRunning.current = automationStatus?.submit_running ?? false
   }, [automationStatus?.submit_running, refetch])
+  useEffect(() => {
+    if (prevSyncRunning.current && !automationStatus?.sync_running) {
+      toast.success('Portal data synced successfully')
+      refetch()
+    }
+    prevSyncRunning.current = automationStatus?.sync_running ?? false
+  }, [automationStatus?.sync_running, refetch])
 
   // Optimistic mutation for instant status updates
   const statusMutation = useMutation({
@@ -589,22 +597,19 @@ export default function DashboardPage() {
 
   const handleSyncPortal = async () => {
     try {
-      // Collect all RFP IDs currently visible in the dashboard (today's and future RFPs)
+      // Collect only open-stage RFP IDs from the dashboard
       const dashboardRfpIds: string[] = []
       for (const company of companies) {
         const companyRfps = companiesRfps[company] || {}
-        for (const status of ['open', 'submitted', 'saved_draft', 'declined']) {
-          const rfps = companyRfps[status] || []
-          for (const rfp of rfps) {
-            if (rfp.RFP_ID && !dashboardRfpIds.includes(rfp.RFP_ID)) {
-              dashboardRfpIds.push(rfp.RFP_ID)
-            }
+        const rfps = companyRfps['open'] || []
+        for (const rfp of rfps) {
+          if (rfp.RFP_ID && !dashboardRfpIds.includes(rfp.RFP_ID)) {
+            dashboardRfpIds.push(rfp.RFP_ID)
           }
         }
       }
       await api.syncPortalData(dashboardRfpIds.length > 0 ? dashboardRfpIds : undefined)
-      toast.success('Portal data synced successfully')
-      refetch()
+      toast.info('Portal sync started. This may take a minute...')
     } catch (error: any) {
       toast.error(error.message || 'Failed to sync portal data')
     }
@@ -758,11 +763,11 @@ export default function DashboardPage() {
             <Button
               size="sm"
               onClick={handleSyncPortal}
-              disabled={isRefetching}
+              disabled={isRefetching || automationStatus?.sync_running}
               className="bg-indigo-600 hover:bg-indigo-700 h-9"
             >
-              <RefreshCw className={cn('h-4 w-4 mr-2', isRefetching && 'animate-spin')} />
-              Sync Portal
+              <RefreshCw className={cn('h-4 w-4 mr-2', (isRefetching || automationStatus?.sync_running) && 'animate-spin')} />
+              {automationStatus?.sync_running ? 'Syncing...' : 'Sync Portal'}
             </Button>
           </div>
         </CardHeader>

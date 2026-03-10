@@ -1009,18 +1009,35 @@ def sync_participation_with_db(rfp_data: list[dict], rfp_ids: list[str] | None =
     log_event("SYNC", "Database", "Step", f"Retrieved {len(db_rows)} records from database")
     scraped = _build_scraped_index(rfp_data)
 
-    # If rfp_ids filter is provided, only keep scraped entries matching those IDs
+    # If rfp_ids filter is provided, only keep scraped entries matching those dashboard IDs.
+    # Dashboard sends DB-style IDs (e.g., "SEC RFP-C001752892") while _build_scraped_index
+    # derives clean IDs (e.g., "C001752892"), so match using rfp_ids_match for fuzzy comparison.
     if rfp_ids:
         rfp_ids_set = {rid.strip() for rid in rfp_ids if rid.strip()}
-        scraped = [s for s in scraped if (s.get("RFP_ID") or "").strip() in rfp_ids_set]
+        def _matches_any_dashboard_id(s):
+            s_id = (s.get("RFP_ID") or "").strip()
+            s_title = s.get("Title", "")
+            for did in rfp_ids_set:
+                if s_id and s_id == did:
+                    return True
+                if s_id and rfp_ids_match(s_id, did):
+                    return True
+                if s_title and rfp_ids_match(did, s_title):
+                    return True
+            return False
+        scraped = [s for s in scraped if _matches_any_dashboard_id(s)]
         log_event("SYNC", "Database", "Step", f"Filtered scraped data to {len(scraped)} RFPs matching dashboard IDs")
 
-    # Build quick indices
+    # Build quick indices — index by both raw RFP_ID and derived clean ID
     db_by_id = {}
     for row in db_rows:
         rid = (row.get("RFP_ID") or "").strip()
         if rid:
             db_by_id[rid] = row
+            # Also index by derived clean ID (e.g., "C001752892") for cross-format matching
+            derived = _derive_rfp_id(rid, "")
+            if derived and derived != rid:
+                db_by_id[derived] = row
 
     updated = 0
     checked = 0
@@ -1034,15 +1051,14 @@ def sync_participation_with_db(rfp_data: list[dict], rfp_ids: list[str] | None =
         s_title = s.get("Title", "")
         target_status = (s.get("_desired_status") or "").strip().lower()
 
-        # Attempt exact ID match
+        # Attempt exact ID match (works for both raw and derived IDs via dual-indexed db_by_id)
         matched_db = db_by_id.get(s_id) if s_id else None
 
         # Fallback to fuzzy title-based matching if no exact match
-        if not matched_db and s_id:
-            # Look for any db row whose RFP_ID matches the title using existing helper
+        if not matched_db:
             for row in db_rows:
                 db_id = (row.get("RFP_ID") or "").strip()
-                if db_id and rfp_ids_match(db_id, s_title):
+                if db_id and (rfp_ids_match(db_id, s_title) or rfp_ids_match(s_id, db_id)):
                     matched_db = row
                     break
 
@@ -1052,12 +1068,10 @@ def sync_participation_with_db(rfp_data: list[dict], rfp_ids: list[str] | None =
             continue
 
         current_status = (matched_db.get("participated") or "").strip().lower()
-        # Only update for valid participation statuses (skip "no"/empty from open RFPs)
-        if target_status and target_status in ("submitted", "declined", "saved_draft") and current_status != target_status:
+        # Update if portal status differs from DB status
+        if target_status and current_status != target_status:
             try:
-                # Update only if there is a clear target
-                record_id = s_id or matched_db.get("RFP_ID") or ""
-                # Use "submit" category for sync operations (matches table structure)
+                record_id = matched_db.get("RFP_ID") or s_id or ""
                 ok = update_rfp_participation_status(record_id, target_status, category="submit")
                 if ok:
                     updated += 1
@@ -1070,7 +1084,6 @@ def sync_participation_with_db(rfp_data: list[dict], rfp_ids: list[str] | None =
                 details.append({"RFP_ID": s_id or "-", "error": str(e), "result": "exception"})
         else:
             details.append({"RFP_ID": s_id or "-", "Title": s_title, "result": "no_change"})
-
     summary = {
         "checked": checked,
         "updated": updated,
@@ -1086,12 +1099,13 @@ def sync_participation_with_db(rfp_data: list[dict], rfp_ids: list[str] | None =
 
 # === Sync portal data (export all RFPs and update DB participation) ===
 async def run_automation_sync_portal(rfp_ids: list[str] | None = None):
+    """Sync portal participation status for ALL companies in COMPANY_OPTIONS."""
     import json
     start_new_run()  # Generate new unique RUN_ID for this automation run
-    mode = "filtered" if rfp_ids else "all"
-    log_event("SYSTEM", "StartRun", "Success", f"Sync portal data started (mode={mode})" +
-              (f" for {len(rfp_ids)} RFPs" if rfp_ids else ""))
-    
+    log_event("SYSTEM", "StartRun", "Success",
+              f"Sync portal started for all {len(COMPANY_OPTIONS)} companies" +
+              (f" (filtered to {len(rfp_ids)} dashboard RFPs)" if rfp_ids else ""))
+
     graph_client = GraphClient(
         CLIENT_ID, CLIENT_SECRET, TENANT_ID,
         SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
@@ -1101,95 +1115,128 @@ async def run_automation_sync_portal(rfp_ids: list[str] | None = None):
     graph_client.resolve_site_and_drive()
     log_event("SYNC", "Setup", "Success", "SharePoint client authenticated")
 
-    async with async_playwright() as p:
-        browser = None
-        page = None
-        try:
-            # Common flow to login and select Saudi Ariba company
-            log_event("SYNC", "Login", "Start", "Starting login and company selection")
-            open_rfps, page, browser = await common_flow(p, graph_client, profile_label="sync")
-            log_event("SYNC", "Login", "Success", f"Logged in and selected company. Found {len(open_rfps)} open RFPs")
+    # Aggregate results across all companies
+    all_rfp_data = []
+    summary = {
+        "total_companies": len(COMPANY_OPTIONS),
+        "processed": 0,
+        "failed": 0,
+        "total_checked": 0,
+        "total_updated": 0,
+        "companies": [],
+    }
 
-            # Export ALL RFPs from portal (all sections: open, submitted, declined, etc.)
-            log_event("SYNC", "Export", "Start", "Starting RFP export from portal")
-            exported_path = await export_rfps(page, "SaudiAriba")
-            log_event("SYNC", "Export", "Success", f"Export completed: {os.path.basename(exported_path)}")
+    for idx, company in enumerate(COMPANY_OPTIONS, 1):
+        print(f"\n{'='*70}")
+        print(f"[Sync Portal] Processing company {idx}/{len(COMPANY_OPTIONS)}: {company}")
+        print(f"{'='*70}")
+        log_event("SYNC", "ProcessCompany", "Start", f"Processing company {idx}/{len(COMPANY_OPTIONS)}: {company}")
+        update_progress("sync", current=idx, total=len(COMPANY_OPTIONS), current_item=company, message=f"Syncing {company}")
 
-            # Extract RFP data from exported file
-            log_event("SYNC", "Extract", "Start", "Extracting RFP data from exported file")
-            rfp_data = await extract_rfp_data(exported_path)
-            log_event("SYNC", "Extract", "Success", f"Extracted {len(rfp_data)} RFPs from portal")
-
-            # Clean up temp export file (no longer needed after extraction)
+        async with async_playwright() as p:
+            browser = None
+            page = None
             try:
-                shutil.rmtree(os.path.dirname(exported_path), ignore_errors=True)
-            except Exception:
-                pass
+                # Step 1: Login and scrape open RFPs directly from portal
+                open_rfps, page, browser = await common_flow(
+                    p, graph_client,
+                    profile_label=f"sync-{idx}",
+                    company=company,
+                )
+                log_event("SYNC", "Scrape", "Success", f"Company '{company}': Scraped {len(open_rfps)} open RFPs from portal")
 
-            # Compare against DB and update mismatches
-            log_event("SYNC", "Database", "Start", "Starting database sync" +
-                     (f" (filtered to {len(rfp_ids)} dashboard RFPs)" if rfp_ids else " (all RFPs)"))
-            sync_summary = sync_participation_with_db(rfp_data, rfp_ids=rfp_ids)
-            log_event("SYNC", "Database", "Success",
-                     f"Database sync completed: {sync_summary.get('updated', 0)} updated, "
-                     f"{sync_summary.get('checked', 0)} checked")
+                # Step 2: Map scraped data to sync format
+                rfp_data = []
+                for r in open_rfps:
+                    rfp_data.append({
+                        "Title": r.get("Title", ""),
+                        "RFP_ID": r.get("Title", ""),
+                        "Link": r.get("Link", ""),
+                        "Doc_ID": r.get("ID", ""),
+                        "End_Time": r.get("RFP_End_Date", ""),
+                        "Event_Type": r.get("Event Type", ""),
+                        "Participated": _normalize_participated(r.get("Status", "")),
+                        "StatusGroup": "Open",
+                        "Company": company,
+                    })
+                log_event("SYNC", "Map", "Success", f"Company '{company}': Mapped {len(rfp_data)} open RFPs for sync")
 
-            # Save sync data to JSON file
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            sync_data = {
-                "sync_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "exported_file": exported_path or "scraped_directly",
-                "total_rfps_extracted": len(rfp_data),
-                "rfp_data": rfp_data,
-                "sync_summary": sync_summary
-            }
-            
-            json_filename = f"sync_data_{timestamp}.json"
-            json_path = os.path.join(OUTPUT_DIR, json_filename) 
-            
-            try:
-                with open(json_path, 'w', encoding='utf-8') as f:
-                    json.dump(sync_data, f, indent=2, ensure_ascii=False)
-                log_event("SYNC", "Save", "Success", f"Sync data saved to JSON: {json_filename}")
-                print(f"✅ Sync data saved to: {json_path}")
-                
-                # Upload JSON to SharePoint
-                try:
-                    log_event("SYNC", "SharePoint", "Uploading", f"Uploading {json_filename} to SharePoint")
-                    graph_client.sync_local_to_sharepoint(json_path, f"{SP_BASE_FOLDER}/Sync-Data")
-                    log_event("SYNC", "SharePoint", "Success", f"JSON file uploaded to SharePoint: {json_filename}")
-                except Exception as e:
-                    log_event("SYNC", "SharePoint", "Fail", f"Failed to upload JSON to SharePoint: {str(e)}")
-                    print(f"⚠ Could not upload JSON to SharePoint: {e}")
+                # Step 3: Compare against DB and update mismatches
+                log_event("SYNC", "Database", "Start", f"Company '{company}': Starting database sync for {len(rfp_data)} open RFPs" +
+                         (f" (filtered to {len(rfp_ids)} dashboard RFPs)" if rfp_ids else ""))
+                sync_result = sync_participation_with_db(rfp_data, rfp_ids=rfp_ids)
+                log_event("SYNC", "Database", "Success",
+                         f"Company '{company}': {sync_result.get('updated', 0)} updated, "
+                         f"{sync_result.get('checked', 0)} checked")
+
+                all_rfp_data.extend(rfp_data)
+                summary["processed"] += 1
+                summary["total_checked"] += sync_result.get("checked", 0)
+                summary["total_updated"] += sync_result.get("updated", 0)
+                summary["companies"].append({
+                    "company": company,
+                    "status": "success",
+                    "rfps_scraped": len(rfp_data),
+                    "sync_result": sync_result,
+                })
+                log_event("SYNC", "ProcessCompany", "Success", f"Company '{company}' completed successfully")
+
             except Exception as e:
-                log_event("SYNC", "Save", "Fail", f"Failed to save sync data to JSON: {str(e)}")
-                print(f"⚠ Could not save sync data to JSON: {e}")
-            
-            log_event("SYNC", "Summary", "Step", f"Sync summary: {sync_summary.get('updated', 0)} updated, {sync_summary.get('checked', 0)} checked")
-            
-            return {
-                "status": "success", 
-                "message": "Sync portal data completed",
-                "summary": sync_summary,
-                "json_file": json_filename
-            }
+                print(f"[Sync Portal] Error for company '{company}': {str(e)}")
+                log_event("SYNC", "ProcessCompany", "Fail", f"Company '{company}' error: {str(e)}")
+                screenshot_path = await _take_error_screenshot(page, f"sync_portal_{company}")
+                failure_info = record_failure_log(
+                    e,
+                    context={"automation": "sync_portal", "company": company},
+                    graph_client=graph_client,
+                    screenshot_path=screenshot_path,
+                )
+                _notify_failure_via_email(f"Sync Portal - {company}", failure_info, graph_client)
+                summary["failed"] += 1
+                summary["companies"].append({"company": company, "status": "failed", "error": str(e)})
+            finally:
+                if browser:
+                    try:
+                        await browser.close()
+                    except Exception as close_err:
+                        print(f"⚠️ Browser close warning (non-critical): {close_err}")
 
-        except HTTPException:
-            raise
+    # Save combined sync data to JSON log file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    sync_data = {
+        "sync_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "source": "direct_scrape",
+        "total_companies": len(COMPANY_OPTIONS),
+        "total_rfps_scraped": len(all_rfp_data),
+        "rfp_data": all_rfp_data,
+        "sync_summary": summary,
+    }
+
+    json_filename = f"sync_data_{timestamp}.json"
+    json_path = os.path.join(OUTPUT_DIR, json_filename)
+
+    try:
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(sync_data, f, indent=2, ensure_ascii=False)
+        log_event("SYNC", "Save", "Success", f"Sync data saved to JSON: {json_filename}")
+        print(f"✅ Sync data saved to: {json_path}")
+
+        try:
+            log_event("SYNC", "SharePoint", "Uploading", f"Uploading {json_filename} to SharePoint")
+            graph_client.sync_local_to_sharepoint(json_path, f"{SP_BASE_FOLDER}/Sync-Data")
+            log_event("SYNC", "SharePoint", "Success", f"JSON file uploaded to SharePoint: {json_filename}")
         except Exception as e:
-            log_event("SYSTEM", "RunError", "Fail", f"Sync automation error: {str(e)}")
-            screenshot_path = await _take_error_screenshot(page, "sync_portal")
-            failure_info = record_failure_log(e, context={"automation": "sync_portal"}, graph_client=graph_client, screenshot_path=screenshot_path)
-            _notify_failure_via_email("Sync Portal Data", failure_info, graph_client)
-            raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
-        finally:
-            if browser:
-                try:
-                    await browser.close()
-                    log_event("SYNC", "Cleanup", "Step", "Browser closed")
-                except Exception as close_err:
-                    print(f"⚠️ Browser close warning (non-critical): {close_err}")
-            log_event("SYSTEM", "EndRun", "Success", "Sync portal automation finished")
+            log_event("SYNC", "SharePoint", "Fail", f"Failed to upload JSON to SharePoint: {str(e)}")
+            print(f"⚠ Could not upload JSON to SharePoint: {e}")
+    except Exception as e:
+        log_event("SYNC", "Save", "Fail", f"Failed to save sync data to JSON: {str(e)}")
+        print(f"⚠ Could not save sync data to JSON: {e}")
+
+    summary_msg = (f"Sync Portal complete. Companies: {summary['processed']}/{summary['total_companies']}, "
+                   f"Failed: {summary['failed']}, Checked: {summary['total_checked']}, Updated: {summary['total_updated']}")
+    print(f"\n{summary_msg}")
+    log_event("SYSTEM", "EndRun", "Success", summary_msg)
+    return {"status": "success", "message": summary_msg, "summary": summary, "json_file": json_filename}
 
 
 # ===== Download All RFPs from All Companies =====

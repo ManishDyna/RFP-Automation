@@ -18,7 +18,6 @@ import {
   XCircle,
   Download,
   Columns3,
-  RefreshCw,
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -154,21 +153,6 @@ const AVAILABLE_COLUMNS = {
 
 export default function RfpInsightsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [isSyncing, setIsSyncing] = useState(false)
-
-  const handleSyncPortal = async () => {
-    setIsSyncing(true)
-    try {
-      // Sync ALL RFPs (no rfp_ids filter = full sync)
-      await api.syncPortalData()
-      toast.success('All RFP portal data synced successfully')
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to sync portal data')
-    } finally {
-      setIsSyncing(false)
-    }
-  }
-
   const [filters, setFilters] = useState({
     status: searchParams.get('status') || '',
     company: searchParams.get('company') || '',
@@ -328,23 +312,12 @@ export default function RfpInsightsPage() {
       title="RFP Insights"
       description="Analyze and manage all your RFP data with powerful filters and quick actions."
       actions={
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={handleSyncPortal}
-            disabled={isSyncing}
-            className="bg-indigo-600 hover:bg-indigo-700 h-9"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
-            {isSyncing ? 'Syncing...' : 'Sync All Portal'}
-          </Button>
-          <Button variant="outline" asChild className="border-slate-200 hover:bg-slate-50">
-            <Link to="/dashboard">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Dashboard
-            </Link>
-          </Button>
-        </div>
+        <Button variant="outline" asChild className="border-slate-200 hover:bg-slate-50">
+          <Link to="/dashboard">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Dashboard
+          </Link>
+        </Button>
       }
     >
       {/* Stats Overview */}
