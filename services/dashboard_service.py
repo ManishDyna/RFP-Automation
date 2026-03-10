@@ -244,15 +244,19 @@ def get_dashboard_data():
 
                         participation_status = (row.get("participated", "") or "").lower().strip()
                         if participation_status == "no" or participation_status == "":
+                            rfp_data["status"] = "open"
                             open_rfp_list.append(rfp_data)
                             companies_rfps[company_name]["open"].append(rfp_data)
                         elif participation_status == "submitted" or participation_status == "yes":
+                            rfp_data["status"] = "submitted"
                             submitted_rfp_list.append(rfp_data)
                             companies_rfps[company_name]["submitted"].append(rfp_data)
                         elif participation_status == "declined":
+                            rfp_data["status"] = "declined"
                             declined_rfp_list.append(rfp_data)
                             companies_rfps[company_name]["declined"].append(rfp_data)
                         elif participation_status == "saved_draft":
+                            rfp_data["status"] = "saved draft"
                             saved_draft_rfp_list.append(rfp_data)
                             companies_rfps[company_name]["saved_draft"].append(rfp_data)
 

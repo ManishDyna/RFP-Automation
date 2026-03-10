@@ -399,9 +399,17 @@ def send_actionable_rfp_emails(
     from config.config import (
         SP_BASE_FOLDER,
         ACTIONABLE_CARD_ORIGINATOR_ID, ACTIONABLE_CARD_CALLBACK_URL,
+        EMAIL_TO_NEW_RFP,
     )
     from services.master_data_service import get_all_rfp_team_for_emails
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
+
+    # Include EMAIL_TO_NEW_RFP config recipient if not already in team table
+    team_emails_lower = {m.get("email", "").lower() for m in RFP_TEAM_TABLE if m.get("email")}
+    if EMAIL_TO_NEW_RFP and EMAIL_TO_NEW_RFP.lower() not in team_emails_lower:
+        RFP_TEAM_TABLE = RFP_TEAM_TABLE + [
+            {"product": "All", "name": EMAIL_TO_NEW_RFP.split("@")[0].replace(".", " ").title(), "email": EMAIL_TO_NEW_RFP}
+        ]
     from core.log_events import log_rfp_activity
 
     # Get Graph API token for sending mail
