@@ -112,6 +112,46 @@ def _build_dynamic_html_table(columns: list, team_table: list, response_data: li
     </table>"""
 
 
+def _build_fallback_html(rfp_id: str, name: str, product: str, due_date: str, matched_line: str = "", response_data: list = None) -> str:
+    """
+    Build fallback HTML shown inside <body> when the Adaptive Card cannot render
+    (e.g. originator not yet propagated, unsupported client, mobile).
+    """
+    from services.master_data_service import get_all_rfp_team_for_emails
+    from services.rfp_team_columns_service import get_all_columns
+    columns = get_all_columns()
+    team_table = get_all_rfp_team_for_emails()
+
+    table_html = _build_dynamic_html_table(columns, team_table, response_data)
+
+    greeting = f"<p>Dear {name},</p>" if name else "<p>Dear Team,</p>"
+    product_line = f"<p>Kindly advise us regarding the attached RFP file for <b>{product}</b>.</p>" if product else "<p>Kindly advise us regarding the attached RFP file.</p>"
+
+    if response_data:
+        status_line = f"<p style='color:green;font-weight:bold;'>All team members have submitted their responses for {rfp_id}.</p>"
+    else:
+        status_line = "<p>Please reply to this email with your Results and Remarks.</p>"
+
+    matched_html = f"<p><b>NOTE:</b> {matched_line}</p>" if matched_line else ""
+
+    return f"""
+    <div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;max-width:700px;">
+      {greeting}
+      {product_line}
+      {status_line}
+      <h3 style="margin-top:16px;">Team Assignment</h3>
+      {table_html}
+      <p style="background-color:#FFFF00;display:inline-block;padding:4px 8px;">
+        <b>Note:</b> the due date for <u>{rfp_id}</u> is <b>{due_date}</b>
+      </p>
+      {matched_html}
+      <p style="color:#888;font-style:italic;margin-top:16px;">
+        This email contains an interactive Adaptive Card. Open it in Outlook desktop or Outlook on the web to use the interactive form.
+      </p>
+      <br><p>Best Regards,<br>Automation System</p>
+    </div>"""
+
+
 def _build_rfp_notification_html(rfp_titles: list, rfp_end_dates: dict = None) -> tuple:
     """
     Build the standard RFP notification email subject and HTML body
@@ -362,6 +402,71 @@ def _get_graph_mail_token():
     return result["access_token"]
 
 
+def _send_mime_message(sender_email: str, recipient_email: str, mime_msg):
+    """
+    Send a MIME message preserving <script type="application/adaptivecard+json"> tags.
+
+    Graph API sendMail strips <script> tags (Microsoft docs confirm this).
+    Actionable Messages MUST be sent via SMTP or EWS.
+
+    Strategy:
+      1. Try SMTP with OAuth2 (XOAUTH2) — preserves <script> tags
+      2. Fallback to Graph API sendMail — email arrives with fallback HTML but no card
+
+    SMTP requires Exchange admin to register a service principal:
+      Connect-ExchangeOnline
+      New-ServicePrincipal -AppId "<APP_ID>" -ServiceId "<ENTERPRISE_APP_OBJECT_ID>"
+      Add-MailboxPermission -Identity "D365FOadmin@bahra-electric.com" -User "<SERVICE_PRINCIPAL_ID>" -AccessRights FullAccess
+    """
+    import base64
+    import smtplib
+
+    # --- Try SMTP first (preserves <script> tags) ---
+    try:
+        from config.config import TENANT_ID, CLIENT_ID, CLIENT_SECRET
+        import msal
+
+        app = msal.ConfidentialClientApplication(
+            CLIENT_ID,
+            authority=f"https://login.microsoftonline.com/{TENANT_ID}",
+            client_credential=CLIENT_SECRET,
+        )
+        result = app.acquire_token_for_client(["https://outlook.office365.com/.default"])
+        if "access_token" in result:
+            token = result["access_token"]
+            auth_string = f"user={sender_email}\x01auth=Bearer {token}\x01\x01"
+            auth_b64 = base64.b64encode(auth_string.encode()).decode()
+
+            with smtplib.SMTP("smtp.office365.com", 587) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                code, resp = server.docmd("AUTH", f"XOAUTH2 {auth_b64}")
+                if code == 235:
+                    server.sendmail(sender_email, [recipient_email], mime_msg.as_bytes())
+                    return  # Success via SMTP
+                else:
+                    print(f"[WARN] SMTP auth failed ({code}), falling back to Graph API sendMail")
+        else:
+            print(f"[WARN] Could not get SMTP token, falling back to Graph API sendMail")
+    except Exception as e:
+        print(f"[WARN] SMTP send failed: {e}, falling back to Graph API sendMail")
+
+    # --- Fallback: Graph API sendMail (email arrives but <script> tag is stripped) ---
+    mail_token = _get_graph_mail_token()
+    encoded_mime = base64.b64encode(mime_msg.as_bytes()).decode("utf-8")
+    resp = requests.post(
+        f"https://graph.microsoft.com/v1.0/users/{sender_email}/sendMail",
+        headers={
+            "Authorization": f"Bearer {mail_token}",
+            "Content-Type": "text/plain",
+        },
+        data=encoded_mime,
+    )
+    if resp.status_code != 202:
+        raise RuntimeError(f"sendMail failed: {resp.status_code} {resp.text}")
+
+
 def _download_sp_file_bytes(graph_client, sp_path: str) -> bytes:
     """Download a file from SharePoint and return its bytes (for email attachment)."""
     try:
@@ -374,7 +479,7 @@ def _download_sp_file_bytes(graph_client, sp_path: str) -> bytes:
         if resp.status_code == 200:
             return resp.content
     except Exception as e:
-        print(f"⚠ Could not download SP file {sp_path}: {e}")
+        print(f"[WARN] Could not download SP file {sp_path}: {e}")
     return None
 
 
@@ -386,11 +491,10 @@ def send_actionable_rfp_emails(
     graph_client=None,
 ):
     """
-    Send one personalized Adaptive Card email PER team member via Graph API MIME endpoint.
-    Uses raw MIME format to preserve the <script type="application/adaptivecard+json"> tag
-    (both Power Automate and Graph API JSON sendMail strip <script> tags).
+    Send one personalized Adaptive Card email PER team member via SMTP.
+    SMTP preserves the <script type="application/adaptivecard+json"> tag
+    (Graph API sendMail strips <script> tags even in MIME mode).
     """
-    import base64
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
     from email.mime.base import MIMEBase
@@ -411,9 +515,6 @@ def send_actionable_rfp_emails(
             {"product": "All", "name": EMAIL_TO_NEW_RFP.split("@")[0].replace(".", " ").title(), "email": EMAIL_TO_NEW_RFP}
         ]
     from core.log_events import log_rfp_activity
-
-    # Get Graph API token for sending mail
-    mail_token = _get_graph_mail_token()
 
     # Build attachment file list (SharePoint paths)
     file_data = create_file_names_and_source_files([rfp_id], company_name)
@@ -445,7 +546,7 @@ def send_actionable_rfp_emails(
         if file_bytes:
             attachment_files.append((fname, file_bytes))
         else:
-            print(f"⚠ Could not load attachment: {fname}")
+            print(f"[WARN] Could not load attachment: {fname}")
 
     # Matched materials note (passed into the Adaptive Card)
     if matched_csv_path and os.path.exists(matched_csv_path):
@@ -465,7 +566,7 @@ def send_actionable_rfp_emails(
         email = member.get("email", "")
 
         if not email:
-            print(f"⚠ No email configured for {name}, skipping Adaptive Card email")
+            print(f"[WARN] No email configured for {name}, skipping Adaptive Card email")
             continue
 
         # Build adaptive card JSON
@@ -482,7 +583,9 @@ def send_actionable_rfp_emails(
         )
 
         # Build email HTML with embedded adaptive card
-        # hideOriginalBody=true in card JSON hides the <body> in Outlook
+        # hideOriginalBody=true in card JSON hides the <body> when the card renders.
+        # The <body> contains fallback HTML shown when the card cannot render.
+        fallback_html = _build_fallback_html(rfp_id, name, product, rfp_end_date, matched_line)
         body_html = f"""<html>
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
@@ -490,7 +593,9 @@ def send_actionable_rfp_emails(
   {card_json}
   </script>
 </head>
-<body></body>
+<body>
+{fallback_html}
+</body>
 </html>"""
 
         # Build raw MIME message (preserves <script> tag — JSON sendMail strips it)
@@ -511,26 +616,12 @@ def send_actionable_rfp_emails(
             part.add_header("Content-Disposition", f'attachment; filename="{att_name}"')
             msg.attach(part)
 
-        # Send via Graph API MIME endpoint (raw MIME preserves <script> tags)
-        mime_bytes = msg.as_bytes()
-        encoded_mime = base64.b64encode(mime_bytes).decode("utf-8")
-
+        # Send via SMTP (preserves <script> tags — Graph API sendMail strips them)
         try:
-            response = requests.post(
-                f"https://graph.microsoft.com/v1.0/users/{sender_email}/sendMail",
-                headers={
-                    "Authorization": f"Bearer {mail_token}",
-                    "Content-Type": "text/plain",
-                },
-                data=encoded_mime,
-            )
-
-            if response.status_code == 202:
-                print(f"✅ Actionable email sent for {rfp_id} to {name} ({email})")
-            else:
-                print(f"❌ Actionable email failed for {rfp_id} to {name}: {response.status_code} {response.text}")
+            _send_mime_message(sender_email, email, msg)
+            print(f"[OK] Actionable email sent for {rfp_id} to {name} ({email})")
         except Exception as e:
-            print(f"❌ Failed to send email to {name}: {e}")
+            print(f"[ERROR] Failed to send email to {name}: {e}")
 
     # Log activity once per RFP
     log_rfp_activity(
@@ -557,7 +648,6 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
         company_name: Company name for context
         rfp_end_date: Due date string for the RFP
     """
-    import base64
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
     from email.mime.base import MIMEBase
@@ -573,9 +663,6 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     )
     from services.master_data_service import get_all_rfp_team_for_emails
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
-
-    # Get Graph API token for sending mail
-    mail_token = _get_graph_mail_token()
 
     # --- Download RFP file + matched CSV from SharePoint ---
     graph_client = GraphClient(
@@ -611,7 +698,7 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
             if fname == matched_csv_name:
                 matched_line = "No matched materials were found for this RFP."
             else:
-                print(f"⚠ Could not load attachment: {fname}")
+                print(f"[WARN] Could not load attachment: {fname}")
 
     # --- Build Adaptive Card with filled response table + Decline button ---
     from services.rfp_team_columns_service import get_all_columns as _get_all_cols
@@ -731,6 +818,7 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
         }
         card_json = json.dumps(card)
 
+        fallback_html = _build_fallback_html(rfp_id, "Team", "", rfp_end_date, matched_line, response_data=responses)
         body_html = f"""<html>
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
@@ -738,7 +826,9 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
   {card_json}
   </script>
 </head>
-<body></body>
+<body>
+{fallback_html}
+</body>
 </html>"""
 
         msg = MIMEMultipart("mixed")
@@ -757,26 +847,13 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
             part.add_header("Content-Disposition", f'attachment; filename="{att_name}"')
             msg.attach(part)
 
-        # Send via Graph API MIME endpoint
-        mime_bytes = msg.as_bytes()
-        encoded_mime = base64.b64encode(mime_bytes).decode("utf-8")
-
+        # Send via SMTP (preserves <script> tags — Graph API sendMail strips them)
         try:
-            response = requests.post(
-                f"https://graph.microsoft.com/v1.0/users/{sender_email}/sendMail",
-                headers={
-                    "Authorization": f"Bearer {mail_token}",
-                    "Content-Type": "text/plain",
-                },
-                data=encoded_mime,
-            )
-            if response.status_code == 202:
-                decline_tag = " [+Decline]" if show_decline else ""
-                print(f"✅ Consolidated email sent for {rfp_id} to {recipient_email}{decline_tag}")
-            else:
-                print(f"❌ Consolidated email failed for {rfp_id} to {recipient_email}: {response.status_code} {response.text}")
+            _send_mime_message(sender_email, recipient_email, msg)
+            decline_tag = " [+Decline]" if show_decline else ""
+            print(f"[OK] Consolidated email sent for {rfp_id} to {recipient_email}{decline_tag}")
         except Exception as e:
-            print(f"❌ Failed to send consolidated email to {recipient_email}: {e}")
+            print(f"[ERROR] Failed to send consolidated email to {recipient_email}: {e}")
 
 
 def send_per_rfp_email(
@@ -881,7 +958,7 @@ def send_per_rfp_email(
     response = requests.post(FLOW_URL, headers={"Content-Type": "application/json"}, data=json.dumps(payload))
 
     if response.status_code in [200, 202]:
-        print(f"✅ Per-RFP email sent for: {rfp_id}")
+        print(f"[OK] Per-RFP email sent for: {rfp_id}")
         log_rfp_activity(
             rfp_id=rfp_id,
             Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -891,7 +968,7 @@ def send_per_rfp_email(
             company_name=company_name,
         )
     else:
-        print(f"❌ Per-RFP email failed for {rfp_id}: {response.status_code} - {response.text}")
+        print(f"[ERROR] Per-RFP email failed for {rfp_id}: {response.status_code} - {response.text}")
 
     return rfp_id
 
@@ -1157,7 +1234,7 @@ def trigger_email(
     response = requests.post(FLOW_URL, headers={"Content-Type": "application/json"}, data=json.dumps(payload))
 
     if response.status_code in [200, 202]:
-        print(f"✅ Email sent: {subject}")
+        print(f"[OK] Email sent: {subject}")
         if len(rfp_titles) > 0:
             for title in rfp_titles:
                 print("title:-",title)
@@ -1170,6 +1247,6 @@ def trigger_email(
                     company_name=company_name
                 )
     else:
-        print(f"❌ Email sending failed: {response.status_code} - {response.text}")
+        print(f"[ERROR] Email sending failed: {response.status_code} - {response.text}")
 
     return rfp_titles

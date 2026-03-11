@@ -58,7 +58,7 @@ def start_new_run():
     """Generate a new unique RUN_ID for each automation run"""
     run_id = str(uuid.uuid4())
     _current_run_id.set(run_id)
-    print(f"🆕 New RUN_ID generated: {run_id}")
+    print(f"[NEW] New RUN_ID generated: {run_id}")
     return run_id
 
 def get_current_run_id():
@@ -118,11 +118,11 @@ def write_log_row(category, action, status, message="", rfp_id="", run_id=None, 
                         
                         # If RFP was already downloaded, skip ALL automation logs for this RFP
                         if existing_downloaded_at and existing_downloaded_at.strip():
-                            print(f"⏩ Skipping automation log for already-downloaded RFP: {rfp_id_str} (category: {category}, action: {action}, status: {status})")
+                            print(f"[SKIP] Skipping automation log for already-downloaded RFP: {rfp_id_str} (category: {category}, action: {action}, status: {status})")
                             return  # Exit early without logging - don't create any automation log for this RFP
                 except Exception as e:
                     # If check fails, continue with normal logging to avoid breaking the flow
-                    print(f"⚠ Could not check RFP activity log: {e}, proceeding with log insertion")
+                    print(f"[WARN] Could not check RFP activity log: {e}, proceeding with log insertion")
         
         # Normal insertion for new RFPs or non-RFP category logs
         dv_row = {k: str(v) for k, v in zip(header, row)}
@@ -134,13 +134,13 @@ def write_log_row(category, action, status, message="", rfp_id="", run_id=None, 
                 use_display_names=True
             )
         except Exception as e:
-            print(f"⚠ Could not insert automation log into Dataverse: {e}")
+            print(f"[WARN] Could not insert automation log into Dataverse: {e}")
             # Fallback: write to local JSONL so the log is not lost
             from core.local_log import write_local_event
             write_local_event(category, action, status, message, rfp_id,
                               extra={"run_id": run_id or "", "dataverse_error": str(e)})
 
-    print(f"📝 Log: {row}")
+    print(f"[LOG] Log: {row}")
 
 def log_event(category, action, status, message=None, rfp_id=None, run_id=None, insert_to_dataverse=True):
     write_log_row(category, action, status, message or "", rfp_id or "", run_id or get_current_run_id(), insert_to_dataverse)
@@ -316,19 +316,19 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                         existing_participated = existing_row.get("participated", "")
                         if existing_participated != participated:
                             has_meaningful_updates = True
-                            print(f"🔄 Participation status changed from '{existing_participated}' to '{participated}' for: {rfp_id}")
+                            print(f"[UPDATE] Participation status changed from '{existing_participated}' to '{participated}' for: {rfp_id}")
                     
                     # Check if email status changed
                     if email_status and email_status.strip():
                         existing_email_status = existing_row.get("Email_Status", "")
                         if existing_email_status != email_status:
                             has_meaningful_updates = True
-                            print(f"🔄 Email status changed from '{existing_email_status}' to '{email_status}' for: {rfp_id}")
+                            print(f"[UPDATE] Email status changed from '{existing_email_status}' to '{email_status}' for: {rfp_id}")
 
                     # Always update when email was just sent (timestamp changes every run)
                     if email_sent_at and email_sent_at.strip():
                         has_meaningful_updates = True
-                        print(f"🔄 Email sent — updating Email_Sent_At for: {rfp_id}")
+                        print(f"[UPDATE] Email sent — updating Email_Sent_At for: {rfp_id}")
 
                     # Check if analytics fields are being provided
                     if any(v is not None for v in [rfp_type, total_line_items, match_rate_pct,
@@ -340,7 +340,7 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                         existing_matched_data = existing_row.get("Matched_Data", "")
                         if not existing_matched_data or not existing_matched_data.strip():
                             has_meaningful_updates = True
-                            print(f"🔄 Adding matched data for previously downloaded RFP: {rfp_id}")
+                            print(f"[UPDATE] Adding matched data for previously downloaded RFP: {rfp_id}")
                     
                     # Only update if there are meaningful changes
                     if has_meaningful_updates:
@@ -396,13 +396,13 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                                 update_data,
                                 table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
                             )
-                            print(f"✅ Updated existing RFP log with meaningful changes: {rfp_id}")
+                            print(f"[OK] Updated existing RFP log with meaningful changes: {rfp_id}")
                         else:
-                            print(f"⏩ Skipping re-log for RFP already downloaded: {rfp_id} (no meaningful updates)")
+                            print(f"[SKIP] Skipping re-log for RFP already downloaded: {rfp_id} (no meaningful updates)")
                     else:
                         # No meaningful updates, skip logging
-                        print(f"⏩ Skipping re-log for RFP already downloaded: {rfp_id} (already logged on {existing_downloaded_at})")
-                        print(f"📝 RFP Log Skipped (Already Exists): {rfp_id}")
+                        print(f"[SKIP] Skipping re-log for RFP already downloaded: {rfp_id} (already logged on {existing_downloaded_at})")
+                        print(f"[LOG] RFP Log Skipped (Already Exists): {rfp_id}")
                         return  # Exit early without logging
                 else:
                     # Record exists but no Downloaded_At, treat as new download
@@ -414,7 +414,7 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                         update_data,
                         table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
                     )
-                    print(f"✅ Updated RFP log with Downloaded_At: {rfp_id}")
+                    print(f"[OK] Updated RFP log with Downloaded_At: {rfp_id}")
             else:
                 # Insert new record - this is a new RFP
                 DATAVERSE.insert_row(
@@ -422,10 +422,10 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                     row_data,
                     table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
                 )
-                print(f"✅ New RFP Log Inserted: {rfp_id}")
+                print(f"[OK] New RFP Log Inserted: {rfp_id}")
 
         except Exception as e:
             log_event("DB", "RFPLog", "Fail", f"Could not upsert RFP log for {rfp_id}: {e}")
-            print(f"⚠ Could not upsert RFP log into Dataverse: {e}")
+            print(f"[WARN] Could not upsert RFP log into Dataverse: {e}")
 
-    print(f"📝 RFP Log Processed: {rfp_id}")
+    print(f"[LOG] RFP Log Processed: {rfp_id}")
