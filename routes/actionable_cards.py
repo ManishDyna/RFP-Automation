@@ -20,7 +20,7 @@ from config.config import (
 )
 from services.master_data_service import get_all_rfp_team_for_emails
 from services.rfp_team_columns_service import get_all_columns, get_input_columns
-from helpers.email_helper import _build_input_widget
+from helpers.email_helper import _build_input_widget_indexed
 
 router = APIRouter(prefix="/api/actionable-card", tags=["Actionable Cards"])
 
@@ -102,7 +102,7 @@ def _get_all_responses_for_rfp(rfp_id: str) -> list:
 def _build_refresh_card(
     rfp_id: str,
     company_name: str,
-    product: str,
+    products: list,
     name: str,
     email: str,
     response_lookup: dict,
@@ -114,26 +114,36 @@ def _build_refresh_card(
 ) -> dict:
     """
     Build the Adaptive Card JSON for refresh/post-submit display.
-    Two modes:
-    - Not submitted: shows live team table + input fields + Submit + Refresh buttons
-    - Already submitted: shows live team table (read-only) + Refresh button
+    Shows the person's own products with their responses (read-only if submitted,
+    editable if not yet submitted), plus a team status summary.
     """
     user_email_key = email.lower()
     refresh_url = callback_url + "/refresh"
 
-    # Fetch dynamic column definitions
     columns = get_all_columns()
     input_columns = get_input_columns()
 
     if team_table is None:
         team_table = get_all_rfp_team_for_emails()
 
-    # --- Build ColumnSet-based table ---
+    # Get this user's response data (per-product)
+    user_resp = response_lookup.get(user_email_key, {})
+    user_product_responses = {}  # product → {results: ..., remarks: ...}
+    if "products" in user_resp and isinstance(user_resp["products"], list):
+        for p_resp in user_resp["products"]:
+            user_product_responses[p_resp.get("product", "")] = p_resp
+    elif user_resp:
+        # Legacy: single response applies to all products
+        for p in products:
+            user_product_responses[p] = user_resp
+
+    # --- Build table showing only this person's products ---
     header_cols = []
     for col in columns:
-        col_width = 2 if col["column_key"] == "email" else 1
+        if col["column_key"] == "email":
+            continue
         header_cols.append({
-            "type": "Column", "width": col_width, "padding": "None",
+            "type": "Column", "width": 1, "padding": "None",
             "items": [{"type": "TextBlock", "text": col.get("column_label", col["column_key"]),
                         "weight": "Bolder", "wrap": True}],
         })
@@ -145,38 +155,28 @@ def _build_refresh_card(
     }
 
     data_rows = []
-    for member in team_table:
-        m_email = member.get("email", "").lower()
-        is_current = m_email == user_email_key
-        resp = response_lookup.get(m_email)
-        has_responded = resp is not None
-
+    for idx, product in enumerate(products):
+        p_resp = user_product_responses.get(product, {})
         row_columns = []
         for col in columns:
             key = col["column_key"]
-            col_width = 2 if key == "email" else 1
-
+            if key == "email":
+                continue
             if col.get("column_category") == "input":
-                if is_current and not user_has_submitted:
-                    item = _build_input_widget(col)
+                if not user_has_submitted:
+                    item = _build_input_widget_indexed(col, idx)
                 else:
-                    value = resp.get(key, "") if has_responded else "Pending"
-                    color = "Good" if has_responded else "Warning"
-                    item = {"type": "TextBlock", "text": value or "-",
-                            "color": color, "wrap": True, "size": "Small"}
+                    value = p_resp.get(key, "") or "-"
+                    item = {"type": "TextBlock", "text": value,
+                            "color": "Good", "wrap": True, "size": "Small"}
             else:
-                value = member.get(key, "") or ""
-                if key == "name" and is_current:
-                    value = f"{value} (You)"
+                value = product if key == "product" else (name if key == "name" else "")
                 item = {"type": "TextBlock", "text": value, "wrap": True,
-                        "size": "Small",
-                        **({"weight": "Bolder"} if is_current else {})}
-
+                        "size": "Small", "weight": "Bolder"}
             row_columns.append({
-                "type": "Column", "width": col_width, "padding": "None",
+                "type": "Column", "width": 1, "padding": "None",
                 "items": [item],
             })
-
         data_rows.append({
             "type": "ColumnSet",
             "separator": True,
@@ -184,16 +184,15 @@ def _build_refresh_card(
             "columns": row_columns,
         })
 
-    # Common refresh payload (for autoInvokeAction and manual Refresh button)
+    # Refresh payload
     refresh_body = json.dumps({
         "rfp_id": rfp_id,
-        "product": product,
+        "products": products,
         "name": name,
         "email": email,
         "company_name": company_name,
     })
 
-    # Manual Refresh button
     refresh_action = {
         "type": "Action.Http",
         "title": "Refresh Status",
@@ -205,41 +204,43 @@ def _build_refresh_card(
 
     status_text = f"Team responses: {responded_count}/{total_count} received."
 
-    # Actions: Submit + Refresh if not yet submitted, only Refresh if already submitted
     actions = [refresh_action]
     if not user_has_submitted:
+        submit_body = {
+            "rfp_id": rfp_id,
+            "products": products,
+            "name": name,
+            "email": email,
+            "company_name": company_name,
+        }
+        for idx in range(len(products)):
+            for col in input_columns:
+                field_id = f"{col['column_key']}_{idx}"
+                submit_body[field_id] = "{{" + field_id + ".value}}"
         submit_action = {
             "type": "Action.Http",
-            "title": "Submit Response",
+            "title": "Submit All Responses",
             "method": "POST",
             "url": callback_url,
             "headers": [{"name": "Content-Type", "value": "application/json"}],
-            "body": json.dumps({
-                "rfp_id": rfp_id,
-                "product": product,
-                "name": name,
-                "email": email,
-                "company_name": company_name,
-                # Dynamic input column bindings
-                **{col["column_key"]: "{{" + col["column_key"] + ".value}}" for col in input_columns},
-            }),
+            "body": json.dumps(submit_body),
             "style": "positive",
             "isPrimary": True,
         }
         actions = [submit_action, refresh_action]
 
-    # Card layout with inline inputs in the table
-    instruction_text = ("Please fill in your Results and Remarks using the interactive form below."
+    products_text = ", ".join(f"**{p}**" for p in products)
+    instruction_text = ("Please fill in your Results and Remarks for each product below."
                         if not user_has_submitted
                         else "Your response has been submitted. You can refresh to see team status.")
     body_items = [
         {"type": "TextBlock", "text": f"Dear {name},",
          "wrap": True, "size": "Small"},
-        {"type": "TextBlock", "text": f"Kindly advise us regarding the attached RFP file for **{product}**.",
+        {"type": "TextBlock", "text": f"Kindly advise us regarding the attached RFP file for {products_text}.",
          "wrap": True, "spacing": "Small", "size": "Small"},
         {"type": "TextBlock", "text": instruction_text,
          "wrap": True, "spacing": "Small", "size": "Small"},
-        {"type": "TextBlock", "text": "Team Assignment", "weight": "Bolder",
+        {"type": "TextBlock", "text": "Your Products", "weight": "Bolder",
          "separator": True, "spacing": "Medium"},
         header_row,
         *data_rows,
@@ -266,6 +267,7 @@ def _build_refresh_card(
 async def receive_card_response(request: Request):
     """
     Receive an Adaptive Card form submission from Outlook.
+    Supports grouped submissions: one person submits responses for multiple products at once.
     Verifies the bearer token, extracts the response, and saves to Dataverse.
     When all team members have responded, sends a consolidated email.
     """
@@ -278,7 +280,6 @@ async def receive_card_response(request: Request):
     except Exception as e:
         print(f"❌ Token verification FAILED: {e}")
         raise
-    # Substrate token has the user email in 'sub' claim
     submitter_email = claims.get("sub") or claims.get("preferred_username") or claims.get("upn", "unknown")
 
     # Step 2: Parse the JSON body
@@ -288,24 +289,18 @@ async def receive_card_response(request: Request):
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     rfp_id = body.get("rfp_id", "")
-    product = body.get("product", "")
     name = body.get("name", "")
     expected_email = body.get("email", "")
     company_name = body.get("company_name", "")
 
-    # Extract dynamic input column values
-    input_cols = get_input_columns()
-    response_data = {}
-    for col in input_cols:
-        response_data[col["column_key"]] = body.get(col["column_key"], "")
-
-    # Backward compat: also extract legacy fields directly
-    results = response_data.get("results", body.get("results", ""))
-    remarks = response_data.get("remarks", body.get("remarks", ""))
+    # Support both old (single product) and new (multiple products) format
+    products = body.get("products", [])
+    if not products:
+        # Backward compat: single product format
+        single_product = body.get("product", "")
+        products = [single_product] if single_product else []
 
     # Step 3: Verify that the submitter matches the expected email
-    # Compare username part only (before @) because the same user may have
-    # multiple email domains (e.g. @bahra-cables.com vs @bahra-electric.com)
     submitter_user = submitter_email.lower().split("@")[0]
     expected_user = expected_email.lower().split("@")[0] if expected_email else ""
     if expected_user and submitter_user != expected_user:
@@ -314,15 +309,37 @@ async def receive_card_response(request: Request):
             detail=f"Token email ({submitter_email}) does not match expected ({expected_email})",
         )
 
-    # Step 4: Check for existing response (upsert logic)
+    # Step 4: Extract per-product responses from indexed fields
+    input_cols = get_input_columns()
+    per_product_responses = []
+    for idx, product in enumerate(products):
+        product_data = {}
+        for col in input_cols:
+            key = col["column_key"]
+            # Try indexed field first (results_0, remarks_0), then fallback to non-indexed
+            indexed_key = f"{key}_{idx}"
+            product_data[key] = body.get(indexed_key, "") or body.get(key, "")
+        per_product_responses.append({
+            "product": product,
+            **product_data,
+        })
+
+    # Build combined response_data JSON with all product responses
+    response_data = {"products": per_product_responses}
+
+    # Backward compat: first product's results/remarks for legacy fields
+    first_results = per_product_responses[0].get("results", "") if per_product_responses else ""
+    first_remarks = per_product_responses[0].get("remarks", "") if per_product_responses else ""
+
+    # Step 5: Upsert to Dataverse (one row per email per RFP)
     row_data = {
         "cr673_rfp_id": rfp_id,
-        "cr673_product": product,
+        "cr673_product": ", ".join(products),
         "cr673_name": name,
         "cr673_email": expected_email or submitter_email,
-        "cr673_results": results,            # backward compat
-        "cr673_remarks": remarks,            # backward compat
-        "cr673_response_data": json.dumps(response_data),  # all dynamic fields
+        "cr673_results": first_results,
+        "cr673_remarks": first_remarks,
+        "cr673_response_data": json.dumps(response_data),
         "cr673_submitted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "cr673_company_name": company_name,
     }
@@ -337,7 +354,6 @@ async def receive_card_response(request: Request):
         )
 
         if existing and "value" in existing and len(existing["value"]) > 0:
-            # Update existing response
             existing_row = existing["value"][0]
             pk_logical = f"{RFP_RESPONSE_TABLE_LOGICAL}id"
             try:
@@ -359,7 +375,6 @@ async def receive_card_response(request: Request):
                     use_display_names=True,
                 )
         else:
-            # Insert new response
             _DATAVERSE.insert_row(
                 RFP_RESPONSE_TABLE_API,
                 row_data,
@@ -432,30 +447,46 @@ async def receive_card_response(request: Request):
 
             responses_for_email = []
             for r in all_responses:
-                resp_item = {
-                    "product": r.get("cr673_product", ""),
-                    "name": r.get("cr673_name", ""),
-                    "email": r.get("cr673_email", ""),
-                }
-                # Merge dynamic response_data fields
+                r_email = r.get("cr673_email", "")
+                r_name = r.get("cr673_name", "")
+                # Parse response_data which now contains per-product responses
                 raw_json = r.get("cr673_response_data") or r.get("response_data", "")
+                parsed = {}
                 if raw_json:
                     try:
-                        resp_item.update(json.loads(raw_json))
+                        parsed = json.loads(raw_json)
                     except (json.JSONDecodeError, TypeError):
+                        parsed = {}
+
+                # New format: {"products": [{"product": "Cables", "results": "Yes", ...}, ...]}
+                if "products" in parsed and isinstance(parsed["products"], list):
+                    for p_resp in parsed["products"]:
+                        responses_for_email.append({
+                            "product": p_resp.get("product", ""),
+                            "name": r_name,
+                            "email": r_email,
+                            **{k: v for k, v in p_resp.items() if k != "product"},
+                        })
+                else:
+                    # Legacy single-product format
+                    resp_item = {
+                        "product": r.get("cr673_product", ""),
+                        "name": r_name,
+                        "email": r_email,
+                    }
+                    if parsed:
+                        resp_item.update(parsed)
+                    else:
                         resp_item["results"] = r.get("cr673_results", "")
                         resp_item["remarks"] = r.get("cr673_remarks", "")
-                else:
-                    resp_item["results"] = r.get("cr673_results", "")
-                    resp_item["remarks"] = r.get("cr673_remarks", "")
-                responses_for_email.append(resp_item)
+                    responses_for_email.append(resp_item)
 
             # Look up RFP end date from Dataverse activity log
             rfp_end_date = "-"
             try:
                 activity = _DATAVERSE.query_rows(
                     RFP_ACTIVITY_LOG_TABLE_API,
-                    filter_expr=f"cr673_name eq '{rfp_id}'",
+                    filter_expr=f"RFP_ID eq '{rfp_id}'",
                     top=1,
                     table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
                     use_display_names=True,
@@ -495,7 +526,7 @@ async def receive_card_response(request: Request):
     refresh_card = _build_refresh_card(
         rfp_id=rfp_id,
         company_name=company_name,
-        product=product,
+        products=products,
         name=name,
         email=expected_email or submitter_email,
         response_lookup=response_lookup,
@@ -533,15 +564,20 @@ async def refresh_card_status(request: Request):
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     rfp_id = body.get("rfp_id", "")
-    product = body.get("product", "")
     name = body.get("name", "")
     expected_email = body.get("email", "")
     company_name = body.get("company_name", "")
 
+    # Support both old (single product) and new (multiple products) format
+    products = body.get("products", [])
+    if not products:
+        single_product = body.get("product", "")
+        products = [single_product] if single_product else []
+
     # Step 3: Query Dataverse for latest responses
     all_responses = _get_all_responses_for_rfp(rfp_id)
 
-    # Step 4: Build response lookup (supports dynamic fields via response_data JSON)
+    # Step 4: Build response lookup (supports new multi-product format)
     response_lookup = {}
     for r in all_responses:
         r_email = r.get("cr673_email", "").lower()
@@ -565,11 +601,15 @@ async def refresh_card_status(request: Request):
 
     print(f"🔄 Refresh: rfp={rfp_id}, user={user_email_key}, submitted={user_has_submitted}, {responded_count}/{len(team_emails)}")
 
+    # If products not in the refresh body, look them up from team table
+    if not products:
+        products = [m["product"] for m in rfp_team if m.get("email", "").lower() == user_email_key]
+
     # Step 6: Build and return the updated card
     card = _build_refresh_card(
         rfp_id=rfp_id,
         company_name=company_name,
-        product=product,
+        products=products,
         name=name,
         email=expected_email or opener_email,
         response_lookup=response_lookup,

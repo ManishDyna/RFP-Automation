@@ -155,23 +155,63 @@ def _build_rfp_notification_html(rfp_titles: list, rfp_end_dates: dict = None) -
     return subject, body_html
 
 
-def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_name, callback_url, originator_id, matched_line=""):
+def _build_input_widget_indexed(col_def: dict, index: int) -> dict:
+    """Build an Adaptive Card input element with a product-index-suffixed ID.
+    E.g., results_0, remarks_1 — so multiple product rows can have unique IDs."""
+    key = f"{col_def['column_key']}_{index}"
+    col_type = col_def.get("column_type", "text")
+
+    if col_type == "dropdown":
+        options_raw = col_def.get("dropdown_options", "") or ""
+        try:
+            options = json.loads(options_raw) if options_raw else []
+        except (json.JSONDecodeError, TypeError):
+            options = []
+        choices = [{"title": opt, "value": opt} for opt in options]
+        return {
+            "type": "Input.ChoiceSet",
+            "id": key,
+            "placeholder": f"{col_def.get('column_label', col_def['column_key'])}...",
+            "choices": choices,
+            "style": "compact",
+            "height": "stretch",
+        }
+    elif col_type == "yes_no":
+        return {
+            "type": "Input.Toggle",
+            "id": key,
+            "title": col_def.get("column_label", col_def["column_key"]),
+            "valueOn": "Yes",
+            "valueOff": "No",
+        }
+    else:  # text
+        return {
+            "type": "Input.Text",
+            "id": key,
+            "placeholder": f"{col_def.get('column_label', col_def['column_key'])}...",
+        }
+
+
+def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_name, callback_url, originator_id, matched_line=""):
     """
-    Build an Adaptive Card JSON string for one team member.
-    The card is embedded in the email HTML and rendered interactively in Outlook.
-    Shows the full team table with the current member's row highlighted,
-    and input fields for Results and Remarks below the table.
-    Columns are driven dynamically by the column definitions service.
+    Build an Adaptive Card JSON string for one person (grouped by email).
+    Shows only the products assigned to this person with editable input fields
+    for each product row. One Submit sends all product responses at once.
+
+    Args:
+        products: list of product names assigned to this person
+                  (e.g., ["Cables", "TBS and BED"])
     """
-    from services.master_data_service import get_all_rfp_team_for_emails
     from services.rfp_team_columns_service import get_all_columns, get_input_columns
-    RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
     columns = get_all_columns()
     input_columns = get_input_columns()
-    # --- Build ColumnSet-based table ---
+
+    # --- Build ColumnSet-based table (only this person's products) ---
     header_cols = []
     for col in columns:
-        col_width = 2 if col["column_key"] == "email" else 1
+        if col["column_key"] == "email":
+            continue  # Skip email column — single person, not needed
+        col_width = 1
         header_cols.append({
             "type": "Column", "width": col_width, "padding": "None",
             "items": [{"type": "TextBlock", "text": col.get("column_label", col["column_key"]),
@@ -185,34 +225,25 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
     }
 
     data_rows = []
-    for member in RFP_TEAM_TABLE:
-        is_current = member.get("email", "").lower() == email.lower()
+    for idx, product in enumerate(products):
         row_columns = []
-
         for col in columns:
             key = col["column_key"]
-            col_width = 2 if key == "email" else 1
-            if col.get("column_category") == "input" and is_current:
-                # Editable widget for current member
-                item = _build_input_widget(col)
-            elif col.get("column_category") == "input":
-                # Other members: show "Pending"
-                item = {"type": "TextBlock", "text": "Pending",
-                        "color": "Warning", "size": "Small"}
+            if key == "email":
+                continue  # Skip email column
+            col_width = 1
+            if col.get("column_category") == "input":
+                # Editable widget with indexed ID (results_0, results_1, etc.)
+                item = _build_input_widget_indexed(col, idx)
             else:
                 # Display column
-                value = member.get(key, "") or ""
-                if key == "name" and is_current:
-                    value = f"{value} (You)"
+                value = product if key == "product" else (name if key == "name" else "")
                 item = {"type": "TextBlock", "text": value, "wrap": True,
-                        "size": "Small",
-                        **({"weight": "Bolder"} if is_current else {})}
-
+                        "size": "Small", "weight": "Bolder"}
             row_columns.append({
                 "type": "Column", "width": col_width, "padding": "None",
                 "items": [item],
             })
-
         data_rows.append({
             "type": "ColumnSet",
             "separator": True,
@@ -238,7 +269,6 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
             "spacing": "Small",
             "size": "Small",
         })
-    # Wrap notes in a warning-styled container
     footer_items = [
         {
             "type": "Container",
@@ -263,6 +293,9 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
         },
     ]
 
+    # --- Product list text ---
+    products_text = ", ".join(f"**{p}**" for p in products)
+
     # --- Assemble full card body ---
     body_items = [
         {
@@ -273,21 +306,21 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
         },
         {
             "type": "TextBlock",
-            "text": f"Kindly advise us regarding the attached RFP file for **{product}**.",
+            "text": f"Kindly advise us regarding the attached RFP file for {products_text}.",
             "wrap": True,
             "size": "Small",
             "spacing": "Small",
         },
         {
             "type": "TextBlock",
-            "text": "Please fill in your Results and Remarks using the interactive form below.",
+            "text": "Please fill in your Results and Remarks for each product below.",
             "wrap": True,
             "size": "Small",
             "spacing": "Small",
         },
         {
             "type": "TextBlock",
-            "text": "Team Assignment",
+            "text": "Your Products",
             "weight": "Bolder",
             "separator": True,
             "spacing": "Medium",
@@ -296,6 +329,21 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
         *data_rows,
         *footer_items,
     ]
+
+    # Build submit body with indexed input bindings per product
+    submit_body = {
+        "rfp_id": rfp_id,
+        "products": products,
+        "name": name,
+        "email": email,
+        "company_name": company_name,
+    }
+    # Add indexed input column bindings: results_0, remarks_0, results_1, remarks_1, etc.
+    for idx in range(len(products)):
+        for col in input_columns:
+            field_id = f"{col['column_key']}_{idx}"
+            submit_body[field_id] = "{{" + field_id + ".value}}"
+
     card = {
         "originator": originator_id,
         "type": "AdaptiveCard",
@@ -307,21 +355,13 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
         "actions": [
             {
                 "type": "Action.Http",
-                "title": "Submit Response",
+                "title": "Submit All Responses",
                 "method": "POST",
                 "url": callback_url,
                 "headers": [
                     {"name": "Content-Type", "value": "application/json"}
                 ],
-                "body": json.dumps({
-                    "rfp_id": rfp_id,
-                    "product": product,
-                    "name": name,
-                    "email": email,
-                    "company_name": company_name,
-                    # Dynamic input column bindings
-                    **{col["column_key"]: "{{" + col["column_key"] + ".value}}" for col in input_columns},
-                }),
+                "body": json.dumps(submit_body),
                 "style": "positive",
                 "isPrimary": True,
             },
@@ -335,7 +375,7 @@ def _build_adaptive_card_json(rfp_id, product, name, email, due_date, company_na
                 ],
                 "body": json.dumps({
                     "rfp_id": rfp_id,
-                    "product": product,
+                    "products": products,
                     "name": name,
                     "email": email,
                     "company_name": company_name,
@@ -459,21 +499,30 @@ def send_actionable_rfp_emails(
     # Sender email (must match the registered sender in Actionable Message dashboard)
     sender_email = "D365FOadmin@bahra-electric.com"
 
+    # Group team members by email → one email per person with all their products
+    from collections import OrderedDict
+    grouped = OrderedDict()
     for member in RFP_TEAM_TABLE:
-        product = member["product"]
-        name = member["name"]
-        email = member.get("email", "")
-
-        if not email:
-            print(f"⚠ No email configured for {name}, skipping Adaptive Card email")
+        em = member.get("email", "")
+        if not em:
+            print(f"⚠ No email configured for {member.get('name', '?')}, skipping")
             continue
+        em_lower = em.lower()
+        if em_lower not in grouped:
+            grouped[em_lower] = {"name": member["name"], "email": em, "products": []}
+        grouped[em_lower]["products"].append(member["product"])
 
-        # Build adaptive card JSON
+    for em_lower, info in grouped.items():
+        person_name = info["name"]
+        person_email = info["email"]
+        person_products = info["products"]
+
+        # Build adaptive card JSON with all products for this person
         card_json = _build_adaptive_card_json(
             rfp_id=rfp_id,
-            product=product,
-            name=name,
-            email=email,
+            products=person_products,
+            name=person_name,
+            email=person_email,
             due_date=rfp_end_date,
             company_name=company_name,
             callback_url=ACTIONABLE_CARD_CALLBACK_URL,
@@ -482,7 +531,6 @@ def send_actionable_rfp_emails(
         )
 
         # Build email HTML with embedded adaptive card
-        # hideOriginalBody=true in card JSON hides the <body> in Outlook
         body_html = f"""<html>
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
@@ -496,7 +544,7 @@ def send_actionable_rfp_emails(
         # Build raw MIME message (preserves <script> tag — JSON sendMail strips it)
         msg = MIMEMultipart("mixed")
         msg["From"] = sender_email
-        msg["To"] = email
+        msg["To"] = person_email
         msg["Subject"] = rfp_id
 
         # HTML body with adaptive card
@@ -526,11 +574,11 @@ def send_actionable_rfp_emails(
             )
 
             if response.status_code == 202:
-                print(f"✅ Actionable email sent for {rfp_id} to {name} ({email})")
+                print(f"✅ Actionable email sent for {rfp_id} to {person_name} ({person_email}) — {len(person_products)} products")
             else:
-                print(f"❌ Actionable email failed for {rfp_id} to {name}: {response.status_code} {response.text}")
+                print(f"❌ Actionable email failed for {rfp_id} to {person_name}: {response.status_code} {response.text}")
         except Exception as e:
-            print(f"❌ Failed to send email to {name}: {e}")
+            print(f"❌ Failed to send email to {person_name}: {e}")
 
     # Log activity once per RFP
     log_rfp_activity(

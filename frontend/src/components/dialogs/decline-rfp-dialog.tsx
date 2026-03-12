@@ -1,9 +1,6 @@
-import { useState, useCallback } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
+import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
-import { XCircle, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { XCircle, Loader2, ChevronsUpDown, Check } from 'lucide-react'
 
 import {
   Dialog,
@@ -14,112 +11,73 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from '@/components/ui/command'
+import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 
-// Company options - should match config.py COMPANY_OPTIONS
-const COMPANY_OPTIONS = [
-  'Saudi Electricity Company',
-  'Aramco e-Marketplace',
-  'SABIC - Saudi Basic Industries Corp.',
-  'HADEED - RAJHI STEEL',
-]
-
-const declineRfpSchema = z.object({
-  rfp_title: z.string().min(1, 'RFP title is required'),
-  company: z.string().min(1, 'Please select a company'),
-})
-
-type DeclineRfpFormData = z.infer<typeof declineRfpSchema>
+interface RfpOption {
+  RFP_ID: string
+  Company_Name: string
+}
 
 interface DeclineRfpDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-type RfpValidationState =
-  | { status: 'idle' }
-  | { status: 'validating' }
-  | { status: 'valid'; company: string; rfpStatus: string }
-  | { status: 'error'; message: string }
-
 export function DeclineRfpDialog({ open, onOpenChange }: DeclineRfpDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [rfpValidation, setRfpValidation] = useState<RfpValidationState>({ status: 'idle' })
+  const [rfpOptions, setRfpOptions] = useState<RfpOption[]>([])
+  const [isLoadingRfps, setIsLoadingRfps] = useState(false)
+  const [selectedRfp, setSelectedRfp] = useState<RfpOption | null>(null)
+  const [comboboxOpen, setComboboxOpen] = useState(false)
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    setValue,
-    watch,
-    formState: { errors },
-  } = useForm<DeclineRfpFormData>({
-    resolver: zodResolver(declineRfpSchema),
-  })
+  // Fetch open RFPs when dialog opens
+  useEffect(() => {
+    if (!open) return
 
-  const validateRfpId = useCallback(async (rfpId: string) => {
-    const trimmed = rfpId.trim()
-    if (!trimmed) {
-      setRfpValidation({ status: 'idle' })
-      return
-    }
-
-    setRfpValidation({ status: 'validating' })
-    try {
-      const result = await api.validateRfp(trimmed)
-      setRfpValidation({
-        status: 'valid',
-        company: result.company,
-        rfpStatus: result.status,
-      })
-      // Auto-set the company from database
-      if (result.company) {
-        setValue('company', result.company)
+    const fetchOpenRfps = async () => {
+      setIsLoadingRfps(true)
+      try {
+        const result = await api.getRfpDetails({ status: 'open', limit: 500, offset: 0 })
+        setRfpOptions(
+          (result.rfps || []).map((rfp: any) => ({
+            RFP_ID: rfp.RFP_ID,
+            Company_Name: rfp.Company_Name || 'Unknown',
+          }))
+        )
+      } catch {
+        toast.error('Failed to load RFPs')
+      } finally {
+        setIsLoadingRfps(false)
       }
-    } catch (error: any) {
-      setRfpValidation({
-        status: 'error',
-        message: error.message || 'RFP not found in database. Please download it first.',
-      })
-      // Clear company selection when RFP is invalid
-      setValue('company', '')
-    }
-  }, [setValue])
-
-  const handleRfpTitleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    validateRfpId(e.target.value)
-  }
-
-  const onSubmit = async (data: DeclineRfpFormData) => {
-    // Block submission if RFP is not validated
-    if (rfpValidation.status !== 'valid') {
-      if (rfpValidation.status === 'error') {
-        toast.error(rfpValidation.message)
-      } else {
-        toast.error('Please enter a valid RFP ID first')
-      }
-      return
     }
 
-    // Ensure selected company matches the database company
-    if (rfpValidation.company && data.company !== rfpValidation.company) {
-      toast.error(`This RFP belongs to "${rfpValidation.company}". Please select the correct company.`)
-      setValue('company', rfpValidation.company)
+    fetchOpenRfps()
+  }, [open])
+
+  const onSubmit = async () => {
+    if (!selectedRfp) {
+      toast.error('Please select an RFP')
       return
     }
 
     setIsSubmitting(true)
     try {
-      await api.declineRfp(data.rfp_title, data.company)
+      await api.declineRfp(selectedRfp.RFP_ID, selectedRfp.Company_Name)
       toast.success('RFP decline initiated successfully')
       handleClose()
     } catch (error: any) {
@@ -130,13 +88,10 @@ export function DeclineRfpDialog({ open, onOpenChange }: DeclineRfpDialogProps) 
   }
 
   const handleClose = () => {
-    reset()
-    setRfpValidation({ status: 'idle' })
+    setSelectedRfp(null)
+    setComboboxOpen(false)
     onOpenChange(false)
   }
-
-  const isRfpValid = rfpValidation.status === 'valid'
-  const isCompanyLocked = isRfpValid && !!rfpValidation.company
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -147,105 +102,109 @@ export function DeclineRfpDialog({ open, onOpenChange }: DeclineRfpDialogProps) 
             Decline RFP
           </DialogTitle>
           <DialogDescription>
-            Enter the RFP details to decline participation.
+            Select the RFP you want to decline participation for.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="rfp_title">RFP Title *</Label>
-            <div className="relative">
-              <Input
-                id="rfp_title"
-                {...register('rfp_title')}
-                placeholder="Enter RFP Title"
-                onBlur={handleRfpTitleBlur}
-              />
-              {rfpValidation.status === 'validating' && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                </div>
-              )}
-              {rfpValidation.status === 'valid' && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <CheckCircle2 className="h-4 w-4 text-green-500" />
-                </div>
-              )}
-              {rfpValidation.status === 'error' && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <AlertCircle className="h-4 w-4 text-destructive" />
-                </div>
-              )}
-            </div>
-            {rfpValidation.status === 'error' && (
-              <p className="text-sm text-destructive">{rfpValidation.message}</p>
-            )}
-            {rfpValidation.status === 'valid' && (
-              <p className="text-sm text-green-600">
-                RFP found — Company: {rfpValidation.company}
-              </p>
-            )}
-            {rfpValidation.status === 'idle' && (
-              <p className="text-xs text-muted-foreground">
-                Enter the exact title of the RFP you want to decline
-              </p>
-            )}
-            {errors.rfp_title && (
-              <p className="text-sm text-destructive">{errors.rfp_title.message}</p>
-            )}
+            <Label>RFP *</Label>
+            <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={comboboxOpen}
+                  className="w-full justify-between font-normal h-auto min-h-10"
+                  disabled={isLoadingRfps}
+                >
+                  {isLoadingRfps ? (
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading RFPs...
+                    </span>
+                  ) : selectedRfp ? (
+                    <span className="text-left truncate block overflow-hidden text-ellipsis whitespace-nowrap max-w-[calc(100%-2rem)]">
+                      {selectedRfp.RFP_ID}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">Select an RFP...</span>
+                  )}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                <Command>
+                  <CommandInput placeholder="Search RFPs..." />
+                  <CommandList>
+                    <CommandEmpty>No RFPs found.</CommandEmpty>
+                    <CommandGroup>
+                      {rfpOptions.map((rfp) => (
+                        <CommandItem
+                          key={rfp.RFP_ID}
+                          value={`${rfp.RFP_ID} ${rfp.Company_Name}`}
+                          onSelect={() => {
+                            setSelectedRfp(rfp)
+                            setComboboxOpen(false)
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              selectedRfp?.RFP_ID === rfp.RFP_ID
+                                ? "opacity-100"
+                                : "opacity-0"
+                            )}
+                          />
+                          <div className="flex flex-col">
+                            <span className="text-sm">{rfp.RFP_ID}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {rfp.Company_Name}
+                            </span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            <p className="text-xs text-muted-foreground">
+              {rfpOptions.length > 0
+                ? `${rfpOptions.length} open RFP(s) available`
+                : isLoadingRfps
+                  ? 'Fetching open RFPs...'
+                  : 'No open RFPs found'}
+            </p>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="company">Company *</Label>
-            <Select
-              value={watch('company')}
-              onValueChange={(value) => {
-                if (!isCompanyLocked) {
-                  setValue('company', value)
-                }
-              }}
-              disabled={isCompanyLocked}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select company" />
-              </SelectTrigger>
-              <SelectContent>
-                {COMPANY_OPTIONS.map((company) => (
-                  <SelectItem key={company} value={company}>
-                    {company}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {isCompanyLocked ? (
+          {selectedRfp && (
+            <div className="space-y-2">
+              <Label>Company</Label>
+              <div className="rounded-md border px-3 py-2 text-sm bg-muted/50">
+                {selectedRfp.Company_Name}
+              </div>
               <p className="text-xs text-muted-foreground">
                 Company is auto-selected based on the RFP record.
               </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Decline automation will run against this company.
-              </p>
-            )}
-            {errors.company && (
-              <p className="text-sm text-destructive">{errors.company.message}</p>
-            )}
-          </div>
+            </div>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={handleClose}>
               Cancel
             </Button>
             <Button
-              type="submit"
               variant="destructive"
               loading={isSubmitting}
-              disabled={rfpValidation.status === 'error' || rfpValidation.status === 'validating'}
+              disabled={!selectedRfp}
+              onClick={onSubmit}
             >
               <XCircle className="h-4 w-4 mr-2" />
               Decline RFP
             </Button>
           </DialogFooter>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   )
