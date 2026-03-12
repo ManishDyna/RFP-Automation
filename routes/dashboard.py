@@ -23,6 +23,7 @@ import asyncio
 from automation_logic import run_automation_submit, run_automation_download_all_rfps
 from collections import Counter
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import run state management from automation routes
 from routes.automation import _RUN_STATE, _set_state, _add_submitting_rfp, _remove_submitting_rfp, _is_rfp_submitting, _run_async_in_thread
@@ -733,6 +734,67 @@ def ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client):
     return None
 
 
+def _parse_matched_data_json(matched_data_str: str):
+    """Parse Matched_Data JSON string into match percentage result, or return None."""
+    matched_data_str = (matched_data_str or "").strip()
+    if not matched_data_str:
+        return None
+    try:
+        items = json.loads(matched_data_str)
+    except Exception:
+        return None
+    if not isinstance(items, list) or not items:
+        return None
+    # Only use new format data (has is_matched field)
+    if not any("is_matched" in item for item in items):
+        return None
+    total_materials = len(items)
+    matched_count = sum(1 for item in items if bool(item.get("is_matched", True)))
+    match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
+    return {
+        "match_percentage": match_percentage,
+        "total_materials": total_materials,
+        "matched_count": matched_count,
+    }
+
+
+def _batch_get_match_percentages_from_dataverse(rfp_ids: list):
+    """
+    Batch query Dataverse for Matched_Data of multiple RFPs at once.
+    Returns dict mapping rfp_id -> result dict or None (if not found/invalid).
+    Uses OData 'or' filter in chunks to stay within URL length limits.
+    """
+    results = {rid: None for rid in rfp_ids}
+    if not rfp_ids:
+        return results
+
+    # Chunk into groups of 15 to avoid URL length limits
+    chunk_size = 15
+    for i in range(0, len(rfp_ids), chunk_size):
+        chunk = rfp_ids[i:i + chunk_size]
+        filter_parts = [f"RFP_ID eq '{rid.replace(chr(39), chr(39)*2)}'" for rid in chunk]
+        filter_expr = " or ".join(filter_parts)
+        try:
+            result = DATAVERSE.query_rows(
+                RFP_ACTIVITY_LOG_TABLE_API,
+                filter_expr=filter_expr,
+                select="RFP_ID,Matched_Data",
+                top=chunk_size,
+                table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+                use_display_names=True
+            )
+            rows = result.get("value", []) if isinstance(result, dict) else []
+            for row in rows:
+                rfp_id = row.get("RFP_ID", "")
+                if rfp_id in results:
+                    parsed = _parse_matched_data_json(row.get("Matched_Data"))
+                    results[rfp_id] = parsed
+        except Exception as e:
+            print(f"[BatchMatch] Batch Dataverse query failed for chunk: {e}")
+
+    return results
+
+
 def _get_match_percentage_from_dataverse(rfp_id: str):
     """
     Try to get match percentage summary from stored Matched_Data in Dataverse.
@@ -751,35 +813,13 @@ def _get_match_percentage_from_dataverse(rfp_id: str):
         rows = result.get("value", []) if isinstance(result, dict) else []
         if not rows:
             return None
-
-        matched_data_str = (rows[0].get("Matched_Data") or "").strip()
-        if not matched_data_str:
-            return None
-
-        items = json.loads(matched_data_str)
-        if not isinstance(items, list) or not items:
-            return None
-
-        # Only use new format data (has is_matched field)
-        has_new_format = any("is_matched" in item for item in items)
-        if not has_new_format:
-            return None
-
-        total_materials = len(items)
-        matched_count = sum(1 for item in items if bool(item.get("is_matched", True)))
-        match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
-
-        return {
-            "match_percentage": match_percentage,
-            "total_materials": total_materials,
-            "matched_count": matched_count,
-        }
+        return _parse_matched_data_json(rows[0].get("Matched_Data"))
     except Exception as e:
         print(f"[BatchMatch] Dataverse lookup failed for {rfp_id}: {e}")
         return None
 
 
-def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list, company: str = None, graph_client=None):
+def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list, company: str = None, graph_client=None, master_code_set: set = None, skip_dataverse: bool = False):
     """
     Calculate match percentage for a single RFP (optimized with caching).
     Uses ALL items from Excel (no intent filter).
@@ -801,16 +841,17 @@ def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_li
                 if excel_path and os.path.exists(excel_path) and os.path.getmtime(excel_path) == file_mtime:
                     return cached
 
-    # Primary: try Dataverse stored data
-    dv_result = _get_match_percentage_from_dataverse(rfp_id)
-    if dv_result is not None:
-        dv_result["source"] = "dataverse"
-        dv_result["cache_version"] = _MATCH_CACHE_VERSION
-        _MATCH_PERCENTAGE_CACHE[rfp_id] = dv_result
-        return dv_result
+    # Primary: try Dataverse stored data (skip if batch already checked)
+    if not skip_dataverse:
+        dv_result = _get_match_percentage_from_dataverse(rfp_id)
+        if dv_result is not None:
+            dv_result["source"] = "dataverse"
+            dv_result["cache_version"] = _MATCH_CACHE_VERSION
+            _MATCH_PERCENTAGE_CACHE[rfp_id] = dv_result
+            return dv_result
 
-    # Fallback: local Excel file matching
-    excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, company, None)
+    # Fallback: Excel file matching (download from SharePoint if not local)
+    excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client)
 
     if not excel_path or not os.path.exists(excel_path):
         return {"match_percentage": 0, "total_materials": 0, "matched_count": 0, "file_mtime": None}
@@ -825,6 +866,10 @@ def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_li
         _MATCH_PERCENTAGE_CACHE[rfp_id] = result
         return result
 
+    # Build master_code_set if not provided (backward compat)
+    if master_code_set is None:
+        master_code_set = set(master[master_col].astype(str))
+
     # Match using exact code + keyword (same logic as download time)
     matched_count = 0
     for mat_data in materials_data:
@@ -832,9 +877,8 @@ def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_li
         name_text = mat_data.get("name", "")
         description_text = mat_data.get("description", "")
 
-        # Method 1: Exact Material Code Match
-        matched_rows = master[master[master_col].astype(str) == mat_code]
-        is_matched = not matched_rows.empty
+        # Method 1: Exact Material Code Match (O(1) set lookup)
+        is_matched = mat_code in master_code_set
 
         # Method 2: Keyword Matching (only if exact match failed)
         if not is_matched and keywords_list:
@@ -2450,27 +2494,78 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
         keywords_csv_local = os.path.join(OUTPUT_DIR, "unique_keywords.csv")
         keywords_list = get_cached_keywords(graph_client, keywords_csv_local)
 
-        # Calculate percentages for all RFPs
+        # Pre-index master codes for O(1) lookup
+        master_code_set = set(master[master_col].astype(str))
+
         results = {}
+
+        # Phase A: Collect cache hits
+        uncached_ids = []
         for rfp_id in rfp_id_list:
-            try:
-                rfp_company = company_map.get(rfp_id, None)
-                result = calculate_match_percentage_optimized(
-                    rfp_id, master, master_col, keywords_list,
-                    company=rfp_company, graph_client=graph_client
-                )
-                results[rfp_id] = {
-                    "match_percentage": result["match_percentage"],
-                    "total_materials": result["total_materials"],
-                    "matched_count": result["matched_count"]
+            if rfp_id in _MATCH_PERCENTAGE_CACHE:
+                cached = _MATCH_PERCENTAGE_CACHE[rfp_id]
+                if cached.get("cache_version") == _MATCH_CACHE_VERSION:
+                    results[rfp_id] = {
+                        "match_percentage": cached["match_percentage"],
+                        "total_materials": cached["total_materials"],
+                        "matched_count": cached["matched_count"]
+                    }
+                    continue
+            uncached_ids.append(rfp_id)
+
+        # Phase B: Batch Dataverse query for all uncached RFPs at once
+        fallback_ids = []
+        if uncached_ids:
+            dv_results = _batch_get_match_percentages_from_dataverse(uncached_ids)
+            for rfp_id in uncached_ids:
+                dv_result = dv_results.get(rfp_id)
+                if dv_result is not None:
+                    # Cache the Dataverse result
+                    dv_result["source"] = "dataverse"
+                    dv_result["cache_version"] = _MATCH_CACHE_VERSION
+                    _MATCH_PERCENTAGE_CACHE[rfp_id] = dv_result
+                    results[rfp_id] = {
+                        "match_percentage": dv_result["match_percentage"],
+                        "total_materials": dv_result["total_materials"],
+                        "matched_count": dv_result["matched_count"]
+                    }
+                else:
+                    fallback_ids.append(rfp_id)
+
+        # Phase C: Parallel Excel fallback for remaining RFPs
+        if fallback_ids:
+            print(f"[BatchMatch] Excel fallback for {len(fallback_ids)} RFPs (parallel, max 5 workers)")
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {
+                    executor.submit(
+                        calculate_match_percentage_optimized,
+                        rfp_id, master, master_col, keywords_list,
+                        company=company_map.get(rfp_id),
+                        graph_client=graph_client,
+                        master_code_set=master_code_set,
+                        skip_dataverse=True
+                    ): rfp_id
+                    for rfp_id in fallback_ids
                 }
-            except Exception as e:
-                results[rfp_id] = {
-                    "match_percentage": 0,
-                    "total_materials": 0,
-                    "matched_count": 0,
-                    "error": str(e)
-                }
+                for future in as_completed(futures):
+                    rfp_id = futures[future]
+                    try:
+                        result = future.result()
+                        results[rfp_id] = {
+                            "match_percentage": result["match_percentage"],
+                            "total_materials": result["total_materials"],
+                            "matched_count": result["matched_count"]
+                        }
+                    except Exception as e:
+                        print(f"[BatchMatch] Error for {rfp_id}: {e}")
+                        results[rfp_id] = {
+                            "match_percentage": 0,
+                            "total_materials": 0,
+                            "matched_count": 0,
+                            "error": str(e)
+                        }
+
+        print(f"[BatchMatch] Done: {len(results)} RFPs ({len(rfp_id_list) - len(uncached_ids)} cached, {len(uncached_ids) - len(fallback_ids)} from Dataverse, {len(fallback_ids)} from Excel)")
 
         return JSONResponse({
             "ok": True,

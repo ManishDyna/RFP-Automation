@@ -304,7 +304,11 @@ async def receive_card_response(request: Request):
     remarks = response_data.get("remarks", body.get("remarks", ""))
 
     # Step 3: Verify that the submitter matches the expected email
-    if expected_email and submitter_email.lower() != expected_email.lower():
+    # Compare username part only (before @) because the same user may have
+    # multiple email domains (e.g. @bahra-cables.com vs @bahra-electric.com)
+    submitter_user = submitter_email.lower().split("@")[0]
+    expected_user = expected_email.lower().split("@")[0] if expected_email else ""
+    if expected_user and submitter_user != expected_user:
         raise HTTPException(
             status_code=403,
             detail=f"Token email ({submitter_email}) does not match expected ({expected_email})",
@@ -431,6 +435,7 @@ async def receive_card_response(request: Request):
                 resp_item = {
                     "product": r.get("cr673_product", ""),
                     "name": r.get("cr673_name", ""),
+                    "email": r.get("cr673_email", ""),
                 }
                 # Merge dynamic response_data fields
                 raw_json = r.get("cr673_response_data") or r.get("response_data", "")
