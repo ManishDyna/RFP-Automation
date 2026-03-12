@@ -132,6 +132,13 @@ def get_all_columns(force_refresh: bool = False) -> List[Dict]:
             if rows:
                 print(f"[RFPTeamColumns] Raw row keys: {list(rows[0].keys())}")
 
+        # Ensure core fields always have is_team_field=true and is_required=true
+        _core_keys = {"product", "name", "email"}
+        for col in columns:
+            if col.get("column_key") in _core_keys:
+                col["is_team_field"] = "true"
+                col["is_required"] = "true"
+
         if columns:
             _column_cache = columns
             _column_cache_ts = time.time()

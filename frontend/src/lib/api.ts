@@ -113,6 +113,46 @@ export const api = {
     return handleResponse<any>(response)
   },
 
+  exportRfpData: async (params: {
+    status?: string
+    company?: string
+    start_date?: string
+    end_date?: string
+    search?: string
+    material_match?: string
+    keyword_match?: string
+    participation?: string
+  }, format: 'csv' | 'excel') => {
+    const searchParams = new URLSearchParams()
+    searchParams.append('format', format)
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') searchParams.append(key, String(value))
+    })
+    const response = await fetch(`${ENDPOINTS.DASHBOARD.RFP_EXPORT}?${searchParams}`, {
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      let message = 'Export failed'
+      try {
+        const data = await response.json()
+        message = data.detail || data.message || message
+      } catch {}
+      throw { message, status: response.status }
+    }
+    const blob = await response.blob()
+    const disposition = response.headers.get('Content-Disposition') || ''
+    const filenameMatch = disposition.match(/filename=(.+)/)
+    const filename = filenameMatch ? filenameMatch[1] : `RFP_Data_Export.${format === 'excel' ? 'xlsx' : 'csv'}`
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  },
+
   // ==================== Automation ====================
   getAutomationStatus: async () => {
     const response = await fetch(ENDPOINTS.AUTOMATION.STATUS, {

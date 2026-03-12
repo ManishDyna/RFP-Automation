@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -624,6 +624,14 @@ function KeywordsTab() {
 
 // ─── RFP Team Tab (Dynamic Columns) ──────────────────────────────────────────
 
+// Core fields that must always appear in the team member form/table
+const RFP_TEAM_CORE_FIELDS = [
+  { column_key: 'product', column_label: 'Products', column_type: 'text', column_category: 'display', sort_order: '1', is_required: 'true', is_team_field: 'true' },
+  { column_key: 'name', column_label: 'Name', column_type: 'text', column_category: 'display', sort_order: '2', is_required: 'true', is_team_field: 'true' },
+  { column_key: 'email', column_label: 'Email', column_type: 'text', column_category: 'display', sort_order: '3', is_required: 'true', is_team_field: 'true' },
+]
+const RFP_TEAM_CORE_KEYS = RFP_TEAM_CORE_FIELDS.map(f => f.column_key)
+
 function RfpTeamTab() {
   const queryClient = useQueryClient()
   const canCreate = useHasPermission('master_data.create')
@@ -644,7 +652,24 @@ function RfpTeamTab() {
   })
   const allColumns: any[] = colData?.columns ?? []
   // Team fields are shown in the add/edit dialog and table
-  const teamFieldColumns = allColumns.filter((c: any) => String(c.is_team_field).toLowerCase() === 'true')
+  // Ensure core fields (product, name, email) are always present even if column definitions are misconfigured
+  const teamFieldColumns = useMemo(() => {
+    const filtered = allColumns.filter((c: any) => String(c.is_team_field).toLowerCase() === 'true')
+    const existingKeys = new Set(filtered.map((c: any) => c.column_key))
+    // Prepend any missing core fields
+    const missing = RFP_TEAM_CORE_FIELDS.filter(f => !existingKeys.has(f.column_key))
+    const merged = [...missing, ...filtered]
+    // Sort: core fields first in order, then the rest
+    merged.sort((a: any, b: any) => {
+      const aCore = RFP_TEAM_CORE_KEYS.indexOf(a.column_key)
+      const bCore = RFP_TEAM_CORE_KEYS.indexOf(b.column_key)
+      if (aCore !== -1 && bCore !== -1) return aCore - bCore
+      if (aCore !== -1) return -1
+      if (bCore !== -1) return 1
+      return parseInt(a.sort_order || '999') - parseInt(b.sort_order || '999')
+    })
+    return merged
+  }, [allColumns])
 
   const { data, isLoading } = useQuery({
     queryKey: ['rfp-team', search],

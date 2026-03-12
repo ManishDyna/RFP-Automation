@@ -272,6 +272,19 @@ export default function RfpInsightsPage() {
   }
 
   const [downloadingRfpId, setDownloadingRfpId] = useState<string | null>(null)
+  const [exportingFormat, setExportingFormat] = useState<string | null>(null)
+
+  const handleExport = useCallback(async (format: 'csv' | 'excel') => {
+    setExportingFormat(format)
+    try {
+      await api.exportRfpData(filters, format)
+      toast.success(`RFP data exported as ${format === 'excel' ? 'Excel' : 'CSV'} successfully`)
+    } catch (error: any) {
+      toast.error(error.message || `Failed to export ${format === 'excel' ? 'Excel' : 'CSV'}`)
+    } finally {
+      setExportingFormat(null)
+    }
+  }, [filters])
 
   const handleDownloadExcel = useCallback(async (rfpId: string, company?: string) => {
     setDownloadingRfpId(rfpId)
@@ -548,6 +561,27 @@ export default function RfpInsightsPage() {
               )}
             </p>
             <div className="flex items-center gap-3">
+              {/* Export Buttons */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-slate-200 hover:bg-slate-50"
+                disabled={exportingFormat === 'csv'}
+                onClick={() => handleExport('csv')}
+              >
+                <Download className={`h-4 w-4 mr-2 ${exportingFormat === 'csv' ? 'animate-spin' : ''}`} />
+                {exportingFormat === 'csv' ? 'Exporting...' : 'Export CSV'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                disabled={exportingFormat === 'excel'}
+                onClick={() => handleExport('excel')}
+              >
+                <FileSpreadsheet className={`h-4 w-4 mr-2 ${exportingFormat === 'excel' ? 'animate-spin' : ''}`} />
+                {exportingFormat === 'excel' ? 'Exporting...' : 'Export Excel'}
+              </Button>
               {/* Column Visibility Dropdown */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

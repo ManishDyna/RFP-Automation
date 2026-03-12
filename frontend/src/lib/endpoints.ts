@@ -67,6 +67,7 @@ export const ENDPOINTS = {
   DASHBOARD: {
     DATA: `${API_PREFIX}/dashboard/data`,
     RFP_DETAILS: `${API_PREFIX}/dashboard/rfp-details`,
+    RFP_EXPORT: `${API_PREFIX}/dashboard/rfp-details/export`,
     SUBMIT_RFP: `${API_PREFIX}/dashboard/submit-rfp`,
     VALIDATE_RFP: `${API_PREFIX}/validate-rfp`,
     VIEW_LOGS: `${API_PREFIX}/dashboard/view-logs`,

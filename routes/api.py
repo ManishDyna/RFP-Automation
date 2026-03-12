@@ -4,7 +4,7 @@ All routes are prefixed with /api
 """
 
 from fastapi import APIRouter, Request, HTTPException, Query, Depends
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from services.user_service import (
     authenticate_user, list_users, get_user, create_user, update_user, delete_user, get_user_by_email
 )
@@ -402,24 +402,11 @@ async def api_dashboard_data(request: Request, refresh: int = Query(0), user: di
     return JSONResponse(data)
 
 
-@router.get("/dashboard/rfp-details")
-async def api_rfp_details(
-    request: Request,
-    status: str = Query("downloaded"),
-    search: str = Query(""),
-    start_date: str = Query(""),
-    end_date: str = Query(""),
-    company: str = Query(""),
-    material_match: str = Query(""),  # New: "matched" or "not_matched"
-    keyword_match: str = Query(""),   # New: "matched" or "not_matched"
-    participation: str = Query(""),   # New: "participated", "not_participated", "declined"
-    limit: int = Query(50),           # New: Number of records per page
-    offset: int = Query(0),           # New: Starting position
-    refresh: int = Query(0),
-    user: dict = Depends(require_permission("rfp.view")),
-):
-    """Get RFP details as JSON with pagination and new filters"""
-
+def _get_filtered_rfp_rows(status="downloaded", search="", start_date="", end_date="",
+                           company="", material_match="", keyword_match="",
+                           participation="", refresh=0):
+    """Shared helper: load RFP data, normalize statuses, apply filters.
+    Returns (detailed_rows, filtered_rows)."""
     from datetime import datetime
 
     def _parse_date(s):
@@ -431,20 +418,17 @@ async def api_rfp_details(
         return None
 
     def _parse_end_datetime(date_str):
-        """Parse RFP end date string into a naive datetime, trying multiple formats."""
         if not date_str:
             return None
         s = str(date_str).strip()
         if not s:
             return None
-        # Try common formats
         for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S",
                      "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
             try:
                 return datetime.strptime(s[:len(fmt) + 5].split("+")[0].split("Z")[0].strip(), fmt)
             except (ValueError, TypeError):
                 continue
-        # Fallback: try dateutil parser
         try:
             from dateutil import parser as du_parser
             dt = du_parser.parse(s)
@@ -462,7 +446,6 @@ async def api_rfp_details(
         if value == "saved_draft":
             return "saved_draft"
         if value in ("", "no", "open", "not participated"):
-            # Check if end date is in the past - mark as not_participant
             end_dt = _parse_end_datetime(rfp_end_date_str)
             if end_dt and end_dt < datetime.now():
                 return "not_participant"
@@ -539,6 +522,32 @@ async def api_rfp_details(
         elif participation_lower == "declined":
             filtered_rows = [r for r in filtered_rows if r["status_key"] == "declined"]
 
+    return detailed_rows, filtered_rows
+
+
+@router.get("/dashboard/rfp-details")
+async def api_rfp_details(
+    request: Request,
+    status: str = Query("downloaded"),
+    search: str = Query(""),
+    start_date: str = Query(""),
+    end_date: str = Query(""),
+    company: str = Query(""),
+    material_match: str = Query(""),  # New: "matched" or "not_matched"
+    keyword_match: str = Query(""),   # New: "matched" or "not_matched"
+    participation: str = Query(""),   # New: "participated", "not_participated", "declined"
+    limit: int = Query(50),           # New: Number of records per page
+    offset: int = Query(0),           # New: Starting position
+    refresh: int = Query(0),
+    user: dict = Depends(require_permission("rfp.view")),
+):
+    """Get RFP details as JSON with pagination and new filters"""
+    detailed_rows, filtered_rows = _get_filtered_rfp_rows(
+        status=status, search=search, start_date=start_date, end_date=end_date,
+        company=company, material_match=material_match, keyword_match=keyword_match,
+        participation=participation, refresh=refresh,
+    )
+
     # Apply pagination
     total_filtered = len(filtered_rows)
     paginated_rows = filtered_rows[offset:offset + limit]
@@ -568,6 +577,120 @@ async def api_rfp_details(
         "has_more": offset + limit < total_filtered,
         "unique_companies": unique_companies
     })
+
+
+@router.get("/dashboard/rfp-details/export")
+async def api_rfp_details_export(
+    request: Request,
+    format: str = Query("csv"),
+    status: str = Query("downloaded"),
+    search: str = Query(""),
+    start_date: str = Query(""),
+    end_date: str = Query(""),
+    company: str = Query(""),
+    material_match: str = Query(""),
+    keyword_match: str = Query(""),
+    participation: str = Query(""),
+    refresh: int = Query(0),
+    user: dict = Depends(require_permission("rfp.view")),
+):
+    """Export filtered RFP data as CSV or Excel"""
+    import csv
+    import io
+
+    _, filtered_rows = _get_filtered_rfp_rows(
+        status=status, search=search, start_date=start_date, end_date=end_date,
+        company=company, material_match=material_match, keyword_match=keyword_match,
+        participation=participation, refresh=refresh,
+    )
+
+    # Define export columns
+    headers = ["RFP ID", "Company", "Owner", "Published", "Deadline",
+               "Status", "Participation", "Material Match", "Keyword Match", "Portal Link"]
+
+    def _participation_label(status_key):
+        return {"submitted": "Participated", "declined": "Declined",
+                "not_participant": "Not Participant", "open": "Open"}.get(status_key, status_key or "")
+
+    def _match_label(val):
+        return "Yes" if (val or "").lower() == "yes" else "No"
+
+    def _row_to_export(r):
+        return [
+            r.get("RFP_ID", ""),
+            r.get("Company_Name", ""),
+            r.get("Owner_Name", ""),
+            r.get("Publish_Time", ""),
+            r.get("RFP_End_Date", ""),
+            (r.get("status_key", "") or "").replace("_", " ").title(),
+            _participation_label(r.get("status_key", "")),
+            _match_label(r.get("Material_Matched", "")),
+            _match_label(r.get("Keyword_Matched", "")),
+            r.get("Link", ""),
+        ]
+
+    if format.lower() == "excel":
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "RFP Data"
+
+        # Style header row
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
+        thin_border = Border(
+            left=Side(style="thin", color="D1D5DB"),
+            right=Side(style="thin", color="D1D5DB"),
+            top=Side(style="thin", color="D1D5DB"),
+            bottom=Side(style="thin", color="D1D5DB"),
+        )
+
+        for col_idx, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = thin_border
+
+        for row_idx, row_data in enumerate(filtered_rows, 2):
+            for col_idx, value in enumerate(_row_to_export(row_data), 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.border = thin_border
+
+        # Auto-fit column widths
+        for col_idx, header in enumerate(headers, 1):
+            max_len = len(header)
+            for row_idx in range(2, len(filtered_rows) + 2):
+                val = str(ws.cell(row=row_idx, column=col_idx).value or "")
+                if len(val) > max_len:
+                    max_len = len(val)
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = min(max_len + 3, 50)
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=RFP_Data_Export.xlsx"},
+        )
+
+    # Default: CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(headers)
+    for row_data in filtered_rows:
+        writer.writerow(_row_to_export(row_data))
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=RFP_Data_Export.csv"},
+    )
 
 
 @router.get("/dashboard/material-insights")

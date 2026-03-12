@@ -1,8 +1,9 @@
 """
 Fix owner_name in Dataverse where values are incorrectly set to 'Yes' or 'No'.
 
-Reads the CSV file and updates owner_name in Dataverse for rows where
-the DB has 'Yes'/'No' but the CSV has a real owner name.
+For ALL companies (SEC, Aramco, Hadeed, etc.):
+  - If the CSV has a real owner name for the RFP → update DB with it
+  - If the RFP is NOT in the CSV → clear to blank (remove the bad 'Yes'/'No')
 
 Supports resume: tracks progress in a JSON file.
 
@@ -16,6 +17,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 
 import pandas as pd
@@ -46,6 +48,13 @@ def clean_str(val) -> str:
         return ""
     s = str(val).strip()
     return "" if s.lower() == "nan" else s
+
+
+def normalize_key(val: str) -> str:
+    """Normalize RFP_ID for matching: lowercase + collapse all whitespace.
+    e.g. 'SEC  RFP - C001482827' -> 'sec rfp - c001482827'
+    """
+    return re.sub(r"\s+", " ", val.strip().lower())
 
 
 def load_progress() -> set:
@@ -82,13 +91,13 @@ def fix_owners(file_path: str, dry_run: bool = False):
         csv_df = pd.read_csv(file_path, dtype=str)
     print(f"  Read {len(csv_df)} rows from {file_path}")
 
-    # Build CSV lookup: {rfp_id: owner}
+    # Build CSV lookup: {normalized_rfp_id: owner}
     csv_lookup = {}
     for _, row in csv_df.iterrows():
         rfp_id = clean_str(row.get("RFP_ID", ""))
         owner = clean_str(row.get("Owner", ""))
         if rfp_id and owner and owner not in BAD_VALUES:
-            csv_lookup[rfp_id] = owner
+            csv_lookup[normalize_key(rfp_id)] = owner
 
     print(f"  CSV entries with real owner names: {len(csv_lookup)}")
 
@@ -114,32 +123,34 @@ def fix_owners(file_path: str, dry_run: bool = False):
     pk_logical = f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"
     pk_display = logical_to_display.get(pk_logical, pk_logical)
 
-    # Find bad rows that are fixable
+    # Find ALL bad rows (Yes/No) — fix from CSV if available, otherwise clear to blank
     fixable = []
     for row in db_rows:
         rfp_id = row.get("RFP_ID", "")
         db_owner = str(row.get("owner_name", "") or "").strip()
         if db_owner not in BAD_VALUES:
             continue
-        csv_owner = csv_lookup.get(rfp_id, "")
-        if not csv_owner:
-            continue
+        csv_owner = csv_lookup.get(normalize_key(rfp_id), "")
         record_id = row.get(pk_display) or row.get(pk_logical)
         fixable.append({
             "rfp_id": rfp_id,
             "record_id": record_id,
             "old_owner": db_owner,
-            "new_owner": csv_owner,
+            "new_owner": csv_owner if csv_owner else "",  # real name from CSV or blank
         })
 
     # Load resume progress (track by record_id since multiple records per RFP)
     completed = load_progress() if not dry_run else set()
 
+    fix_from_csv = sum(1 for f in fixable if f["new_owner"])
+    fix_to_blank = sum(1 for f in fixable if not f["new_owner"])
+
     print(f"\n{'='*60}")
-    print(f"  FIX OWNER NAME (Yes/No -> Real Names)")
+    print(f"  FIX OWNER NAME (Yes/No -> Real Names or Blank)")
     print(f"{'='*60}")
-    print(f"  Total bad (Yes/No) in DB:     {sum(1 for r in db_rows if str(r.get('owner_name', '') or '').strip() in BAD_VALUES)}")
-    print(f"  Fixable records from CSV:     {len(fixable)}")
+    print(f"  Total bad (Yes/No) in DB:     {len(fixable)}")
+    print(f"  Will fix from CSV:            {fix_from_csv}")
+    print(f"  Will clear to blank:          {fix_to_blank}")
     print(f"  Already done (resume):        {len(completed)}")
     print(f"  Mode:                         {'DRY RUN' if dry_run else 'LIVE'}")
     print(f"{'='*60}\n")
@@ -157,7 +168,8 @@ def fix_owners(file_path: str, dry_run: bool = False):
             continue
 
         if dry_run:
-            print(f'  [DRY] {rfp_id[:55]}  "{item["old_owner"]}" -> "{item["new_owner"]}"')
+            new_display = item["new_owner"] if item["new_owner"] else "(blank)"
+            print(f'  [DRY] {rfp_id[:55]}  "{item["old_owner"]}" -> "{new_display}"')
             updated += 1
             continue
 
@@ -170,7 +182,8 @@ def fix_owners(file_path: str, dry_run: bool = False):
             )
             if success:
                 updated += 1
-                print(f'  [{updated}] {rfp_id[:55]}  "{item["old_owner"]}" -> "{item["new_owner"]}"')
+                new_display = item["new_owner"] if item["new_owner"] else "(blank)"
+                print(f'  [{updated}] {rfp_id[:55]}  "{item["old_owner"]}" -> "{new_display}"')
                 completed.add(record_id)
                 save_progress(completed)
             else:
@@ -183,7 +196,7 @@ def fix_owners(file_path: str, dry_run: bool = False):
     print(f"\n{'='*60}")
     print(f"  FIX COMPLETE {'(DRY RUN)' if dry_run else ''}")
     print(f"{'='*60}")
-    print(f"  Updated:          {updated}")
+    print(f"  Total fixed:      {updated}")
     print(f"  Skipped (resume): {skipped}")
     print(f"  Failed:           {failed}")
     print(f"{'='*60}\n")

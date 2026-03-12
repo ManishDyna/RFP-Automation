@@ -41,7 +41,11 @@
       "Bash(pip show:*)",
       "Bash(git ls-tree -r --name-only main)",
       "Bash(git ls-tree -r --name-only dev_main)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(\"/mnt/c/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd\" devops project list --query \"value[].name\" -o tsv)",
+      "Bash(\"/mnt/c/Program Files \\(x86\\)/Microsoft SDKs/Azure/CLI2/wbin/az.cmd\" devops project list --query \"value[].name\" -o tsv)",
+      "Bash(cmd.exe /c \"az devops project list --query \"\"value[].name\"\" -o tsv\")",
+      "mcp__ado__core_list_projects"
     ]
   }
 }

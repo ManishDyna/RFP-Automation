@@ -470,10 +470,12 @@ def rfp_team_member_exists(product: str, email: str, exclude_record_id: str = ""
         use_display_names=True,
     )
     rows = result.get("value", []) if isinstance(result, dict) else []
+    if not exclude_record_id:
+        return len(rows) > 0
     pk_logical = f"{RFP_TEAM_DV_TABLE_LOGICAL}id"
     for row in rows:
-        rid = row.get(pk_logical, "")
-        if rid != exclude_record_id:
+        rid = _extract_record_id(row, pk_logical)
+        if rid and rid != exclude_record_id:
             return True
     return False
 

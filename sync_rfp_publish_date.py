@@ -18,6 +18,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 
 import pandas as pd
@@ -49,6 +50,13 @@ PROGRESS_FILE = os.path.join(os.getcwd(), ".sync_rfp_progress.json")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def normalize_key(val: str) -> str:
+    """Normalize RFP_ID for matching: lowercase + collapse all whitespace.
+    e.g. 'SEC  RFP - C001482827' -> 'sec rfp - c001482827'
+    """
+    return re.sub(r"\s+", " ", val.strip().lower())
+
 
 def normalize_date(val) -> str:
     """Parse any date format and return consistent 'M/D/YYYY H:MM AM/PM' string in KSA time."""
@@ -148,7 +156,7 @@ def build_db_lookup(dataverse: DataverseClient) -> dict:
             continue
 
         record_id = row.get(pk_display) or row.get(pk_logical)
-        lookup[rfp_id] = {
+        lookup[normalize_key(rfp_id)] = {
             "record_id": record_id,
             DB_FIELD_PUBLISH: row.get(DB_FIELD_PUBLISH, "") or "",
             DB_FIELD_OWNER: row.get(DB_FIELD_OWNER, "") or "",
@@ -203,12 +211,14 @@ def sync_rfp_data(file_path: str, dry_run: bool = False):
         if not rfp_id:
             continue
 
+        rfp_key = normalize_key(rfp_id)
+
         # Resume: skip already completed
-        if rfp_id in completed:
+        if rfp_key in completed:
             skipped_already_done += 1
             continue
 
-        db_entry = db_lookup.get(rfp_id)
+        db_entry = db_lookup.get(rfp_key)
         if not db_entry:
             skipped_not_found += 1
             continue
@@ -235,7 +245,7 @@ def sync_rfp_data(file_path: str, dry_run: bool = False):
             skipped_no_change += 1
             # Mark as done even if no change needed (so resume skips it)
             if not dry_run:
-                completed.add(rfp_id)
+                completed.add(rfp_key)
                 save_progress(completed)
             continue
 
@@ -256,7 +266,7 @@ def sync_rfp_data(file_path: str, dry_run: bool = False):
                 updated += 1
                 changes = ", ".join(f"{k}: '{db_entry[k]}' -> '{v}'" for k, v in update_data.items())
                 print(f"  [{updated}] {rfp_id}: {changes}")
-                completed.add(rfp_id)
+                completed.add(rfp_key)
                 save_progress(completed)
             else:
                 failed += 1
