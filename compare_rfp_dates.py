@@ -10,11 +10,15 @@ Steps:
 
 Usage:
   python compare_rfp_dates.py
-  python compare_rfp_dates.py --file path/to/file.xls
+  python compare_rfp_dates.py --file path/to/file.csv
+  python compare_rfp_dates.py --file path/to/file.csv --update            # dry-run
+  python compare_rfp_dates.py --file path/to/file.csv --update --confirm  # actual update
 """
 
 import argparse
+import json
 import os
+import re
 import sys
 import logging
 from datetime import timedelta
@@ -37,6 +41,30 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DEFAULT_FILE = os.path.join(os.getcwd(), "ALLRFPs", "Portal-Rfps", "All-RFPs.xls")
+PROGRESS_FILE = os.path.join(os.getcwd(), "ALLRFPs", "Portal-Rfps", "update_progress.json")
+
+
+def load_progress() -> set:
+    """Load set of already-updated record IDs from progress file."""
+    if os.path.exists(PROGRESS_FILE):
+        with open(PROGRESS_FILE, "r") as f:
+            data = json.load(f)
+        logger.info(f"Resuming: {len(data)} records already updated (from {PROGRESS_FILE})")
+        return set(data)
+    return set()
+
+
+def save_progress(updated_ids: set):
+    """Save updated record IDs to progress file."""
+    with open(PROGRESS_FILE, "w") as f:
+        json.dump(list(updated_ids), f)
+
+
+def clear_progress():
+    """Remove progress file after successful completion."""
+    if os.path.exists(PROGRESS_FILE):
+        os.remove(PROGRESS_FILE)
+        logger.info("Progress file cleared — all updates complete.")
 
 
 def normalize_date(val) -> str:
@@ -46,11 +74,11 @@ def normalize_date(val) -> str:
     val = str(val).strip()
     try:
         if "-" in val and "/" not in val:
-            # Dash format: YYYY-DD-MM HH:MM:SS (day/month swapped by Excel)
+            # Dash format: MM-DD-YYYY HH:MM (24h) from portal export
             parts = val.split(" ", 1)
             date_part = parts[0]
-            time_part = parts[1] if len(parts) > 1 else "00:00:00"
-            y, d, m = date_part.split("-")
+            time_part = parts[1] if len(parts) > 1 else "00:00"
+            m, d, y = date_part.split("-")
             fixed = f"{y}-{m}-{d} {time_part}"
             dt = pd.to_datetime(fixed)
         else:
@@ -88,8 +116,13 @@ def dates_match(date_str_a: str, date_str_b: str) -> bool:
     return dt_a == dt_b
 
 
+GUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
 def fetch_db_dates(dataverse: DataverseClient) -> dict:
-    """Fetch all RFP_End_Date values from Dataverse. Returns {rfp_id: end_date_str}."""
+    """Fetch all RFP_End_Date values from Dataverse. Returns {rfp_id: [{"end_date": str, "record_id": str}, ...]}."""
     logger.info("Fetching RFP end dates from Dataverse...")
     rows = dataverse.get_all_rows(
         table_api_name=RFP_ACTIVITY_LOG_TABLE_API,
@@ -99,16 +132,32 @@ def fetch_db_dates(dataverse: DataverseClient) -> dict:
     )
     logger.info(f"Fetched {len(rows)} records from Dataverse")
 
+    # Log sample row keys for debugging
+    if rows:
+        logger.info(f"Sample row keys: {list(rows[0].keys())[:15]}")
+
     lookup = {}
     for row in rows:
         rfp_id = row.get("RFP_ID", "")
         if rfp_id:
-            lookup[rfp_id] = row.get("RFP_End_Date", "") or ""
+            # Find the primary key GUID value in the row
+            record_id = ""
+            for key, val in row.items():
+                if isinstance(val, str) and GUID_PATTERN.match(val) and key != "RFP_ID":
+                    record_id = val
+                    break
+            entry = {
+                "end_date": row.get("RFP_End_Date", "") or "",
+                "record_id": record_id,
+            }
+            if rfp_id not in lookup:
+                lookup[rfp_id] = []
+            lookup[rfp_id].append(entry)
     return lookup
 
 
-def run(file_path: str):
-    """Main logic: read Excel, normalize, fetch DB, compare, save."""
+def run(file_path: str, update: bool = False, confirm: bool = False):
+    """Main logic: read Excel, normalize, fetch DB, compare, save. Optionally update DB."""
     # --- Read Excel ---
     ext = os.path.splitext(file_path)[1].lower()
     if ext in (".xls", ".xlsx"):
@@ -133,8 +182,14 @@ def run(file_path: str):
     )
     db_lookup = fetch_db_dates(dataverse)
 
-    # Map DB dates into a column using Title → RFP_ID
-    df["db_end_date"] = df["Title"].apply(lambda t: db_lookup.get(str(t).strip(), ""))
+    # Map DB dates and record IDs into columns using Title → RFP_ID
+    # Use first record's end_date for comparison; store ALL record GUIDs for updates
+    df["db_end_date"] = df["Title"].apply(
+        lambda t: db_lookup.get(str(t).strip(), [{}])[0].get("end_date", "")
+    )
+    df["db_record_ids"] = df["Title"].apply(
+        lambda t: [r["record_id"] for r in db_lookup.get(str(t).strip(), []) if r.get("record_id")]
+    )
 
     # --- Step 3: Compare normalized_dates vs db_end_date → check_with_normalize_date ---
     df["check_with_normalize_date"] = df.apply(
@@ -183,6 +238,72 @@ def run(file_path: str):
     print(f"  Output: {output_file}")
     print(f"{'='*70}\n")
 
+    # --- Step 6 (optional): Update mismatched dates in Dataverse ---
+    if update:
+        mismatched = df[
+            (df["check_with_normalize_date"] == "not match") &
+            (df["db_record_ids"].apply(len) > 0) &
+            (df["normalized_dates"] != "")
+        ].copy()
+
+        if mismatched.empty:
+            print("No mismatched rows with valid DB records to update.")
+            return
+
+        total_records = mismatched["db_record_ids"].apply(len).sum()
+        print(f"\n{'='*70}")
+        print(f"  {'DRY-RUN: ' if not confirm else ''}Update {len(mismatched)} RFPs ({total_records} total DB records)")
+        print(f"{'='*70}")
+        print(f"  {'Title':<50} {'Records':<8} {'DB Date':<22} {'New Date':<22}")
+        print(f"  {'-'*50} {'-'*8} {'-'*22} {'-'*22}")
+        for _, row in mismatched.iterrows():
+            title = str(row["Title"])[:50]
+            num_records = len(row["db_record_ids"])
+            print(f"  {title:<50} {num_records:<8} {row['db_end_date']:<22} {row['normalized_dates']:<22}")
+        print(f"{'='*70}")
+
+        if not confirm:
+            print("\n  This is a DRY-RUN. No changes were made.")
+            print("  Add --confirm to actually update the database.\n")
+            return
+
+        # Actual update — update ALL duplicate records for each RFP
+        # Load progress to skip already-updated records (resume support)
+        already_updated = load_progress()
+        success_count = 0
+        skipped_count = 0
+        fail_count = 0
+        for _, row in mismatched.iterrows():
+            title = str(row["Title"]).strip()
+            new_date = row["normalized_dates"]
+            for record_id in row["db_record_ids"]:
+                if record_id in already_updated:
+                    skipped_count += 1
+                    continue
+                try:
+                    dataverse.update_row(
+                        table_api_name=RFP_ACTIVITY_LOG_TABLE_API,
+                        record_id=record_id,
+                        data={"RFP_End_Date": new_date},
+                        table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+                        use_display_names=True,
+                    )
+                    success_count += 1
+                    already_updated.add(record_id)
+                    save_progress(already_updated)
+                    logger.info(f"Updated [{success_count + skipped_count}/{total_records}]: {title} -> {new_date}")
+                except Exception as e:
+                    fail_count += 1
+                    logger.error(f"Failed to update {title} (record {record_id}): {e}")
+
+        if skipped_count:
+            print(f"\n  Skipped {skipped_count} already-updated records (resumed).")
+        print(f"  Update complete: {success_count} succeeded, {fail_count} failed.\n")
+
+        # Clear progress file if everything succeeded
+        if fail_count == 0:
+            clear_progress()
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -193,13 +314,25 @@ def main():
         default=DEFAULT_FILE,
         help=f"Path to ALL-RFPs file. Default: {DEFAULT_FILE}",
     )
+    parser.add_argument(
+        "--update", action="store_true",
+        help="Update mismatched RFP_End_Date values in Dataverse (dry-run by default)",
+    )
+    parser.add_argument(
+        "--confirm", action="store_true",
+        help="Actually apply updates to Dataverse (requires --update)",
+    )
     args = parser.parse_args()
+
+    if args.confirm and not args.update:
+        logger.error("--confirm requires --update")
+        sys.exit(1)
 
     if not os.path.exists(args.file):
         logger.error(f"File not found: {args.file}")
         sys.exit(1)
 
-    run(args.file)
+    run(args.file, update=args.update, confirm=args.confirm)
 
 
 if __name__ == "__main__":
