@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Dict, List
 
 from helpers.core_helper import DATAVERSE
-from config.config import SAP_PASSWORD_TABLE_API, SAP_PASSWORD_TABLE_LOGICAL, SAP_LOGS_TTL_SECONDS
+from services.system_settings_service import get_setting
 
 
 def create_sap_password_record(password: str, user_email: str, username: str | None = None) -> bool:
@@ -22,16 +22,16 @@ def create_sap_password_record(password: str, user_email: str, username: str | N
         "username": username or "",
     }
     return DATAVERSE.insert_row(
-        table_api_name=SAP_PASSWORD_TABLE_API,
+        table_api_name=get_setting('SAP_PASSWORD_TABLE_API', 'cr673_bahra_sap_infomations'),
         data=data,
-        table_logical_name=SAP_PASSWORD_TABLE_LOGICAL,
+        table_logical_name=get_setting('SAP_PASSWORD_TABLE_LOGICAL', 'cr673_bahra_sap_infomation'),
         use_display_names=True,
     )
 
 
 # ===== Short-lived cache for SAP password logs =====
 _SAP_LOGS_CACHE = {"data": None, "ts": 0, "top": None}
-_SAP_LOGS_TTL_SECONDS = SAP_LOGS_TTL_SECONDS
+_SAP_LOGS_TTL_SECONDS = get_setting('SAP_LOGS_TTL_SECONDS', 300)
 
 
 def invalidate_sap_password_cache():
@@ -44,10 +44,10 @@ def list_sap_password_records(top: int = 200) -> List[Dict]:
     """Fetch recent SAP password records using display names."""
     try:
         rows = DATAVERSE.get_rows_from_dataverse(
-            table_api_name=SAP_PASSWORD_TABLE_API,
+            table_api_name=get_setting('SAP_PASSWORD_TABLE_API', 'cr673_bahra_sap_infomations'),
             select_columns=["id", "username", "password", "created", "updated", "created_by", "updated_by"],
             top=top,
-            table_logical_name=SAP_PASSWORD_TABLE_LOGICAL,
+            table_logical_name=get_setting('SAP_PASSWORD_TABLE_LOGICAL', 'cr673_bahra_sap_infomation'),
             use_display_names=True,
         )
         return rows or []

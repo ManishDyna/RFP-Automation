@@ -36,7 +36,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Progress } from '@/components/ui/progress'
 import { MaterialBreakdownDialog } from '@/components/dialogs/material-breakdown-dialog'
 import { api } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, formatDateMDY } from '@/lib/utils'
 
 // Threshold for enabling virtualization (only virtualize when > this many rows)
 const VIRTUALIZATION_THRESHOLD = 50
@@ -207,8 +207,8 @@ function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeSta
         )}
       </TableCell>
       <TableCell className="text-slate-600 text-sm">{rfp.Owner_Name || '-'}</TableCell>
-      <TableCell className="text-slate-500 text-sm">{rfp.Publish_Time || '-'}</TableCell>
-      <TableCell className="text-slate-500 text-sm">{rfp.RFP_End_Date || '-'}</TableCell>
+      <TableCell className="text-slate-500 text-sm">{formatDateMDY(rfp.Publish_Time)}</TableCell>
+      <TableCell className="text-slate-500 text-sm">{formatDateMDY(rfp.RFP_End_Date)}</TableCell>
       <TableCell>
         {pct !== null ? (
           <div className="flex items-center gap-1.5">

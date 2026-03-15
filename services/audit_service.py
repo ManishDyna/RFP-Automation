@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, List
 
 from helpers.core_helper import DATAVERSE
-from config.config import AUDIT_LOG_TABLE_API, AUDIT_LOG_TABLE_LOGICAL
+from services.system_settings_service import get_setting
 
 
 # ==================== AUDIT EVENT CONSTANTS ====================
@@ -44,6 +44,8 @@ class AuditAction:
     ROLE_PERMISSIONS_UPDATED = "ROLE_PERMISSIONS_UPDATED"
     # System
     SEED_ROLES = "SEED_ROLES"
+    SETTING_UPDATED = "SETTING_UPDATED"
+    SETTING_REVEALED = "SETTING_REVEALED"
 
 
 # Display columns expected on the Dataverse table
@@ -91,9 +93,9 @@ def log_event(
     def _insert():
         try:
             DATAVERSE.insert_row(
-                table_api_name=AUDIT_LOG_TABLE_API,
+                table_api_name=get_setting('AUDIT_LOG_TABLE_API', 'cr673_bahra_audit_logses'),
                 data=row,
-                table_logical_name=AUDIT_LOG_TABLE_LOGICAL,
+                table_logical_name=get_setting('AUDIT_LOG_TABLE_LOGICAL', 'cr673_bahra_audit_logs'),
                 use_display_names=True,
             )
         except Exception as e:
@@ -107,7 +109,7 @@ def log_event(
 
 def _get_column_mapping():
     """Get and cache column mapping for audit log table."""
-    return DATAVERSE.get_column_mapping(AUDIT_LOG_TABLE_LOGICAL)
+    return DATAVERSE.get_column_mapping(get_setting('AUDIT_LOG_TABLE_LOGICAL', 'cr673_bahra_audit_logs'))
 
 
 def _build_filter_parts(filters: Optional[Dict[str, str]] = None) -> List[str]:
@@ -173,7 +175,7 @@ def list_audit_logs(
 
     # Get primary key attribute
     try:
-        meta_url = f"{DATAVERSE.api_url}EntityDefinitions(LogicalName='{AUDIT_LOG_TABLE_LOGICAL}')?$select=PrimaryIdAttribute"
+        meta_url = f"{DATAVERSE.api_url}EntityDefinitions(LogicalName='{get_setting('AUDIT_LOG_TABLE_LOGICAL', 'cr673_bahra_audit_logs')}')?$select=PrimaryIdAttribute"
         import requests as req
         resp = req.get(meta_url, headers=DATAVERSE._headers())
         primary_id_attr = resp.json().get("PrimaryIdAttribute", "")
@@ -189,13 +191,13 @@ def list_audit_logs(
     order_by = f"{created_logical} desc"
 
     result = DATAVERSE.query_rows(
-        table_api_name=AUDIT_LOG_TABLE_API,
+        table_api_name=get_setting('AUDIT_LOG_TABLE_API', 'cr673_bahra_audit_logses'),
         filter_expr=filter_expr,
         select=select_expr,
         top=top,
         skip=skip,
         order_by=order_by,
-        table_logical_name=AUDIT_LOG_TABLE_LOGICAL,
+        table_logical_name=get_setting('AUDIT_LOG_TABLE_LOGICAL', 'cr673_bahra_audit_logs'),
         use_display_names=False,  # We handle mapping ourselves
     )
 
@@ -238,9 +240,9 @@ def count_audit_logs(
 
     try:
         return DATAVERSE.count_rows(
-            table_api_name=AUDIT_LOG_TABLE_API,
+            table_api_name=get_setting('AUDIT_LOG_TABLE_API', 'cr673_bahra_audit_logses'),
             filter_expr=filter_expr,
-            table_logical_name=AUDIT_LOG_TABLE_LOGICAL,
+            table_logical_name=get_setting('AUDIT_LOG_TABLE_LOGICAL', 'cr673_bahra_audit_logs'),
             use_display_names=False,
         )
     except Exception as e:

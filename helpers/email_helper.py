@@ -14,10 +14,10 @@ def create_file_names_and_source_files(rfp_titles: list, company_name: str = Non
             - "SourceFiles": List of SharePoint paths like ["/Shared Documents/RFP-logs/ALLRFPs/CompanyName/SEC RFP-c001983/downloaded-rfp/SEC RFP-c001983.xls", ...]
     """
     from helpers.core_helper import clean_rfp_title, get_sharepoint_rfp_material_path
-    from config.config import COMPANY_NAME
+    from services.system_settings_service import get_setting
 
     # Use provided company_name or fallback to default
-    target_company = company_name or COMPANY_NAME
+    target_company = company_name or get_setting("COMPANY_NAME", "Saudi Electricity Company")
 
     file_names = []
     source_files = []
@@ -388,13 +388,13 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
 
 def _get_graph_mail_token():
     """Get a Graph API access token for sending mail via Mail.Send permission."""
-    from config.config import TENANT_ID, CLIENT_ID, CLIENT_SECRET
+    from services.system_settings_service import get_setting
     import msal
 
     app = msal.ConfidentialClientApplication(
-        CLIENT_ID,
-        authority=f"https://login.microsoftonline.com/{TENANT_ID}",
-        client_credential=CLIENT_SECRET,
+        get_setting("CLIENT_ID", ""),
+        authority=f"https://login.microsoftonline.com/{get_setting('TENANT_ID', '')}",
+        client_credential=get_setting("CLIENT_SECRET", ""),
     )
     result = app.acquire_token_for_client(["https://graph.microsoft.com/.default"])
     if "access_token" not in result:
@@ -436,19 +436,19 @@ def send_actionable_rfp_emails(
     from email.mime.base import MIMEBase
     from email import encoders as email_encoders
     from helpers.core_helper import clean_rfp_title
-    from config.config import (
-        SP_BASE_FOLDER,
-        ACTIONABLE_CARD_ORIGINATOR_ID, ACTIONABLE_CARD_CALLBACK_URL,
-        EMAIL_TO_NEW_RFP,
-    )
+    from services.system_settings_service import get_setting
+    _sp_base = get_setting("SP_BASE_FOLDER", "RFP-logs")
+    _originator_id = get_setting("ACTIONABLE_CARD_ORIGINATOR_ID", "")
+    _callback_url = get_setting("ACTIONABLE_CARD_CALLBACK_URL", "")
+    _email_to_new_rfp = get_setting("EMAIL_TO_NEW_RFP", "")
     from services.master_data_service import get_all_rfp_team_for_emails
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
 
     # Include EMAIL_TO_NEW_RFP config recipient if not already in team table
     team_emails_lower = {m.get("email", "").lower() for m in RFP_TEAM_TABLE if m.get("email")}
-    if EMAIL_TO_NEW_RFP and EMAIL_TO_NEW_RFP.lower() not in team_emails_lower:
+    if _email_to_new_rfp and _email_to_new_rfp.lower() not in team_emails_lower:
         RFP_TEAM_TABLE = RFP_TEAM_TABLE + [
-            {"product": "All", "name": EMAIL_TO_NEW_RFP.split("@")[0].replace(".", " ").title(), "email": EMAIL_TO_NEW_RFP}
+            {"product": "All", "name": _email_to_new_rfp.split("@")[0].replace(".", " ").title(), "email": _email_to_new_rfp}
         ]
     from core.log_events import log_rfp_activity
 
@@ -465,7 +465,7 @@ def send_actionable_rfp_emails(
         sp_file_names.append(matched_file_name)
         clean_title = clean_rfp_title(rfp_id)
         sp_source_files.append(
-            f"/Shared Documents/{SP_BASE_FOLDER}/ALLRFPs/{company_name}/{clean_title}/{matched_file_name}"
+            f"/Shared Documents/{_sp_base}/ALLRFPs/{company_name}/{clean_title}/{matched_file_name}"
         )
 
     # Download attachment files from SharePoint (or local)
@@ -525,8 +525,8 @@ def send_actionable_rfp_emails(
             email=person_email,
             due_date=rfp_end_date,
             company_name=company_name,
-            callback_url=ACTIONABLE_CARD_CALLBACK_URL,
-            originator_id=ACTIONABLE_CARD_ORIGINATOR_ID,
+            callback_url=_callback_url,
+            originator_id=_originator_id,
             matched_line=matched_line,
         )
 
@@ -612,13 +612,18 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     from email import encoders as email_encoders
     from helpers.core_helper import clean_rfp_title
     from helpers.sharepoint_helper import GraphClient
-    from config.config import (
-        EMAIL_TO_NEW_RFP, SP_BASE_FOLDER,
-        ACTIONABLE_CARD_ORIGINATOR_ID, ACTIONABLE_CARD_CALLBACK_URL,
-        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME,
-        DECLINE_BUTTON_EMAILS,
-    )
+    from services.system_settings_service import get_setting
+    _email_to_new_rfp = get_setting("EMAIL_TO_NEW_RFP", "")
+    _sp_base = get_setting("SP_BASE_FOLDER", "RFP-logs")
+    _originator_id = get_setting("ACTIONABLE_CARD_ORIGINATOR_ID", "")
+    _callback_url = get_setting("ACTIONABLE_CARD_CALLBACK_URL", "")
+    _client_id = get_setting("CLIENT_ID", "")
+    _client_secret = get_setting("CLIENT_SECRET", "")
+    _tenant_id = get_setting("TENANT_ID", "")
+    _sp_hostname = get_setting("SHAREPOINT_HOSTNAME", "bahracables.sharepoint.com")
+    _site_path = get_setting("SITE_PATH", "/sites/LiveSite/RFPAutomation")
+    _drive_name = get_setting("DRIVE_NAME", "Documents")
+    _decline_emails = get_setting("DECLINE_BUTTON_EMAILS", [])
     from services.master_data_service import get_all_rfp_team_for_emails
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
 
@@ -627,8 +632,8 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
 
     # --- Download RFP file + matched CSV from SharePoint ---
     graph_client = GraphClient(
-        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME,
+        _client_id, _client_secret, _tenant_id,
+        _sp_hostname, _site_path, _drive_name,
     )
     graph_client.auth()
 
@@ -639,7 +644,7 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     # Also try to find matched materials CSV on SharePoint
     clean_title = clean_rfp_title(rfp_id)
     matched_csv_name = f"matched_materials_{clean_title}.csv"
-    matched_csv_sp = f"{SP_BASE_FOLDER}/ALLRFPs/{company_name}/{clean_title}/{matched_csv_name}"
+    matched_csv_sp = f"{_sp_base}/ALLRFPs/{company_name}/{clean_title}/{matched_csv_name}"
     sp_file_names.append(matched_csv_name)
     sp_source_files.append(f"/Shared Documents/{matched_csv_sp}")
 
@@ -722,7 +727,7 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     ]
 
     # Decline button URL (same origin as callback)
-    decline_url = ACTIONABLE_CARD_CALLBACK_URL.rsplit("/response", 1)[0] + "/decline"
+    decline_url = _callback_url.rsplit("/response", 1)[0] + "/decline"
 
     body_items = [
         {"type": "TextBlock", "text": "Dear Team,", "wrap": True, "size": "Small"},
@@ -752,11 +757,11 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     }
 
     # Normalise allowed emails to lowercase for comparison
-    allowed_decline = {e.strip().lower() for e in DECLINE_BUTTON_EMAILS}
+    allowed_decline = {e.strip().lower() for e in (_decline_emails if isinstance(_decline_emails, list) else [])}
 
     # --- Collect all recipient emails ---
     all_emails = set()
-    all_emails.add(EMAIL_TO_NEW_RFP)
+    all_emails.add(_email_to_new_rfp)
     for member in RFP_TEAM_TABLE:
         if member.get("email"):
             all_emails.add(member["email"])
@@ -768,7 +773,7 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
         # Build card: include Decline button only for allowed emails
         show_decline = recipient_email.strip().lower() in allowed_decline
         card = {
-            "originator": ACTIONABLE_CARD_ORIGINATOR_ID,
+            "originator": _originator_id,
             "type": "AdaptiveCard",
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
             "version": "1.0",
@@ -846,16 +851,18 @@ def send_per_rfp_email(
     instead of 1 shared email.
     """
     from helpers.core_helper import clean_rfp_title, get_sharepoint_rfp_material_path
-    from config.config import (
-        EMAIL_TO_NEW_RFP, FLOW_URL, SP_BASE_FOLDER,
-        ACTIONABLE_CARD_ORIGINATOR_ID, ACTIONABLE_CARD_CALLBACK_URL,
-    )
+    from services.system_settings_service import get_setting
+    _email_to_new_rfp = get_setting("EMAIL_TO_NEW_RFP", "")
+    _flow_url = get_setting("FLOW_URL", "")
+    _sp_base = get_setting("SP_BASE_FOLDER", "RFP-logs")
+    _originator_id = get_setting("ACTIONABLE_CARD_ORIGINATOR_ID", "")
+    _callback_url = get_setting("ACTIONABLE_CARD_CALLBACK_URL", "")
     from services.master_data_service import get_all_rfp_team_for_emails
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
     from core.log_events import log_rfp_activity
 
     # === Use Adaptive Card emails if configured ===
-    if ACTIONABLE_CARD_ORIGINATOR_ID and ACTIONABLE_CARD_CALLBACK_URL:
+    if _originator_id and _callback_url:
         return send_actionable_rfp_emails(
             rfp_id=rfp_id,
             company_name=company_name,
@@ -908,9 +915,9 @@ def send_per_rfp_email(
         material_file_name = matched_file_name
         file_names.append(matched_file_name)
         clean_title = clean_rfp_title(rfp_id)
-        source_files.append(f"/Shared Documents/{SP_BASE_FOLDER}/ALLRFPs/{company_name}/{clean_title}/{matched_file_name}")
+        source_files.append(f"/Shared Documents/{_sp_base}/ALLRFPs/{company_name}/{clean_title}/{matched_file_name}")
 
-    email_to = EMAIL_TO_NEW_RFP
+    email_to = _email_to_new_rfp
 
     payload = {
         "files": {
@@ -926,7 +933,7 @@ def send_per_rfp_email(
     }
 
     # === Send request to Power Automate ===
-    response = requests.post(FLOW_URL, headers={"Content-Type": "application/json"}, data=json.dumps(payload))
+    response = requests.post(_flow_url, headers={"Content-Type": "application/json"}, data=json.dumps(payload))
 
     if response.status_code in [200, 202]:
         print(f"✅ Per-RFP email sent for: {rfp_id}")
@@ -965,6 +972,20 @@ def trigger_email(
       - Reminder emails
       - Failure fallback
     """
+    from services.system_settings_service import get_setting
+    _flow_url = get_setting("FLOW_URL", "")
+    _sp_base = get_setting("SP_BASE_FOLDER", "RFP-logs")
+    _email_to_new_rfp = get_setting("EMAIL_TO_NEW_RFP", "")
+    _email_to_new_rfp_no_match = get_setting("EMAIL_TO_NEW_RFP_NO_MATCH", "")
+    _email_to_new_rfp_with_match = get_setting("EMAIL_TO_NEW_RFP_WITH_MATCH", "")
+    _email_to_rfp_reminder = get_setting("EMAIL_TO_RFP_REMINDER", "")
+    _email_to_rfp_saved_draft = get_setting("EMAIL_TO_RFP_SAVED_DRAFT", "")
+    _email_to_rfp_error_in_submission = get_setting("EMAIL_TO_RFP_ERROR_IN_SUBMISSION", "")
+    _email_to_rfp_declined = get_setting("EMAIL_TO_RFP_DECLINED", "")
+    _email_to_rfp_error_in_decline = get_setting("EMAIL_TO_RFP_ERROR_IN_DECLINE", "")
+    _email_to_no_new_rfp = get_setting("EMAIL_TO_NO_NEW_RFP", "")
+    _email_to_automation_failure = get_setting("EMAIL_TO_AUTOMATION_FAILURE", "")
+
     not_mateched_files = not_mateched_files or []
     attachments = attachments or []
 
@@ -1033,14 +1054,14 @@ def trigger_email(
             # Include the matched materials CSV itself in the attachment list
             # so Power Automate can find it in SharePoint and attach it to the email
             file_names.append(material_file_name)
-            source_files.append(f"/Shared Documents/{SP_BASE_FOLDER}/ALLRFPs/{material_file_name}")
+            source_files.append(f"/Shared Documents/{_sp_base}/ALLRFPs/{material_file_name}")
         else:
             # Nothing to send
             return rfp_titles
 
     # === New RFP found but no material match — attach the RFP file(s) ===
     elif csv_file == "not_matched_data":
-        unique_emails = [EMAIL_TO_NEW_RFP_NO_MATCH]
+        unique_emails = [_email_to_new_rfp_no_match]
         rfp_titles = [Path(f).stem for f in not_mateched_files]
         auto_subject, auto_body = _build_rfp_notification_html(rfp_titles, rfp_end_dates)
         if not subject:
@@ -1050,11 +1071,11 @@ def trigger_email(
         file_data = create_file_names_and_source_files(rfp_titles, company_name)
         file_names = file_data["FileNames"]
         source_files = file_data["SourceFiles"]
-        email_to = EMAIL_TO_NEW_RFP_NO_MATCH
+        email_to = _email_to_new_rfp_no_match
 
     # === Reminder emails ===
     elif email_flag == "reminder":
-        email_to = EMAIL_TO_RFP_REMINDER
+        email_to = _email_to_rfp_reminder
 
     # elif email_flag == "rfp_submitted":
     #     subject=f"RFP {rfp_id} Processed Successfully"
@@ -1095,7 +1116,7 @@ def trigger_email(
         <p>Best Regards,<br>Automation System</p>
         """
         
-        email_to = EMAIL_TO_RFP_SAVED_DRAFT
+        email_to = _email_to_rfp_saved_draft
 
     elif email_flag == "error_in_rfp_submission":
         subject = subject or f"RFP {rfp_id} Processing Failed"
@@ -1106,7 +1127,7 @@ def trigger_email(
             <p>Please check the automation logs for details.</p>
             <p>Best Regards,<br>Automation System</p>
             """
-        email_to = EMAIL_TO_RFP_ERROR_IN_SUBMISSION
+        email_to = _email_to_rfp_error_in_submission
     
     elif email_flag == "rfp_decline":
         subject=f"RFP {rfp_id} Decline Successfully"
@@ -1115,7 +1136,7 @@ def trigger_email(
         <p>The RFP with ID <b>{rfp_id}</b> has been successfully Decline and all automation steps completed.</p>
         <p>Best Regards,<br>Automation System</p>
         """
-        email_to = EMAIL_TO_RFP_DECLINED
+        email_to = _email_to_rfp_declined
 
     elif email_flag == "error_in_rfp_decline":
         subject = subject or f"RFP {rfp_id} Decline Failed"
@@ -1126,7 +1147,7 @@ def trigger_email(
             <p>Please check the automation logs for details.</p>
             <p>Best Regards,<br>Automation System</p>
             """
-        email_to = EMAIL_TO_RFP_ERROR_IN_DECLINE
+        email_to = _email_to_rfp_error_in_decline
 
     # === CASE 1: New RFP found (matched or not) — reference format email ===
     elif email_flag == "new_rfp_found":
@@ -1139,11 +1160,11 @@ def trigger_email(
         file_data = create_file_names_and_source_files(rfp_titles, company_name)
         file_names = file_data["FileNames"]
         source_files = file_data["SourceFiles"]
-        email_to = EMAIL_TO_NEW_RFP
+        email_to = _email_to_new_rfp
 
     # === CASE 2: No new RFP found on portal ===
     elif email_flag == "no_new_rfp":
-        email_to = EMAIL_TO_NO_NEW_RFP
+        email_to = _email_to_no_new_rfp
 
     # === New RFP found with matched materials — send RFP file to a separate recipient ===
     elif email_flag == "new_rfp_with_match":
@@ -1156,7 +1177,7 @@ def trigger_email(
         file_data = create_file_names_and_source_files(rfp_titles, company_name)
         file_names = file_data["FileNames"]
         source_files = file_data["SourceFiles"]
-        email_to = EMAIL_TO_NEW_RFP_WITH_MATCH
+        email_to = _email_to_new_rfp_with_match
 
     elif email_flag == "automation_failure":
         if not subject:
@@ -1167,7 +1188,7 @@ def trigger_email(
             <p>The automation encountered an unexpected error. Please review the attached log for details.</p>
             <p>Best Regards,<br>Automation System</p>
             """
-        email_to = EMAIL_TO_AUTOMATION_FAILURE
+        email_to = _email_to_automation_failure
 
     # === Failure fallback ===
     else:
@@ -1179,7 +1200,7 @@ def trigger_email(
             <p>The scheduled automation <b>did not complete successfully</b>. Our team has been notified.</p>
             <p>Best Regards,<br>Automation System</p>
             """
-        email_to = EMAIL_TO_AUTOMATION_FAILURE
+        email_to = _email_to_automation_failure
 
     for attachment in attachments:
         name = (attachment or {}).get("name")
@@ -1202,7 +1223,7 @@ def trigger_email(
     }
 
     # === Send request to Power Automate ===
-    response = requests.post(FLOW_URL, headers={"Content-Type": "application/json"}, data=json.dumps(payload))
+    response = requests.post(_flow_url, headers={"Content-Type": "application/json"}, data=json.dumps(payload))
 
     if response.status_code in [200, 202]:
         print(f"✅ Email sent: {subject}")

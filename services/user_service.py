@@ -8,7 +8,7 @@ from datetime import datetime
 import requests
 
 from helpers.core_helper import DATAVERSE
-from config.config import USERS_TABLE_API, USERS_TABLE_LOGICAL
+from services.system_settings_service import get_setting
 
 # Display column names used for user management
 DISPLAY_COLUMNS = [
@@ -32,7 +32,7 @@ def _get_primary_id_attribute(table_logical_name: str) -> str:
 
 def _get_column_map() -> Dict[str, str]:
     """Returns display_name -> logical_name mapping for the users table."""
-    return DATAVERSE.get_column_mapping(USERS_TABLE_LOGICAL)
+    return DATAVERSE.get_column_mapping(get_setting('USERS_TABLE_LOGICAL', 'cr673_bahra_users'))
 
 
 def _build_filter_expr(filters: Optional[Dict[str, str]]) -> Optional[str]:
@@ -81,15 +81,15 @@ def list_users(
 ) -> List[Dict]:
     """List users from Dataverse."""
     select_display_columns = select_display_columns or DISPLAY_COLUMNS
-    primary_id_attr = _get_primary_id_attribute(USERS_TABLE_LOGICAL)
+    primary_id_attr = _get_primary_id_attribute(get_setting('USERS_TABLE_LOGICAL', 'cr673_bahra_users'))
     filter_expr = _build_filter_expr(filters)
 
     result = DATAVERSE.query_rows(
-        table_api_name=USERS_TABLE_API,
+        table_api_name=get_setting('USERS_TABLE_API', 'cr673_bahra_userses'),
         filter_expr=filter_expr,
         select=None,
         top=top,
-        table_logical_name=USERS_TABLE_LOGICAL,
+        table_logical_name=get_setting('USERS_TABLE_LOGICAL', 'cr673_bahra_users'),
         use_display_names=False
     )
     rows = result.get("value", [])
@@ -111,14 +111,14 @@ def list_users(
 
 def get_user(record_id: str) -> Optional[Dict]:
     """Fetch single user by Dataverse GUID (record_id)."""
-    primary_id_attr = _get_primary_id_attribute(USERS_TABLE_LOGICAL)
+    primary_id_attr = _get_primary_id_attribute(get_setting('USERS_TABLE_LOGICAL', 'cr673_bahra_users'))
     filter_expr = f"{primary_id_attr} eq {record_id}"
     result = DATAVERSE.query_rows(
-        table_api_name=USERS_TABLE_API,
+        table_api_name=get_setting('USERS_TABLE_API', 'cr673_bahra_userses'),
         filter_expr=filter_expr,
         select=None,
         top=1,
-        table_logical_name=USERS_TABLE_LOGICAL,
+        table_logical_name=get_setting('USERS_TABLE_LOGICAL', 'cr673_bahra_users'),
         use_display_names=False
     )
     rows = result.get("value", [])
@@ -140,9 +140,9 @@ def create_user(payload: Dict) -> bool:
             data[field] = str(data[field])
 
     return DATAVERSE.insert_row(
-        table_api_name=USERS_TABLE_API,
+        table_api_name=get_setting('USERS_TABLE_API', 'cr673_bahra_userses'),
         data=data,
-        table_logical_name=USERS_TABLE_LOGICAL,
+        table_logical_name=get_setting('USERS_TABLE_LOGICAL', 'cr673_bahra_users'),
         use_display_names=True
     )
 
@@ -157,10 +157,10 @@ def update_user(record_id: str, updates: Dict) -> bool:
             data[field] = str(data[field])
 
     return DATAVERSE.update_row(
-        table_api_name=USERS_TABLE_API,
+        table_api_name=get_setting('USERS_TABLE_API', 'cr673_bahra_userses'),
         record_id=record_id,
         data=data,
-        table_logical_name=USERS_TABLE_LOGICAL,
+        table_logical_name=get_setting('USERS_TABLE_LOGICAL', 'cr673_bahra_users'),
         use_display_names=True
     )
 
@@ -176,7 +176,7 @@ def get_user_by_email(email: str) -> Optional[List[Dict]]:
 
 def delete_user(record_id: str) -> bool:
     """Delete a user by Dataverse GUID (record_id)."""
-    url = f"{DATAVERSE.api_url}{USERS_TABLE_API}({record_id})"
+    url = f"{DATAVERSE.api_url}{get_setting('USERS_TABLE_API', 'cr673_bahra_userses')}({record_id})"
     resp = requests.delete(url, headers=DATAVERSE._headers())
     if resp.status_code in (200, 204):
         return True

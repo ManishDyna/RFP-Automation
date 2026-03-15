@@ -8,18 +8,12 @@ from helpers.core_helper import DATAVERSE, get_rfp_activity_data_from_db
 from fastapi import HTTPException
 from datetime import datetime, timedelta
 import time
-from config.config import (
-    DASHBOARD_TTL_SECONDS,
-    LOGS_TTL_SECONDS,
-    AUTOMATION_LOG_TABLE_API,
-    AUTOMATION_LOG_TABLE_LOGICAL,
-    URL,
-)
+from services.system_settings_service import get_setting
 
 # ===== DASHBOARD DATA CACHE (TTL) =====
 import threading
 _DASHBOARD_CACHE = {"data": None, "ts": 0}
-_DASHBOARD_TTL_SECONDS = DASHBOARD_TTL_SECONDS
+_DASHBOARD_TTL_SECONDS = get_setting('DASHBOARD_TTL_SECONDS', 300)
 _DASHBOARD_CACHE_LOCK = threading.Lock()
 
 
@@ -88,11 +82,11 @@ def _automation_fetch_from_dataverse(top=200):
     try:
         select_cols = ["RunID", "Timestamp", "Category", "RFP_ID", "Action", "automation_status", "Message"]
         rows = DATAVERSE.get_rows_from_dataverse(
-            table_api_name=AUTOMATION_LOG_TABLE_API,
+            table_api_name=get_setting('AUTOMATION_LOG_TABLE_API', 'cr673_bahra_automation_log1s'),
             select_columns=select_cols,
             top=top,
             order_by="Timestamp desc",
-            table_logical_name=AUTOMATION_LOG_TABLE_LOGICAL,
+            table_logical_name=get_setting('AUTOMATION_LOG_TABLE_LOGICAL', 'cr673_bahra_automation_log1'),
             use_display_names=True
         )
         return rows
@@ -220,7 +214,7 @@ def get_dashboard_data():
                     if pd.notna(end_dt) and end_dt >= now_dt:
                         rfp_link = row.get("Link", "") or row.get("link", "")
                         if not rfp_link:
-                            rfp_link = URL
+                            rfp_link = get_setting('URL', 'https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&dard=1#b0')
 
                         company_name = row.get("Company_Name", "") or "Saudi Electricity Company"
 
@@ -394,7 +388,7 @@ def get_all_rfp_data():
 
                     rfp_link = row.get("Link", "") or row.get("link", "")
                     if not rfp_link:
-                        rfp_link = URL
+                        rfp_link = get_setting('URL', 'https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&dard=1#b0')
 
                     # Use Material_Matched / Keyword_Matched directly from Dataverse
                     material_matched_raw = str(row.get("Material_Matched", "") or "").strip()
@@ -443,7 +437,7 @@ def get_all_rfp_data():
 
 # ===== ALL RFP DATA CACHE (TTL) =====
 _ALL_RFP_CACHE = {"data": None, "ts": 0}
-_ALL_RFP_TTL_SECONDS = DASHBOARD_TTL_SECONDS
+_ALL_RFP_TTL_SECONDS = get_setting('DASHBOARD_TTL_SECONDS', 300)
 
 
 def get_all_rfp_data_cached(force_refresh: bool = False):
@@ -590,7 +584,7 @@ def get_material_insights_data():
 
 # ===== MATERIAL INSIGHTS CACHE =====
 _MATERIAL_CACHE = {"data": None, "ts": 0}
-_MATERIAL_TTL_SECONDS = DASHBOARD_TTL_SECONDS
+_MATERIAL_TTL_SECONDS = get_setting('DASHBOARD_TTL_SECONDS', 300)
 
 
 def get_material_insights_cached(force_refresh: bool = False):
@@ -930,7 +924,7 @@ def get_logs_data(top: int = 5000):
 
 # Short-lived cache for logs page
 _LOGS_CACHE = {"data": None, "ts": 0, "top": None}
-_LOGS_TTL_SECONDS = LOGS_TTL_SECONDS
+_LOGS_TTL_SECONDS = get_setting('LOGS_TTL_SECONDS', 300)
 
 
 def get_logs_data_cached(force_refresh: bool = False, top: int = 5000):

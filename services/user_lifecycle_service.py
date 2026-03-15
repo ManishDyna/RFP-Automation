@@ -9,22 +9,13 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict
 
 from helpers.core_helper import DATAVERSE
-from config.config import (
-    USER_STATUS_TABLE_API,
-    USER_STATUS_TABLE_LOGICAL,
-    ACCOUNT_LOCKOUT_THRESHOLD,
-    ACCOUNT_LOCKOUT_DURATION_MINUTES,
-    PASSWORD_MIN_LENGTH,
-    PASSWORD_REQUIRE_UPPERCASE,
-    PASSWORD_REQUIRE_NUMBER,
-    PASSWORD_MAX_AGE_DAYS,
-)
+from services.system_settings_service import get_setting
 
 
 # ==================== HELPERS ====================
 
 def _get_column_mapping():
-    return DATAVERSE.get_column_mapping(USER_STATUS_TABLE_LOGICAL)
+    return DATAVERSE.get_column_mapping(get_setting('USER_STATUS_TABLE_LOGICAL', 'cr673_bahra_user_status'))
 
 
 def _build_user_filter(user_id: str) -> str:
@@ -57,10 +48,10 @@ def get_user_status(user_id: str) -> Optional[Dict]:
     """
     filter_expr = _build_user_filter(user_id)
     result = DATAVERSE.query_rows(
-        table_api_name=USER_STATUS_TABLE_API,
+        table_api_name=get_setting('USER_STATUS_TABLE_API', 'cr673_bahra_user_statuses'),
         filter_expr=filter_expr,
         top=1,
-        table_logical_name=USER_STATUS_TABLE_LOGICAL,
+        table_logical_name=get_setting('USER_STATUS_TABLE_LOGICAL', 'cr673_bahra_user_status'),
         use_display_names=True,
     )
     rows = result.get("value", []) if isinstance(result, dict) else []
@@ -89,9 +80,9 @@ def get_or_create_user_status(user_id: str) -> Dict:
         "update_date": _now_iso(),
     }
     DATAVERSE.insert_row(
-        table_api_name=USER_STATUS_TABLE_API,
+        table_api_name=get_setting('USER_STATUS_TABLE_API', 'cr673_bahra_user_statuses'),
         data=data,
-        table_logical_name=USER_STATUS_TABLE_LOGICAL,
+        table_logical_name=get_setting('USER_STATUS_TABLE_LOGICAL', 'cr673_bahra_user_status'),
         use_display_names=True,
     )
     # Re-fetch to get record_id
@@ -106,17 +97,17 @@ def _get_status_record_id(user_id: str) -> Optional[str]:
 
     # Get primary key attribute
     try:
-        meta_url = f"{DATAVERSE.api_url}EntityDefinitions(LogicalName='{USER_STATUS_TABLE_LOGICAL}')?$select=PrimaryIdAttribute"
+        meta_url = f"{DATAVERSE.api_url}EntityDefinitions(LogicalName='{get_setting('USER_STATUS_TABLE_LOGICAL', 'cr673_bahra_user_status')}')?$select=PrimaryIdAttribute"
         resp = requests.get(meta_url, headers=DATAVERSE._headers())
         primary_id_attr = resp.json().get("PrimaryIdAttribute", "")
     except Exception:
         primary_id_attr = ""
 
     result = DATAVERSE.query_rows(
-        table_api_name=USER_STATUS_TABLE_API,
+        table_api_name=get_setting('USER_STATUS_TABLE_API', 'cr673_bahra_user_statuses'),
         filter_expr=filter_expr,
         top=1,
-        table_logical_name=USER_STATUS_TABLE_LOGICAL,
+        table_logical_name=get_setting('USER_STATUS_TABLE_LOGICAL', 'cr673_bahra_user_status'),
         use_display_names=False,
     )
     rows = result.get("value", []) if isinstance(result, dict) else []
@@ -137,10 +128,10 @@ def _update_status_field(user_id: str, updates: Dict) -> bool:
 
     updates["update_date"] = _now_iso()
     return DATAVERSE.update_row(
-        table_api_name=USER_STATUS_TABLE_API,
+        table_api_name=get_setting('USER_STATUS_TABLE_API', 'cr673_bahra_user_statuses'),
         record_id=record_id,
         data=updates,
-        table_logical_name=USER_STATUS_TABLE_LOGICAL,
+        table_logical_name=get_setting('USER_STATUS_TABLE_LOGICAL', 'cr673_bahra_user_status'),
         use_display_names=True,
     )
 
@@ -163,12 +154,12 @@ def record_failed_login(user_id: str) -> bool:
 
     updates = {"failed_attempts": str(new_attempts)}
 
-    if new_attempts >= ACCOUNT_LOCKOUT_THRESHOLD:
-        lock_until = datetime.now(timezone.utc) + timedelta(minutes=ACCOUNT_LOCKOUT_DURATION_MINUTES)
+    if new_attempts >= get_setting('ACCOUNT_LOCKOUT_THRESHOLD', 5):
+        lock_until = datetime.now(timezone.utc) + timedelta(minutes=get_setting('ACCOUNT_LOCKOUT_DURATION_MINUTES', 30))
         updates["locked_until"] = lock_until.isoformat()
 
     _update_status_field(user_id, updates)
-    return new_attempts >= ACCOUNT_LOCKOUT_THRESHOLD
+    return new_attempts >= get_setting('ACCOUNT_LOCKOUT_THRESHOLD', 5)
 
 
 def clear_failed_attempts(user_id: str) -> bool:
@@ -251,7 +242,7 @@ def check_password_expiry(user_id: str) -> tuple:
     Check if user's password has expired.
     Returns (is_expired: bool, days_since_change: int).
     """
-    if PASSWORD_MAX_AGE_DAYS <= 0:
+    if get_setting('PASSWORD_MAX_AGE_DAYS', 90) <= 0:
         return False, 0
 
     status = get_user_status(user_id)
@@ -266,7 +257,7 @@ def check_password_expiry(user_id: str) -> tuple:
         changed_time = datetime.fromisoformat(changed_at.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
         days_since = (now - changed_time).days
-        return days_since >= PASSWORD_MAX_AGE_DAYS, days_since
+        return days_since >= get_setting('PASSWORD_MAX_AGE_DAYS', 90), days_since
     except (ValueError, TypeError):
         return False, 0
 
@@ -281,13 +272,13 @@ def validate_password_strength(password: str) -> tuple:
     Validate password against configured policies.
     Returns (is_valid: bool, error_message: str).
     """
-    if len(password) < PASSWORD_MIN_LENGTH:
-        return False, f"Password must be at least {PASSWORD_MIN_LENGTH} characters long"
+    if len(password) < get_setting('PASSWORD_MIN_LENGTH', 8):
+        return False, f"Password must be at least {get_setting('PASSWORD_MIN_LENGTH', 8)} characters long"
 
-    if PASSWORD_REQUIRE_UPPERCASE and not re.search(r"[A-Z]", password):
+    if get_setting('PASSWORD_REQUIRE_UPPERCASE', True) and not re.search(r"[A-Z]", password):
         return False, "Password must contain at least one uppercase letter"
 
-    if PASSWORD_REQUIRE_NUMBER and not re.search(r"\d", password):
+    if get_setting('PASSWORD_REQUIRE_NUMBER', True) and not re.search(r"\d", password):
         return False, "Password must contain at least one number"
 
     return True, ""

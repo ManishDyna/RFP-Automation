@@ -172,6 +172,14 @@ export const ENDPOINTS = {
       REORDER: `${API_PREFIX}/master-data/rfp-team-columns/reorder`,
     },
   },
+  // ==================== SYSTEM SETTINGS (routes/system_settings_routes.py) ====================
+  SYSTEM_SETTINGS: {
+    LIST: `${API_PREFIX}/system-settings/list`,
+    REVEAL: (key: string) => `${API_PREFIX}/system-settings/${encodeURIComponent(key)}/reveal`,
+    UPDATE: (key: string) => `${API_PREFIX}/system-settings/${encodeURIComponent(key)}`,
+    RELOAD_CACHE: `${API_PREFIX}/system-settings/reload-cache`,
+    SEED: `${API_PREFIX}/system-settings/seed`,
+  },
 } as const
 
 // Type helper for endpoint values

@@ -18,6 +18,7 @@ import {
   Activity,
   Package,
   Database,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -55,7 +56,8 @@ export function Sidebar({
   const canSchedule = useHasPermission('schedule_automation.manage')
   const canChangeSapPassword = useHasPermission('sap_password.change')
   const canManageMasterData = useHasPermission('master_data.view')
-  const showAdminSection = canManageUsers || canManageRoles || canViewAuditLogs || canViewAnalytics || canViewSapLogs || canManageMasterData
+  const canViewSettings = useHasPermission('system_settings.view')
+  const showAdminSection = canManageUsers || canManageRoles || canViewAuditLogs || canViewAnalytics || canViewSapLogs || canManageMasterData || canViewSettings
   const { data: automationStatus } = useAutomationStatus()
   const setCollapsed = onCollapsedChange
 
@@ -226,6 +228,15 @@ export function Sidebar({
                       icon={Database}
                       label="Master Data"
                       active={location.pathname === '/admin/master-data'}
+                      collapsed={collapsed}
+                    />
+                  )}
+                  {canViewSettings && (
+                    <NavItem
+                      path="/admin/system-settings"
+                      icon={SlidersHorizontal}
+                      label="System Settings"
+                      active={location.pathname === '/admin/system-settings'}
                       collapsed={collapsed}
                     />
                   )}

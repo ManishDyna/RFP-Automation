@@ -1,6 +1,7 @@
 from core.common_imports import *
 from helpers.dataverse_helper import DataverseClient
 from config.config import *
+from services.system_settings_service import get_setting
 from datetime import datetime
 import logging
 
@@ -85,7 +86,7 @@ def get_rfp_folder_path(rfp_title: str, company_name: str) -> str:
     """Get the RFP folder path: ALLRFPs/CompanyName/RFP_title"""
     clean_title = clean_rfp_title(rfp_title)
     safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip().rstrip('.')
-    return os.path.join(OUTPUT_DIR, safe_company_name, clean_title)
+    return os.path.join(get_setting("OUTPUT_DIR", os.path.join(os.getcwd(), "ALLRFPs")), safe_company_name, clean_title)
 
 def get_rfp_material_file_path(rfp_title: str, company_name: str, filename: str = None) -> str:
     """Get the downloaded-rfp folder path for an RFP: ALLRFPs/CompanyName/RFP_title/downloaded-rfp/"""
@@ -141,19 +142,20 @@ def find_rfp_file_across_companies(rfp_id: str) -> tuple[str | None, str | None]
     Returns (file_path, company_name) or (None, None) if not found.
     """
     clean_title = clean_rfp_title(rfp_id)
-    if not os.path.exists(OUTPUT_DIR):
+    _output_dir = get_setting("OUTPUT_DIR", os.path.join(os.getcwd(), "ALLRFPs"))
+    if not os.path.exists(_output_dir):
         return None, None
-    
+
     # Try to get company from database first
     company_name = get_rfp_company_name(rfp_id)
     if company_name:
         file_path = get_rfp_excel_file_path(rfp_id, company_name)
         if os.path.exists(file_path):
             return file_path, company_name
-    
+
     # Search through all company folders
-    for company_folder in os.listdir(OUTPUT_DIR):
-        company_path = os.path.join(OUTPUT_DIR, company_folder)
+    for company_folder in os.listdir(_output_dir):
+        company_path = os.path.join(_output_dir, company_folder)
         if not os.path.isdir(company_path):
             continue
         
@@ -182,7 +184,7 @@ def get_sharepoint_rfp_path(rfp_title: str, company_name: str) -> str:
     """Get SharePoint base path for RFP: RFP-logs/ALLRFPs/CompanyName/RFP_title"""
     clean_title = clean_rfp_title(rfp_title)
     safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip().rstrip('.')
-    return f"{SP_BASE_FOLDER}/ALLRFPs/{safe_company_name}/{clean_title}"
+    return f"{get_setting('SP_BASE_FOLDER', 'RFP-logs')}/ALLRFPs/{safe_company_name}/{clean_title}"
 
 def get_sharepoint_rfp_material_path(rfp_title: str, company_name: str, filename: str = None) -> str:
     """Get SharePoint downloaded-rfp path: RFP-logs/ALLRFPs/CompanyName/RFP_title/downloaded-rfp/"""
@@ -232,9 +234,9 @@ def get_rfp_activity_data_from_db(top: int = 5000, skip: int = 0):
         List of dicts with display names as keys
     """
     return DATAVERSE.get_all_rows(
-        table_api_name=RFP_ACTIVITY_LOG_TABLE_API,
+        table_api_name=get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals"),
         select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link", "Material_Matched", "Keyword_Matched", "Matched_Data", "Material_Code", "Material_Description", "Matched_Keywords"],
-        table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+        table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal"),
         use_display_names=True
     )
 
@@ -253,7 +255,9 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
         now_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # Get column mapping to use correct display names
-        column_map = DATAVERSE.get_column_mapping(RFP_STATUS_TABLE_LOGICAL)
+        _rfp_status_logical = get_setting("RFP_STATUS_TABLE_LOGICAL", "cr673_bhara_rfp_status")
+        _rfp_status_api = get_setting("RFP_STATUS_TABLE_API", "cr673_bhara_rfp_statuses")
+        column_map = DATAVERSE.get_column_mapping(_rfp_status_logical)
         
         # Check if category is a choice field and get its integer value
         category_value = None
@@ -270,7 +274,7 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
                     break
             
             if category_logical:
-                choice_options = DATAVERSE.get_choice_options(RFP_STATUS_TABLE_LOGICAL, category_logical)
+                choice_options = DATAVERSE.get_choice_options(_rfp_status_logical, category_logical)
                 # Convert category to lowercase for matching
                 category_lower = category.lower().strip()
                 # Map common category names to potential choice labels
@@ -397,9 +401,9 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
         
         # Insert into status tracking table
         success = DATAVERSE.insert_row(
-            table_api_name=RFP_STATUS_TABLE_API,
+            table_api_name=_rfp_status_api,
             data=status_data,
-            table_logical_name=RFP_STATUS_TABLE_LOGICAL,
+            table_logical_name=_rfp_status_logical,
             use_display_names=True
         )
         if success:
@@ -449,13 +453,15 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
     try:
         # Sanitize rfp_id to prevent injection
         safe_rfp_id = sanitize_filter_value(rfp_id)
+        _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
+        _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
 
         # Check for existing record
         existing_result = DATAVERSE.query_rows(
-            RFP_ACTIVITY_LOG_TABLE_API,
+            _act_api,
             filter_expr=f"RFP_ID eq '{safe_rfp_id}'",
             top=1,
-            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            table_logical_name=_act_logical,
             use_display_names=True
         )
         old_status = ""
@@ -465,13 +471,13 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
             # NOTE: query used use_display_names=True, so row keys are DISPLAY names, not logical
             # Build reverse map (logical -> display) to look up primary key and participated field
             try:
-                colmap = DATAVERSE.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)  # display -> logical
+                colmap = DATAVERSE.get_column_mapping(_act_logical)  # display -> logical
             except Exception:
                 colmap = {}
             logical_to_display = {v: k for k, v in colmap.items()}
 
             # Get record_id: primary key may have been remapped to its display name
-            pk_logical = f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"
+            pk_logical = f"{_act_logical}id"
             pk_display = logical_to_display.get(pk_logical)
             record_id = (existing_row.get(pk_display) if pk_display else None) or existing_row.get(pk_logical)
             if not record_id:
@@ -492,10 +498,10 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
             # Perform update with error handling
             try:
                 update_success = DATAVERSE.update_row(
-                    RFP_ACTIVITY_LOG_TABLE_API,
+                    _act_api,
                     record_id,
                     update_data,
-                    table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
+                    table_logical_name=_act_logical
                 )
                 if not update_success:
                     logger.error(f"Failed to update RFP {rfp_id} participation status")
@@ -552,6 +558,8 @@ def update_sync_timestamp(rfp_id: str, company_name: str = None) -> bool:
         # Sanitize values to prevent injection
         safe_rfp_id = sanitize_filter_value(rfp_id)
         filter_expr = f"RFP_ID eq '{safe_rfp_id}'"
+        _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
+        _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
 
         if company_name:
             safe_company = sanitize_filter_value(company_name.strip())
@@ -559,10 +567,10 @@ def update_sync_timestamp(rfp_id: str, company_name: str = None) -> bool:
 
         # Query for existing record
         existing_result = DATAVERSE.query_rows(
-            RFP_ACTIVITY_LOG_TABLE_API,
+            _act_api,
             filter_expr=filter_expr,
             top=1,
-            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            table_logical_name=_act_logical,
             use_display_names=True
         )
 
@@ -570,11 +578,11 @@ def update_sync_timestamp(rfp_id: str, company_name: str = None) -> bool:
             existing_row = existing_result["value"][0]
             # Row keys are display names (use_display_names=True) — resolve primary key via reverse map
             try:
-                colmap = DATAVERSE.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)
+                colmap = DATAVERSE.get_column_mapping(_act_logical)
                 logical_to_display = {v: k for k, v in colmap.items()}
             except Exception:
                 logical_to_display = {}
-            pk_logical = f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"
+            pk_logical = f"{_act_logical}id"
             pk_display = logical_to_display.get(pk_logical)
             record_id = (existing_row.get(pk_display) if pk_display else None) or existing_row.get(pk_logical)
             if not record_id:
@@ -587,10 +595,10 @@ def update_sync_timestamp(rfp_id: str, company_name: str = None) -> bool:
             }
 
             update_success = DATAVERSE.update_row(
-                RFP_ACTIVITY_LOG_TABLE_API,
+                _act_api,
                 record_id,
                 update_data,
-                table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
+                table_logical_name=_act_logical
             )
 
             if update_success:

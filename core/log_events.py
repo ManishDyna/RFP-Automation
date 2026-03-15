@@ -7,6 +7,7 @@ from datetime import datetime
 import csv
 from contextvars import ContextVar
 from config.config import *
+from services.system_settings_service import get_setting
 
 
 def normalize_date_format(val) -> str:
@@ -71,6 +72,10 @@ def get_current_run_id():
 
 # ---------------- Automation log ----------------
 def write_log_row(category, action, status, message="", rfp_id="", run_id=None, insert_to_dataverse=True):
+    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
+    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
+    _auto_api = get_setting("AUTOMATION_LOG_TABLE_API", "cr673_bahra_automation_log1s")
+    _auto_logical = get_setting("AUTOMATION_LOG_TABLE_LOGICAL", "cr673_bahra_automation_log1")
     header = ["RunID", "Timestamp", "Category", "Action", "automation_status", "Message", "RFP_ID"]
     row = [
         run_id or get_current_run_id(),
@@ -105,10 +110,10 @@ def write_log_row(category, action, status, message="", rfp_id="", run_id=None, 
                 try:
                     # Check if RFP already exists in RFP activity log with Downloaded_At
                     existing_result = DATAVERSE.query_rows(
-                        RFP_ACTIVITY_LOG_TABLE_API,
+                        _act_api,
                         filter_expr=f"RFP_ID eq '{rfp_id_str}'",
                         top=1,
-                        table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+                        table_logical_name=_act_logical,
                         use_display_names=True
                     )
                     
@@ -128,9 +133,9 @@ def write_log_row(category, action, status, message="", rfp_id="", run_id=None, 
         dv_row = {k: str(v) for k, v in zip(header, row)}
         try:
             DATAVERSE.insert_row(
-                AUTOMATION_LOG_TABLE_API,  # pluralized API endpoint
+                _auto_api,  # pluralized API endpoint
                 dv_row,
-                table_logical_name=AUTOMATION_LOG_TABLE_LOGICAL,  # singular logical name for metadata
+                table_logical_name=_auto_logical,  # singular logical name for metadata
                 use_display_names=True
             )
         except Exception as e:
@@ -210,6 +215,8 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                      exact_match_count=None,
                      keyword_match_count=None,
                      file_size_bytes=None):
+    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
+    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
 
     if isinstance(Matched_Data, pd.DataFrame) and not Matched_Data.empty:
         Matched_Data_str = Matched_Data.to_json(orient="records")
@@ -285,23 +292,23 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
         try:
             # Check for existing record
             existing_result = DATAVERSE.query_rows(
-                RFP_ACTIVITY_LOG_TABLE_API,
+                _act_api,
                 filter_expr=f"RFP_ID eq '{rfp_id}'",
                 top=1,
-                table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+                table_logical_name=_act_logical,
                 use_display_names=True
             )
-            
+
             if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
                 # Existing record found
                 existing_row = existing_result["value"][0]
                 # Row keys are display names (use_display_names=True) — resolve primary key via reverse map
                 try:
-                    _colmap = DATAVERSE.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)
+                    _colmap = DATAVERSE.get_column_mapping(_act_logical)
                     _logical_to_display = {v: k for k, v in _colmap.items()}
                 except Exception:
                     _logical_to_display = {}
-                _pk_logical = f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"
+                _pk_logical = f"{_act_logical}id"
                 _pk_display = _logical_to_display.get(_pk_logical)
                 existing_record_id = (existing_row.get(_pk_display) if _pk_display else None) or existing_row.get(_pk_logical)
                 existing_downloaded_at = existing_row.get("Downloaded_At", "")
@@ -391,10 +398,10 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                         # Only update other meaningful fields
                         if update_data:
                             DATAVERSE.update_row(
-                                RFP_ACTIVITY_LOG_TABLE_API,
+                                _act_api,
                                 record_id,
                                 update_data,
-                                table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
+                                table_logical_name=_act_logical
                             )
                             print(f"✅ Updated existing RFP log with meaningful changes: {rfp_id}")
                         else:
@@ -409,18 +416,18 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                     record_id = existing_record_id
                     update_data = {k: v for k, v in row_data.items() if v not in [None, ""]}
                     DATAVERSE.update_row(
-                        RFP_ACTIVITY_LOG_TABLE_API,
+                        _act_api,
                         record_id,
                         update_data,
-                        table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
+                        table_logical_name=_act_logical
                     )
                     print(f"✅ Updated RFP log with Downloaded_At: {rfp_id}")
             else:
                 # Insert new record - this is a new RFP
                 DATAVERSE.insert_row(
-                    RFP_ACTIVITY_LOG_TABLE_API,
+                    _act_api,
                     row_data,
-                    table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
+                    table_logical_name=_act_logical
                 )
                 print(f"✅ New RFP Log Inserted: {rfp_id}")
 

@@ -12,7 +12,7 @@ from helpers.enhanced_error_logger import (
     format_error_report_for_display,
     analyze_automation_logs
 )
-from config.config import AUTOMATION_LOG_TABLE_API, AUTOMATION_LOG_TABLE_LOGICAL
+from services.system_settings_service import get_setting
 from helpers.core_helper import DATAVERSE
 
 router = APIRouter(prefix="/api/error-analysis", tags=["Error Analysis"])
@@ -134,12 +134,12 @@ async def analyze_rfp_by_id_endpoint(request: AnalyzeRFPRequest):
         logs = []
         try:
             rows = DATAVERSE.get_rows_from_dataverse(
-                table_api_name=AUTOMATION_LOG_TABLE_API,
+                table_api_name=get_setting("AUTOMATION_LOG_TABLE_API", ""),
                 filter_by={"RFP_ID": request.rfp_id},
                 select_columns=["RunID", "Timestamp", "Category", "Action", "automation_status", "Message", "RFP_ID"],
                 top=500,
                 order_by="Timestamp desc",
-                table_logical_name=AUTOMATION_LOG_TABLE_LOGICAL,
+                table_logical_name=get_setting("AUTOMATION_LOG_TABLE_LOGICAL", ""),
                 use_display_names=True
             )
             logs = rows if rows else []
@@ -187,12 +187,12 @@ async def analyze_rfp_formatted_endpoint(request: AnalyzeRFPRequest):
         logs = []
         try:
             rows = DATAVERSE.get_rows_from_dataverse(
-                table_api_name=AUTOMATION_LOG_TABLE_API,
+                table_api_name=get_setting("AUTOMATION_LOG_TABLE_API", ""),
                 filter_by={"RFP_ID": request.rfp_id},
                 select_columns=["RunID", "Timestamp", "Category", "Action", "automation_status", "Message", "RFP_ID"],
                 top=500,
                 order_by="Timestamp desc",
-                table_logical_name=AUTOMATION_LOG_TABLE_LOGICAL,
+                table_logical_name=get_setting("AUTOMATION_LOG_TABLE_LOGICAL", ""),
                 use_display_names=True
             )
             logs = rows if rows else []

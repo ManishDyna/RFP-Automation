@@ -806,6 +806,58 @@ export const api = {
     return handleResponse(response)
   },
 
+  // ==================== System Settings ====================
+  getSystemSettings: async () => {
+    const response = await fetch(ENDPOINTS.SYSTEM_SETTINGS.LIST, { credentials: 'include' })
+    return handleResponse<{
+      ok: boolean
+      settings: Array<{
+        key: string
+        value: string
+        label: string
+        section: string
+        sub_section: string
+        data_type: string
+        description: string
+        is_editable: boolean
+        is_sensitive: boolean
+        id: string
+      }>
+      sections: string[]
+    }>(response)
+  },
+
+  revealSetting: async (key: string) => {
+    const response = await fetch(ENDPOINTS.SYSTEM_SETTINGS.REVEAL(key), { credentials: 'include' })
+    return handleResponse<{ ok: boolean; key: string; value: string }>(response)
+  },
+
+  updateSetting: async (key: string, value: string) => {
+    const response = await fetch(ENDPOINTS.SYSTEM_SETTINGS.UPDATE(key), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value }),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  reloadSettingsCache: async () => {
+    const response = await fetch(ENDPOINTS.SYSTEM_SETTINGS.RELOAD_CACHE, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  seedSystemSettings: async () => {
+    const response = await fetch(ENDPOINTS.SYSTEM_SETTINGS.SEED, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
   // ==================== Audit Logs ====================
   getAuditLogs: async (params: {
     page?: number

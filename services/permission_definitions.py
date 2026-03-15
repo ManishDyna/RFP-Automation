@@ -50,6 +50,10 @@ PERMISSIONS = {
     "master_data.create": "Add new material codes, keywords, or RFP team members",
     "master_data.edit":   "Edit material codes, keywords, or RFP team members",
     "master_data.delete": "Delete material codes, keywords, or RFP team members",
+
+    # System Settings
+    "system_settings.view": "View system settings and configuration",
+    "system_settings.edit": "Edit system settings and configuration",
 }
 
 # Group permissions by module for UI display
@@ -73,6 +77,7 @@ MODULE_LABELS = {
     "audit_logs": "Audit Trail",
     "material_insights": "Material Insights",
     "master_data": "Master Data Management",
+    "system_settings": "System Settings",
 }
 
 # Default role templates for seeding

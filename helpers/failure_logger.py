@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from config.config import FAILURE_LOGS_DIR, SP_FAILURE_LOGS_FOLDER, AUTOMATION_LOG_TABLE_API, AUTOMATION_LOG_TABLE_LOGICAL
+from services.system_settings_service import get_setting
 from helpers.core_helper import DATAVERSE
 
 
@@ -25,7 +25,7 @@ def _normalize_automation_label(name: Optional[str]) -> str:
 
 def _create_error_folder(folder_name: str) -> str:
     """Create a unique error folder locally and return its path."""
-    folder_path = os.path.join(FAILURE_LOGS_DIR, folder_name)
+    folder_path = os.path.join(get_setting("FAILURE_LOGS_DIR", os.path.join(os.getcwd(), "LOGS")), folder_name)
     os.makedirs(folder_path, exist_ok=True)
     return folder_path
 
@@ -114,7 +114,7 @@ def record_failure_log(
     persist locally, and optionally upload the entire folder to SharePoint.
     Returns metadata about the created artifacts.
     """
-    os.makedirs(FAILURE_LOGS_DIR, exist_ok=True)
+    os.makedirs(get_setting("FAILURE_LOGS_DIR", os.path.join(os.getcwd(), "LOGS")), exist_ok=True)
 
     context = context or {}
     details = _extract_exception_details(exc)
@@ -154,7 +154,7 @@ def record_failure_log(
     # Upload entire error folder to SharePoint
     if graph_client:
         try:
-            sp_error_folder = f"{SP_FAILURE_LOGS_FOLDER}/{folder_name}"
+            sp_error_folder = f"{get_setting('SP_FAILURE_LOGS_FOLDER', 'RFP-logs/automation-error-logs')}/{folder_name}"
             uploaded = _upload_folder_to_sharepoint(graph_client, error_folder, sp_error_folder)
             if uploaded:
                 sharepoint_path = sp_error_folder
@@ -187,7 +187,7 @@ def create_rfp_error_log_file(
     Uses enhanced error analysis to identify exactly where automation failed.
     Returns metadata about the created log file.
     """
-    os.makedirs(FAILURE_LOGS_DIR, exist_ok=True)
+    os.makedirs(get_setting("FAILURE_LOGS_DIR", os.path.join(os.getcwd(), "LOGS")), exist_ok=True)
 
     context = context or {}
 
@@ -195,12 +195,12 @@ def create_rfp_error_log_file(
     logs = []
     try:
         rows = DATAVERSE.get_rows_from_dataverse(
-            table_api_name=AUTOMATION_LOG_TABLE_API,
+            table_api_name=get_setting("AUTOMATION_LOG_TABLE_API", "cr673_bahra_automation_log1s"),
             filter_by={"RFP_ID": rfp_id},
             select_columns=["RunID", "Timestamp", "Category", "Action", "automation_status", "Message", "RFP_ID"],
             top=500,
             order_by="Timestamp desc",
-            table_logical_name=AUTOMATION_LOG_TABLE_LOGICAL,
+            table_logical_name=get_setting("AUTOMATION_LOG_TABLE_LOGICAL", "cr673_bahra_automation_log1"),
             use_display_names=True
         )
         logs = rows if rows else []
@@ -272,7 +272,7 @@ def create_rfp_error_log_file(
     # Upload entire error folder to SharePoint
     if graph_client:
         try:
-            sp_error_folder = f"{SP_FAILURE_LOGS_FOLDER}/{folder_name}"
+            sp_error_folder = f"{get_setting('SP_FAILURE_LOGS_FOLDER', 'RFP-logs/automation-error-logs')}/{folder_name}"
             uploaded = _upload_folder_to_sharepoint(graph_client, error_folder, sp_error_folder)
             if uploaded:
                 sharepoint_path = sp_error_folder

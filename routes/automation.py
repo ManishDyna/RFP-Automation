@@ -11,16 +11,7 @@ __all__ = [
     '_add_submitting_rfp', '_remove_submitting_rfp', '_is_rfp_submitting', '_get_state_snapshot',
     '_run_async_in_thread', '_update_progress', '_get_progress'
 ]
-from config.config import (
-    SP_BASE_FOLDER_RFP_UPLOAD_FILES,
-    CLIENT_ID,
-    CLIENT_SECRET,
-    TENANT_ID,
-    SHAREPOINT_HOSTNAME,
-    SITE_PATH,
-    DRIVE_NAME,
-    COMPANY_NAME,
-)
+from services.system_settings_service import get_setting
 from services.dashboard_service import invalidate_dashboard_caches
 from helpers.sharepoint_helper import GraphClient
 import tempfile
@@ -244,7 +235,7 @@ async def dashboard_submit_rfp_endpoint(
     Dashboard-specific endpoint: Upload file to SharePoint, then run automation
     """
     selected_company = (company or "").strip()
-    print(f"📝 Dashboard Submit RFP - RFP ID: {rfp_id} - Company: {selected_company or COMPANY_NAME}")
+    print(f"📝 Dashboard Submit RFP - RFP ID: {rfp_id} - Company: {selected_company or get_setting('COMPANY_NAME', '')}")
     print(f"📄 File received: {excel_file.filename}")
     
     if not rfp_id or not excel_file:
@@ -269,8 +260,8 @@ async def dashboard_submit_rfp_endpoint(
         
         # Initialize SharePoint client and upload file
         graph_client = GraphClient(
-            CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-            SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+            get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+            get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", "")
         )
         graph_client.auth()
         graph_client.resolve_site_and_drive()
@@ -286,7 +277,7 @@ async def dashboard_submit_rfp_endpoint(
         
         # Upload file to SharePoint using new folder structure
         clean_title = clean_rfp_title(rfp_id)
-        target_company = selected_company or COMPANY_NAME
+        target_company = selected_company or get_setting("COMPANY_NAME", "")
         sp_material_path = get_sharepoint_rfp_material_path(rfp_id, target_company)
         print(f"☁️ Uploading to SharePoint: {sp_material_path}/{clean_title}{file_ext}")
         graph_client.upload_file_as(

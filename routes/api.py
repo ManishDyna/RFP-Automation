@@ -21,7 +21,7 @@ from services.user_lifecycle_service import (
     unlock_user, validate_password_strength, update_password_changed, get_user_status,
 )
 from middleware.auth import get_current_user, require_permission, get_request_ip
-from config.config import FORGOT_PASSWORD_FLOW_URL
+from services.system_settings_service import get_setting
 import time
 import hmac
 import hashlib
@@ -31,7 +31,6 @@ import os
 import glob
 from collections import defaultdict
 import threading
-from config.config import FAILURE_LOGS_DIR
 
 router = APIRouter(prefix="/api", tags=["API"])
 
@@ -333,7 +332,7 @@ async def api_forgot(request: Request):
 </html>"""
     }
     import requests
-    resp = requests.post(FORGOT_PASSWORD_FLOW_URL, json=payload)
+    resp = requests.post(get_setting("FORGOT_PASSWORD_FLOW_URL", ""), json=payload)
     if not (200 <= resp.status_code < 300):
         raise HTTPException(status_code=502, detail=f"Flow error: {resp.status_code}")
     return JSONResponse({"ok": True})
@@ -948,7 +947,8 @@ async def api_list_error_files(request: Request, rfp_id: str = Query(None)):
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    if not os.path.isdir(FAILURE_LOGS_DIR):
+    failure_logs_dir = get_setting("FAILURE_LOGS_DIR", "")
+    if not os.path.isdir(failure_logs_dir):
         return JSONResponse({"files": []})
 
     def _matches_rfp(name: str) -> bool:
@@ -959,8 +959,8 @@ async def api_list_error_files(request: Request, rfp_id: str = Query(None)):
 
     files = []
 
-    for entry in os.listdir(FAILURE_LOGS_DIR):
-        entry_path = os.path.join(FAILURE_LOGS_DIR, entry)
+    for entry in os.listdir(failure_logs_dir):
+        entry_path = os.path.join(failure_logs_dir, entry)
 
         if os.path.isfile(entry_path):
             # Top-level files (json, txt, png)
@@ -1006,15 +1006,16 @@ async def api_list_error_files(request: Request, rfp_id: str = Query(None)):
 def _resolve_log_file_path(filename: str) -> str | None:
     """Resolve a filename (may include one subfolder) to an absolute path inside FAILURE_LOGS_DIR.
     Returns None if the resolved path is outside FAILURE_LOGS_DIR (path traversal)."""
+    failure_logs_dir = get_setting("FAILURE_LOGS_DIR", "")
     # Allow at most one subfolder: "subfolder/file.ext" or just "file.ext"
     parts = filename.replace("\\", "/").split("/")
     if len(parts) > 2:
         return None
     # Rebuild safely
     safe_parts = [os.path.basename(p) for p in parts]
-    fpath = os.path.join(FAILURE_LOGS_DIR, *safe_parts)
+    fpath = os.path.join(failure_logs_dir, *safe_parts)
     # Verify it's inside FAILURE_LOGS_DIR
-    if not os.path.normpath(fpath).startswith(os.path.normpath(FAILURE_LOGS_DIR)):
+    if not os.path.normpath(fpath).startswith(os.path.normpath(failure_logs_dir)):
         return None
     return fpath
 
@@ -1304,7 +1305,10 @@ async def api_save_schedule(request: Request, user: dict = Depends(require_permi
     """Save automation schedule"""
 
     from helpers.core_helper import DATAVERSE
-    from config.config import AUTOMATION_SCHEDULE_TABLE_API, AUTOMATION_SCHEDULE_TABLE_LOGICAL
+    from services.system_settings_service import get_setting as _get_setting
+
+    AUTOMATION_SCHEDULE_TABLE_API = _get_setting("AUTOMATION_SCHEDULE_TABLE_API", "")
+    AUTOMATION_SCHEDULE_TABLE_LOGICAL = _get_setting("AUTOMATION_SCHEDULE_TABLE_LOGICAL", "")
 
     body = await request.json()
 

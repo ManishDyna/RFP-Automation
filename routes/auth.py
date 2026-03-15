@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse, HTMLResponse
 from services.user_service import authenticate_user, list_users, update_user, get_user_by_email
-from config.config import FORGOT_PASSWORD_FLOW_URL
+from services.system_settings_service import get_setting
 import hmac, hashlib, base64, time, json
 
 router = APIRouter(tags=["Auth"])
@@ -153,7 +153,7 @@ async def forgot(request: Request):
 </html>"""
     }
     import requests
-    resp = requests.post(FORGOT_PASSWORD_FLOW_URL, json=payload)
+    resp = requests.post(get_setting("FORGOT_PASSWORD_FLOW_URL", ""), json=payload)
     # Log response details for debugging
     print("FORGOT FLOW status:", resp.status_code)
     try:

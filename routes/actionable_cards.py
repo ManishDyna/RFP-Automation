@@ -13,11 +13,8 @@ import requests
 from helpers.dataverse_helper import DataverseClient
 from config.config import (
     TENANT_ID, CLIENT_ID, CLIENT_SECRET, RESOURCE_URL,
-    ACTIONABLE_CARD_ORIGINATOR_ID,
-    ACTIONABLE_CARD_CALLBACK_URL,
-    RFP_RESPONSE_TABLE_API,
-    RFP_RESPONSE_TABLE_LOGICAL,
 )
+from services.system_settings_service import get_setting
 from services.master_data_service import get_all_rfp_team_for_emails
 from services.rfp_team_columns_service import get_all_columns, get_input_columns
 from helpers.email_helper import _build_input_widget_indexed
@@ -86,10 +83,10 @@ def _get_all_responses_for_rfp(rfp_id: str) -> list:
     """Query Dataverse for all responses for a given RFP."""
     try:
         result = _DATAVERSE.query_rows(
-            RFP_RESPONSE_TABLE_API,
+            get_setting("RFP_RESPONSE_TABLE_API", ""),
             filter_expr=f"cr673_rfp_id eq '{rfp_id}'",
             top=50,
-            table_logical_name=RFP_RESPONSE_TABLE_LOGICAL,
+            table_logical_name=get_setting("RFP_RESPONSE_TABLE_LOGICAL", ""),
             use_display_names=True,
         )
         if result and "value" in result:
@@ -346,18 +343,18 @@ async def receive_card_response(request: Request):
 
     try:
         existing = _DATAVERSE.query_rows(
-            RFP_RESPONSE_TABLE_API,
+            get_setting("RFP_RESPONSE_TABLE_API", ""),
             filter_expr=f"cr673_rfp_id eq '{rfp_id}' and cr673_email eq '{expected_email or submitter_email}'",
             top=1,
-            table_logical_name=RFP_RESPONSE_TABLE_LOGICAL,
+            table_logical_name=get_setting("RFP_RESPONSE_TABLE_LOGICAL", ""),
             use_display_names=True,
         )
 
         if existing and "value" in existing and len(existing["value"]) > 0:
             existing_row = existing["value"][0]
-            pk_logical = f"{RFP_RESPONSE_TABLE_LOGICAL}id"
+            pk_logical = f"{get_setting('RFP_RESPONSE_TABLE_LOGICAL', '')}id"
             try:
-                colmap = _DATAVERSE.get_column_mapping(RFP_RESPONSE_TABLE_LOGICAL)
+                colmap = _DATAVERSE.get_column_mapping(get_setting("RFP_RESPONSE_TABLE_LOGICAL", ""))
                 logical_to_display = {v: k for k, v in colmap.items()}
             except Exception:
                 logical_to_display = {}
@@ -368,17 +365,17 @@ async def receive_card_response(request: Request):
             )
             if record_id:
                 _DATAVERSE.update_row(
-                    RFP_RESPONSE_TABLE_API,
+                    get_setting("RFP_RESPONSE_TABLE_API", ""),
                     record_id,
                     row_data,
-                    table_logical_name=RFP_RESPONSE_TABLE_LOGICAL,
+                    table_logical_name=get_setting("RFP_RESPONSE_TABLE_LOGICAL", ""),
                     use_display_names=True,
                 )
         else:
             _DATAVERSE.insert_row(
-                RFP_RESPONSE_TABLE_API,
+                get_setting("RFP_RESPONSE_TABLE_API", ""),
                 row_data,
-                table_logical_name=RFP_RESPONSE_TABLE_LOGICAL,
+                table_logical_name=get_setting("RFP_RESPONSE_TABLE_LOGICAL", ""),
                 use_display_names=True,
             )
     except Exception as e:
@@ -394,7 +391,8 @@ async def receive_card_response(request: Request):
 
     # Step 5a: Update response metrics on RFP activity log
     try:
-        from config.config import RFP_ACTIVITY_LOG_TABLE_API, RFP_ACTIVITY_LOG_TABLE_LOGICAL
+        RFP_ACTIVITY_LOG_TABLE_API = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "")
+        RFP_ACTIVITY_LOG_TABLE_LOGICAL = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "")
 
         # Calculate response timestamps
         _resp_timestamps = [
@@ -443,7 +441,8 @@ async def receive_card_response(request: Request):
         # All team members have responded - send consolidated email with attachments + Decline button
         try:
             from helpers.email_helper import send_consolidated_response_email
-            from config.config import RFP_ACTIVITY_LOG_TABLE_API, RFP_ACTIVITY_LOG_TABLE_LOGICAL
+            RFP_ACTIVITY_LOG_TABLE_API = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "")
+            RFP_ACTIVITY_LOG_TABLE_LOGICAL = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "")
 
             responses_for_email = []
             for r in all_responses:
@@ -533,7 +532,7 @@ async def receive_card_response(request: Request):
         user_has_submitted=True,
         responded_count=len(responded_emails & team_emails),
         total_count=len(team_emails),
-        callback_url=ACTIONABLE_CARD_CALLBACK_URL,
+        callback_url=get_setting("ACTIONABLE_CARD_CALLBACK_URL", ""),
         team_table=rfp_team,
     )
 
@@ -616,7 +615,7 @@ async def refresh_card_status(request: Request):
         user_has_submitted=user_has_submitted,
         responded_count=responded_count,
         total_count=len(team_emails),
-        callback_url=ACTIONABLE_CARD_CALLBACK_URL,
+        callback_url=get_setting("ACTIONABLE_CARD_CALLBACK_URL", ""),
         team_table=rfp_team,
     )
 

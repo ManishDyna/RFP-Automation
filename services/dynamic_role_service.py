@@ -14,13 +14,7 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, List
 
 from helpers.core_helper import DATAVERSE
-from config.config import (
-    ROLES_TABLE_API,
-    ROLES_TABLE_LOGICAL,
-    ROLE_PERMISSIONS_TABLE_API,
-    ROLE_PERMISSIONS_TABLE_LOGICAL,
-    RBAC_CACHE_TTL_SECONDS,
-)
+from services.system_settings_service import get_setting
 from services.permission_definitions import PERMISSIONS, DEFAULT_ROLES
 
 
@@ -45,7 +39,7 @@ def _get_cached_permissions(role_name: str) -> Optional[List[str]]:
     key = role_name.strip().lower()
     with _CACHE_LOCK:
         entry = _ROLE_PERMISSIONS_CACHE.get(key)
-        if entry and (time.time() - entry["ts"]) < RBAC_CACHE_TTL_SECONDS:
+        if entry and (time.time() - entry["ts"]) < get_setting('RBAC_CACHE_TTL_SECONDS', 300):
             return entry["permissions"]
     return None
 
@@ -63,11 +57,11 @@ def _set_cached_permissions(role_name: str, permissions: List[str]):
 # ==================== COLUMN MAPPING HELPERS ====================
 
 def _get_roles_column_mapping():
-    return DATAVERSE.get_column_mapping(ROLES_TABLE_LOGICAL)
+    return DATAVERSE.get_column_mapping(get_setting('ROLES_TABLE_LOGICAL', 'cr673_bahra_roles'))
 
 
 def _get_perms_column_mapping():
-    return DATAVERSE.get_column_mapping(ROLE_PERMISSIONS_TABLE_LOGICAL)
+    return DATAVERSE.get_column_mapping(get_setting('ROLE_PERMISSIONS_TABLE_LOGICAL', 'cr673_bahra_role_permissions'))
 
 
 def _get_primary_id(table_logical: str) -> str:
@@ -90,7 +84,7 @@ def list_roles(top: int = 100, filters: Optional[Dict[str, str]] = None) -> List
     """List all roles from Dataverse."""
     col_map = _get_roles_column_mapping()
     reverse_map = {v: k for k, v in col_map.items()}
-    primary_id = _get_primary_id(ROLES_TABLE_LOGICAL)
+    primary_id = _get_primary_id(get_setting('ROLES_TABLE_LOGICAL', 'cr673_bahra_roles'))
 
     # Build filter
     filter_parts = []
@@ -105,10 +99,10 @@ def list_roles(top: int = 100, filters: Optional[Dict[str, str]] = None) -> List
     filter_expr = " and ".join(filter_parts) if filter_parts else None
 
     result = DATAVERSE.query_rows(
-        table_api_name=ROLES_TABLE_API,
+        table_api_name=get_setting('ROLES_TABLE_API', 'cr673_bahra_roleses'),
         filter_expr=filter_expr,
         top=top,
-        table_logical_name=ROLES_TABLE_LOGICAL,
+        table_logical_name=get_setting('ROLES_TABLE_LOGICAL', 'cr673_bahra_roles'),
         use_display_names=False,
     )
     rows = result.get("value", []) if isinstance(result, dict) else []
@@ -156,9 +150,9 @@ def create_role(payload: Dict) -> bool:
         data[key] = str(data[key])
 
     return DATAVERSE.insert_row(
-        table_api_name=ROLES_TABLE_API,
+        table_api_name=get_setting('ROLES_TABLE_API', 'cr673_bahra_roleses'),
         data=data,
-        table_logical_name=ROLES_TABLE_LOGICAL,
+        table_logical_name=get_setting('ROLES_TABLE_LOGICAL', 'cr673_bahra_roles'),
         use_display_names=True,
     )
 
@@ -170,10 +164,10 @@ def update_role(record_id: str, updates: Dict) -> bool:
         updates[key] = str(updates[key])
 
     result = DATAVERSE.update_row(
-        table_api_name=ROLES_TABLE_API,
+        table_api_name=get_setting('ROLES_TABLE_API', 'cr673_bahra_roleses'),
         record_id=record_id,
         data=updates,
-        table_logical_name=ROLES_TABLE_LOGICAL,
+        table_logical_name=get_setting('ROLES_TABLE_LOGICAL', 'cr673_bahra_roles'),
         use_display_names=True,
     )
 
@@ -230,11 +224,11 @@ def get_role_permissions(role_name: str) -> List[str]:
 
     try:
         result = DATAVERSE.query_rows(
-            table_api_name=ROLE_PERMISSIONS_TABLE_API,
+            table_api_name=get_setting('ROLE_PERMISSIONS_TABLE_API', 'cr673_bahra_role_permissionses'),
             filter_expr=filter_expr,
             select=perm_key_logical,
             top=5000,
-            table_logical_name=ROLE_PERMISSIONS_TABLE_LOGICAL,
+            table_logical_name=get_setting('ROLE_PERMISSIONS_TABLE_LOGICAL', 'cr673_bahra_role_permissions'),
             use_display_names=False,
         )
         rows = result.get("value", []) if isinstance(result, dict) else []
@@ -267,9 +261,9 @@ def set_role_permissions(role_id: str, role_name: str, permission_keys: List[str
         }
         try:
             DATAVERSE.insert_row(
-                table_api_name=ROLE_PERMISSIONS_TABLE_API,
+                table_api_name=get_setting('ROLE_PERMISSIONS_TABLE_API', 'cr673_bahra_role_permissionses'),
                 data=data,
-                table_logical_name=ROLE_PERMISSIONS_TABLE_LOGICAL,
+                table_logical_name=get_setting('ROLE_PERMISSIONS_TABLE_LOGICAL', 'cr673_bahra_role_permissions'),
                 use_display_names=True,
             )
         except Exception as e:
@@ -286,15 +280,15 @@ def _delete_role_permissions(role_name: str):
     role_name_logical = col_map.get("role_name", "cr673_role_name")
     escaped_name = role_name.replace("'", "''")
     filter_expr = f"{role_name_logical} eq '{escaped_name}'"
-    primary_id = _get_primary_id(ROLE_PERMISSIONS_TABLE_LOGICAL)
+    primary_id = _get_primary_id(get_setting('ROLE_PERMISSIONS_TABLE_LOGICAL', 'cr673_bahra_role_permissions'))
 
     try:
         result = DATAVERSE.query_rows(
-            table_api_name=ROLE_PERMISSIONS_TABLE_API,
+            table_api_name=get_setting('ROLE_PERMISSIONS_TABLE_API', 'cr673_bahra_role_permissionses'),
             filter_expr=filter_expr,
             select=primary_id,
             top=5000,
-            table_logical_name=ROLE_PERMISSIONS_TABLE_LOGICAL,
+            table_logical_name=get_setting('ROLE_PERMISSIONS_TABLE_LOGICAL', 'cr673_bahra_role_permissions'),
             use_display_names=False,
         )
         rows = result.get("value", []) if isinstance(result, dict) else []
@@ -302,7 +296,7 @@ def _delete_role_permissions(role_name: str):
         for row in rows:
             rid = row.get(primary_id)
             if rid:
-                url = f"{DATAVERSE.api_url}{ROLE_PERMISSIONS_TABLE_API}({rid})"
+                url = f"{DATAVERSE.api_url}{get_setting('ROLE_PERMISSIONS_TABLE_API', 'cr673_bahra_role_permissionses')}({rid})"
                 requests.delete(url, headers=DATAVERSE._headers())
     except Exception as e:
         print(f"[RBAC] Failed to delete permissions for role '{role_name}': {e}")

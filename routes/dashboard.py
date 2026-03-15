@@ -27,18 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import run state management from automation routes
 from routes.automation import _RUN_STATE, _set_state, _add_submitting_rfp, _remove_submitting_rfp, _is_rfp_submitting, _run_async_in_thread
-from config.config import (
-    DASHBOARD_HTTP_MAX_AGE,
-    LOGS_FETCH_TOP_MAX,
-    LOGS_FETCH_AHEAD_FACTOR,
-    DEFAULT_PAGE_SIZE,
-    MIN_PAGE_SIZE,
-    MAX_PAGE_SIZE,
-    COMPANY_OPTIONS,
-    COMPANY_NAME,
-)
-from config.config import AUTOMATION_SCHEDULE_TABLE_API, AUTOMATION_SCHEDULE_TABLE_LOGICAL
-from config.config import RFP_ACTIVITY_LOG_TABLE_API, RFP_ACTIVITY_LOG_TABLE_LOGICAL
+from services.system_settings_service import get_setting
 from helpers.core_helper import (
     DATAVERSE,
     update_rfp_participation_status,
@@ -56,7 +45,6 @@ from helpers.core_helper import (
     _find_other_content_sheet_name
 )
 from helpers.sharepoint_helper import GraphClient
-from config.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME, OUTPUT_DIR, SP_BASE_FOLDER
 import tempfile
 from io import BytesIO
 import pandas as pd
@@ -182,7 +170,7 @@ def _get_frequency_maps():
     if not _FREQ_CACHE["label_to_value"] or not _FREQ_CACHE["value_to_label"]:
         try:
             maps = DATAVERSE.get_choice_options(
-                AUTOMATION_SCHEDULE_TABLE_LOGICAL,
+                get_setting("AUTOMATION_SCHEDULE_TABLE_LOGICAL", ""),
                 "cr673_frequency",
             )
             _FREQ_CACHE.update(maps)
@@ -213,7 +201,7 @@ async def update_rfp_status(request: Request, payload: dict = Body(...), user: d
         status_normalized = status.lower()
 
         # Validate status against allowed values
-        from config.config import VALID_RFP_STATUSES
+        VALID_RFP_STATUSES = get_setting("VALID_RFP_STATUSES", ["no", "saved_draft", "submitted", "declined"])
         if status_normalized not in [s.lower() for s in VALID_RFP_STATUSES]:
             raise HTTPException(
                 status_code=400,
@@ -376,13 +364,13 @@ async def update_sap_password(request: Request, user: dict = Depends(require_per
 # ================= Automation Schedule APIs =================
 
 def _safe_use_display_names() -> bool:
-    return bool(AUTOMATION_SCHEDULE_TABLE_LOGICAL)
+    return bool(get_setting("AUTOMATION_SCHEDULE_TABLE_LOGICAL", ""))
 
 @router.get("/schedule-automation/latest")
 async def get_latest_schedule(request: Request, user: dict = Depends(require_permission("schedule_automation.view"))):
     try:
         rows = DATAVERSE.get_rows_from_dataverse(
-            table_api_name=AUTOMATION_SCHEDULE_TABLE_API,
+            table_api_name=get_setting("AUTOMATION_SCHEDULE_TABLE_API", ""),
             select_columns=[
                 "job_name",
                 "interval",
@@ -397,7 +385,7 @@ async def get_latest_schedule(request: Request, user: dict = Depends(require_per
             ],
             top=1,
             order_by="id desc",
-            table_logical_name=AUTOMATION_SCHEDULE_TABLE_LOGICAL,
+            table_logical_name=get_setting("AUTOMATION_SCHEDULE_TABLE_LOGICAL", ""),
             use_display_names=_safe_use_display_names(),
         )
         latest = rows[0] if rows else {}
@@ -443,9 +431,9 @@ async def save_schedule(request: Request, payload: dict = Body(...), user: dict 
         data = {k: v for k, v in data.items() if v is not None and v != ""}
 
         ok = DATAVERSE.insert_row(
-            table_api_name=AUTOMATION_SCHEDULE_TABLE_API,
+            table_api_name=get_setting("AUTOMATION_SCHEDULE_TABLE_API", ""),
             data=data,
-            table_logical_name=AUTOMATION_SCHEDULE_TABLE_LOGICAL,
+            table_logical_name=get_setting("AUTOMATION_SCHEDULE_TABLE_LOGICAL", ""),
             use_display_names=_safe_use_display_names(),
         )
         if not ok:
@@ -475,10 +463,10 @@ async def view_rfp_excel(request: Request, rfp_id: str, company: str = None):
             if found_company:
                 selected_company = found_company
             else:
-                selected_company = COMPANY_NAME
+                selected_company = get_setting("COMPANY_NAME", "")
 
         # Connect to SharePoint and find the Excel file
-        graph_client = GraphClient(CLIENT_ID, CLIENT_SECRET, TENANT_ID, SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME)
+        graph_client = GraphClient(get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""), get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", ""))
         graph_client.auth()
         graph_client.resolve_site_and_drive()
 
@@ -493,7 +481,7 @@ async def view_rfp_excel(request: Request, rfp_id: str, company: str = None):
         if not sp_file_info:
             import re as _re
             safe_company = _re.sub(r'[<>:"/\\|?*]', '_', selected_company).strip().rstrip('.')
-            sp_company_path = f"{SP_BASE_FOLDER}/ALLRFPs/{safe_company}"
+            sp_company_path = f"{get_setting('SP_BASE_FOLDER', '')}/ALLRFPs/{safe_company}"
             sp_all_files = graph_client.list_files_in_directory(sp_company_path, ['.xls', '.xlsx'])
             matching = [f for f in sp_all_files if rfp_id in f.get('path', '')]
             if matching:
@@ -555,7 +543,7 @@ async def save_rfp_excel(request: Request, rfp_id: str, file: UploadFile = File(
             if found_company:
                 selected_company = found_company
             else:
-                selected_company = COMPANY_NAME
+                selected_company = get_setting("COMPANY_NAME", "")
 
         # Use new folder structure: ALLRFPs/Company/RFP_title/downloaded-rfp/RFP_title.xls
         found_file = get_rfp_excel_file_path(rfp_id, selected_company)
@@ -563,8 +551,9 @@ async def save_rfp_excel(request: Request, rfp_id: str, file: UploadFile = File(
         # If not found in new structure, try searching recursively
         if not os.path.exists(found_file):
             found_file = None
-            company_folder = os.path.join(OUTPUT_DIR, selected_company)
-            search_dirs = [company_folder, OUTPUT_DIR] if os.path.isdir(company_folder) else [OUTPUT_DIR]
+            _output_dir = get_setting("OUTPUT_DIR", "")
+            company_folder = os.path.join(_output_dir, selected_company)
+            search_dirs = [company_folder, _output_dir] if os.path.isdir(company_folder) else [_output_dir]
 
             for search_dir in search_dirs:
                 if not os.path.isdir(search_dir):
@@ -640,7 +629,7 @@ def get_cached_master_data(graph_client, master_csv_local):
     
     # Download and cache
     master_csv_path = graph_client.download_file_from_sharepoint(
-        sp_path=f"{SP_BASE_FOLDER}/master-files/material.csv",
+        sp_path=f"{get_setting('SP_BASE_FOLDER', '')}/master-files/material.csv",
         local_path=master_csv_local
     )
     master = pd.read_csv(master_csv_path)
@@ -668,7 +657,7 @@ def get_cached_keywords(graph_client, keywords_csv_local):
     keywords_list = []
     try:
         keywords_csv_path = graph_client.download_file_from_sharepoint(
-            sp_path=f"{SP_BASE_FOLDER}/master-files/unique_keywords.csv",
+            sp_path=f"{get_setting('SP_BASE_FOLDER', '')}/master-files/unique_keywords.csv",
             local_path=keywords_csv_local
         )
         keywords_df = pd.read_csv(keywords_csv_path)
@@ -704,7 +693,7 @@ def ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client):
         excel_path, found_company = find_rfp_file_across_companies(rfp_id)
         if excel_path and os.path.exists(excel_path):
             return excel_path
-        company = found_company or COMPANY_NAME
+        company = found_company or get_setting("COMPANY_NAME", "")
 
     excel_path = get_rfp_excel_file_path(rfp_id, company)
     if os.path.exists(excel_path):
@@ -776,11 +765,11 @@ def _batch_get_match_percentages_from_dataverse(rfp_ids: list):
         filter_expr = " or ".join(filter_parts)
         try:
             result = DATAVERSE.query_rows(
-                RFP_ACTIVITY_LOG_TABLE_API,
+                get_setting("RFP_ACTIVITY_LOG_TABLE_API", ""),
                 filter_expr=filter_expr,
                 select="RFP_ID,Matched_Data",
                 top=chunk_size,
-                table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+                table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", ""),
                 use_display_names=True
             )
             rows = result.get("value", []) if isinstance(result, dict) else []
@@ -803,11 +792,11 @@ def _get_match_percentage_from_dataverse(rfp_id: str):
     try:
         filter_val = rfp_id.replace("'", "''")
         result = DATAVERSE.query_rows(
-            RFP_ACTIVITY_LOG_TABLE_API,
+            get_setting("RFP_ACTIVITY_LOG_TABLE_API", ""),
             filter_expr=f"RFP_ID eq '{filter_val}'",
             select="RFP_ID,Matched_Data",
             top=1,
-            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", ""),
             use_display_names=True
         )
         rows = result.get("value", []) if isinstance(result, dict) else []
@@ -2143,11 +2132,11 @@ def _try_materials_from_dataverse(rfp_id: str):
     try:
         filter_val = rfp_id.replace("'", "''")
         result = DATAVERSE.query_rows(
-            RFP_ACTIVITY_LOG_TABLE_API,
+            get_setting("RFP_ACTIVITY_LOG_TABLE_API", ""),
             filter_expr=f"RFP_ID eq '{filter_val}'",
             select="RFP_ID,Matched_Data",
             top=1,
-            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", ""),
             use_display_names=True
         )
         rows = result.get("value", []) if isinstance(result, dict) else []
@@ -2257,8 +2246,8 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
         # FALLBACK PATH: Live matching (for old records without new format)
         # Initialize GraphClient for master file download
         graph_client = GraphClient(
-            CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-            SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+            get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+            get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", "")
         )
         graph_client.auth()
         graph_client.resolve_site_and_drive()
@@ -2271,7 +2260,7 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
             if found_company:
                 selected_company = found_company
             else:
-                selected_company = COMPANY_NAME
+                selected_company = get_setting("COMPANY_NAME", "")
                 print(f"⚠️ Company not found for RFP {rfp_id}, using default: {selected_company}")
 
         # Find Excel file — download from SharePoint if not local
@@ -2294,11 +2283,12 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
             })
 
         # Get cached master data (downloads only if needed)
-        master_csv_local = os.path.join(OUTPUT_DIR, "master_material.csv")
+        _output_dir = get_setting("OUTPUT_DIR", "")
+        master_csv_local = os.path.join(_output_dir, "master_material.csv")
         master = get_cached_master_data(graph_client, master_csv_local)
 
         # Get cached keywords (downloads only if needed)
-        keywords_csv_local = os.path.join(OUTPUT_DIR, "unique_keywords.csv")
+        keywords_csv_local = os.path.join(_output_dir, "unique_keywords.csv")
         keywords_list = get_cached_keywords(graph_client, keywords_csv_local)
 
         # Find 'material' column in master CSV
@@ -2414,7 +2404,7 @@ async def get_dynamic_form_structure(request: Request, rfp_id: str, company: str
             if found_company:
                 selected_company = found_company
             else:
-                selected_company = COMPANY_NAME
+                selected_company = get_setting("COMPANY_NAME", "")
                 print(f"⚠️ Company not found for RFP {rfp_id}, using default: {selected_company}")
 
         # Get ORIGINAL Excel file path (not unprotected) with company
@@ -2477,21 +2467,22 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
 
         # Initialize GraphClient once
         graph_client = GraphClient(
-            CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-            SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+            get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+            get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", "")
         )
         graph_client.auth()
         graph_client.resolve_site_and_drive()
 
         # Get cached master data (downloads only if needed)
-        master_csv_local = os.path.join(OUTPUT_DIR, "master_material.csv")
+        _output_dir = get_setting("OUTPUT_DIR", "")
+        master_csv_local = os.path.join(_output_dir, "master_material.csv")
         master = get_cached_master_data(graph_client, master_csv_local)
         master_col = find_column_name(master.columns, "material")
         if not master_col:
             raise HTTPException(status_code=500, detail="No 'material' column found in master CSV")
 
         # Get cached keywords (downloads only if needed)
-        keywords_csv_local = os.path.join(OUTPUT_DIR, "unique_keywords.csv")
+        keywords_csv_local = os.path.join(_output_dir, "unique_keywords.csv")
         keywords_list = get_cached_keywords(graph_client, keywords_csv_local)
 
         # Pre-index master codes for O(1) lookup
@@ -2621,8 +2612,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
 
         if not company:
             # Default to COMPANY_NAME if still not found
-            from config.config import COMPANY_NAME
-            company = COMPANY_NAME
+            company = get_setting("COMPANY_NAME", "")
             print(f"   ⚠️ Company not provided, using default: {company}")
 
         print(f"   📍 Company: {company}")
@@ -2962,8 +2952,8 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
         try:
             # Initialize SharePoint client
             graph_client = GraphClient(
-                CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-                SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+                get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+                get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", "")
             )
             graph_client.auth()
             graph_client.resolve_site_and_drive()

@@ -27,6 +27,23 @@ export function formatDateTime(date: string | Date): string {
   })
 }
 
+/**
+ * Format a date string to M/D/YYYY h:mm AM/PM (no leading zeros)
+ */
+export function formatDateMDY(date: string | Date | null | undefined): string {
+  if (!date) return '-'
+  const d = new Date(date)
+  if (isNaN(d.getTime())) return String(date)
+  const month = d.getMonth() + 1
+  const day = d.getDate()
+  const year = d.getFullYear()
+  let hours = d.getHours()
+  const minutes = d.getMinutes().toString().padStart(2, '0')
+  const ampm = hours >= 12 ? 'PM' : 'AM'
+  hours = hours % 12 || 12
+  return `${month}/${day}/${year} ${hours}:${minutes} ${ampm}`
+}
+
 export function getStatusColor(status: string): string {
   const statusColors: Record<string, string> = {
     open: 'bg-warning text-warning-foreground',

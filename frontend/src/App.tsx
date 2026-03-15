@@ -22,6 +22,7 @@ const AuditLogsPage = lazy(() => import('@/pages/admin/audit-logs'))
 const MasterDataPage = lazy(() => import('@/pages/admin/master-data'))
 const SapPasswordLogsPage = lazy(() => import('@/pages/admin/sap-logs'))
 const MaterialInsightsPage = lazy(() => import('@/pages/material-insights'))
+const SystemSettingsPage = lazy(() => import('@/pages/admin/system-settings'))
 
 // Dialogs
 import { SubmitRfpDialog } from '@/components/dialogs/submit-rfp-dialog'
@@ -152,6 +153,11 @@ function ProtectedLayout() {
               <Route path="/admin/master-data" element={
                 <PermissionGuard permission="master_data.view" fallback={<AccessDenied />}>
                   <MasterDataPage />
+                </PermissionGuard>
+              } />
+              <Route path="/admin/system-settings" element={
+                <PermissionGuard permission="system_settings.view" fallback={<AccessDenied />}>
+                  <SystemSettingsPage />
                 </PermissionGuard>
               } />
             </Routes>

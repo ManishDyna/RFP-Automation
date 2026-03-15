@@ -7,7 +7,8 @@ if sys.platform == "win32":
 # === Your existing imports ===
 from rfp.submit_rfp import submit_rfp
 from core.common_imports import *
-from config.config import SP_BASE_FOLDER, OUTPUT_DIR, URL, resolve_company_name, COMPANY_OPTIONS
+from config.config import resolve_company_name
+from services.system_settings_service import get_setting
 from config.runtime_config import USERNAME, PASSWORD
 from rfp.download_rfp import *
 from core.common_process import *
@@ -45,7 +46,7 @@ def _resolve_company(company: str | None) -> str:
     """
     value = (company or "").strip()
     if not value:
-        return COMPANY_NAME
+        return get_setting("COMPANY_NAME", "Saudi Electricity Company")
     # Use the mapping function to convert short names to full names
     return resolve_company_name(value)
 
@@ -127,7 +128,7 @@ async def is_logged_in(page):
             pass
         
         # Check if we're on a valid portal page (not login)
-        if URL.lower() in current_url or "ariba" in current_url:
+        if get_setting("URL", "").lower() in current_url or "ariba" in current_url:
             # Try to find a logged-in indicator
             try:
                 # Check for common logged-in elements
@@ -154,7 +155,7 @@ async def ensure_logged_in(page, retry_count=3):
         
         try:
             # Navigate to login page
-            await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(get_setting("URL", ""), wait_until="domcontentloaded", timeout=60000)
             await asyncio.sleep(1)
             
             # Wait for login input to be available
@@ -503,8 +504,8 @@ async def run_automation_download(company: str | None = None):
     log_event("SYSTEM", "StartRun", "Success", "Automation started")
     target_company = _resolve_company(company)
     graph_client = GraphClient(
-        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+        get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+        get_setting("SHAREPOINT_HOSTNAME", "bahracables.sharepoint.com"), get_setting("SITE_PATH", "/sites/LiveSite/RFPAutomation"), get_setting("DRIVE_NAME", "Documents")
     )
     graph_client.auth()
     graph_client.resolve_site_and_drive()
@@ -550,12 +551,13 @@ async def run_automation_download(company: str | None = None):
 
 async def run_automation_download_open_rfps():
     """Download RFPs automation for ALL companies (iterates through COMPANY_OPTIONS)."""
+    COMPANY_OPTIONS = get_setting("COMPANY_OPTIONS", [])
     start_new_run()
     log_event("SYSTEM", "StartRun", "Success", f"Download Open RFPs automation started for all {len(COMPANY_OPTIONS)} companies")
 
     graph_client = GraphClient(
-        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+        get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+        get_setting("SHAREPOINT_HOSTNAME", "bahracables.sharepoint.com"), get_setting("SITE_PATH", "/sites/LiveSite/RFPAutomation"), get_setting("DRIVE_NAME", "Documents")
     )
     graph_client.auth()
     graph_client.resolve_site_and_drive()
@@ -626,8 +628,8 @@ async def run_automation_submit(rfp_id: str, company: str | None = None):
     log_event("SYSTEM", "StartRun", "Success", f"Submit RFP {rfp_id} started")
     target_company = _resolve_company(company)
     graph_client = GraphClient(
-        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+        get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+        get_setting("SHAREPOINT_HOSTNAME", "bahracables.sharepoint.com"), get_setting("SITE_PATH", "/sites/LiveSite/RFPAutomation"), get_setting("DRIVE_NAME", "Documents")
     )
     graph_client.auth()
     graph_client.resolve_site_and_drive()
@@ -745,8 +747,8 @@ async def run_automation_decline(rfp_id: str, company: str | None = None):
     log_event("SYSTEM", "StartRun", "Success", f"Decline RFP {rfp_id} started")
     target_company = _resolve_company(company)
     graph_client = GraphClient(
-        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+        get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+        get_setting("SHAREPOINT_HOSTNAME", "bahracables.sharepoint.com"), get_setting("SITE_PATH", "/sites/LiveSite/RFPAutomation"), get_setting("DRIVE_NAME", "Documents")
     )
     graph_client.auth()
     graph_client.resolve_site_and_drive()
@@ -1101,14 +1103,15 @@ def sync_participation_with_db(rfp_data: list[dict], rfp_ids: list[str] | None =
 async def run_automation_sync_portal(rfp_ids: list[str] | None = None):
     """Sync portal participation status for ALL companies in COMPANY_OPTIONS."""
     import json
+    COMPANY_OPTIONS = get_setting("COMPANY_OPTIONS", [])
     start_new_run()  # Generate new unique RUN_ID for this automation run
     log_event("SYSTEM", "StartRun", "Success",
               f"Sync portal started for all {len(COMPANY_OPTIONS)} companies" +
               (f" (filtered to {len(rfp_ids)} dashboard RFPs)" if rfp_ids else ""))
 
     graph_client = GraphClient(
-        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+        get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+        get_setting("SHAREPOINT_HOSTNAME", "bahracables.sharepoint.com"), get_setting("SITE_PATH", "/sites/LiveSite/RFPAutomation"), get_setting("DRIVE_NAME", "Documents")
     )
     log_event("SYNC", "Setup", "Step", "Initializing SharePoint client")
     graph_client.auth()
@@ -1213,7 +1216,7 @@ async def run_automation_sync_portal(rfp_ids: list[str] | None = None):
     }
 
     json_filename = f"sync_data_{timestamp}.json"
-    json_path = os.path.join(OUTPUT_DIR, json_filename)
+    json_path = os.path.join(get_setting("OUTPUT_DIR", os.path.join(os.getcwd(), "ALLRFPs")), json_filename)
 
     try:
         with open(json_path, 'w', encoding='utf-8') as f:
@@ -1223,7 +1226,7 @@ async def run_automation_sync_portal(rfp_ids: list[str] | None = None):
 
         try:
             log_event("SYNC", "SharePoint", "Uploading", f"Uploading {json_filename} to SharePoint")
-            graph_client.sync_local_to_sharepoint(json_path, f"{SP_BASE_FOLDER}/Sync-Data")
+            graph_client.sync_local_to_sharepoint(json_path, f"{get_setting('SP_BASE_FOLDER', 'RFP-logs')}/Sync-Data")
             log_event("SYNC", "SharePoint", "Success", f"JSON file uploaded to SharePoint: {json_filename}")
         except Exception as e:
             log_event("SYNC", "SharePoint", "Fail", f"Failed to upload JSON to SharePoint: {str(e)}")
@@ -1319,7 +1322,8 @@ async def download_single_rfp_file(page, rfp_data, company_name, allrfps_base_fo
     import tempfile
     from helpers.core_helper import click_if_visible, clean_rfp_title, get_sharepoint_rfp_material_path
     from helpers.core_helper import DATAVERSE, sanitize_filter_value
-    from config.config import RFP_ACTIVITY_LOG_TABLE_API, RFP_ACTIVITY_LOG_TABLE_LOGICAL
+    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
+    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
     from rfp.download_rfp import extract_rfp_details_inner_text
 
     title = rfp_data.get('Title', '').strip()
@@ -1335,10 +1339,10 @@ async def download_single_rfp_file(page, rfp_data, company_name, allrfps_base_fo
         safe_rfp_id = sanitize_filter_value(title)
         safe_company = sanitize_filter_value(company_name)
         existing_result = DATAVERSE.query_rows(
-            RFP_ACTIVITY_LOG_TABLE_API,
+            _act_api,
             filter_expr=f"RFP_ID eq '{safe_rfp_id}' and Company_Name eq '{safe_company}'",
             top=1,
-            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            table_logical_name=_act_logical,
             use_display_names=True
         )
         if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
@@ -1445,22 +1449,23 @@ async def download_single_rfp_file(page, rfp_data, company_name, allrfps_base_fo
 
 def store_rfp_in_database(rfp_data, company_name, file_path=None, owner_name=None, publish_time=None):
     """Store RFP data in RFP activity log table"""
-    from config.config import RFP_ACTIVITY_LOG_TABLE_API, RFP_ACTIVITY_LOG_TABLE_LOGICAL
     from helpers.core_helper import DATAVERSE
     from core.log_events import get_current_run_id
-    
+    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
+    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
+
     try:
         rfp_id = rfp_data.get('RFP_ID') or rfp_data.get('Title', '')
         link = rfp_data.get('Link', '')
         end_date = rfp_data.get('RFP_End_Date') or rfp_data.get('End_Time', '')
         participated = rfp_data.get('Participated', '') or rfp_data.get('participated', '')
-        
+
         # Check if RFP already exists
         existing_result = DATAVERSE.query_rows(
-            RFP_ACTIVITY_LOG_TABLE_API,
+            _act_api,
             filter_expr=f"RFP_ID eq '{rfp_id}' and Company_Name eq '{company_name}'",
             top=1,
-            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            table_logical_name=_act_logical,
             use_display_names=True
         )
         
@@ -1493,7 +1498,7 @@ def store_rfp_in_database(rfp_data, company_name, file_path=None, owner_name=Non
         if existing_result and "value" in existing_result and len(existing_result["value"]) > 0:
             # Update existing record
             existing_row = existing_result["value"][0]
-            record_id = existing_row[f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"]
+            record_id = existing_row[f"{_act_logical}id"]
             
             # Only update if there are changes
             update_data = {}
@@ -1503,18 +1508,18 @@ def store_rfp_in_database(rfp_data, company_name, file_path=None, owner_name=Non
             
             if update_data:
                 DATAVERSE.update_row(
-                    RFP_ACTIVITY_LOG_TABLE_API,
+                    _act_api,
                     record_id,
                     update_data,
-                    table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
+                    table_logical_name=_act_logical
                 )
                 log_event("ALL_RFPS", "Database", "Updated", f"Updated RFP {rfp_id} for {company_name}")
         else:
             # Insert new record
             DATAVERSE.insert_row(
-                RFP_ACTIVITY_LOG_TABLE_API,
+                _act_api,
                 row_data,
-                table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
+                table_logical_name=_act_logical
             )
             log_event("ALL_RFPS", "Database", "Inserted", f"Inserted RFP {rfp_id} for {company_name}")
         
@@ -1539,8 +1544,8 @@ async def run_automation_download_all_rfps(selected_company: str = ""):
 
     # Initialize SharePoint client for file existence checks
     graph_client = GraphClient(
-        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+        get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+        get_setting("SHAREPOINT_HOSTNAME", "bahracables.sharepoint.com"), get_setting("SITE_PATH", "/sites/LiveSite/RFPAutomation"), get_setting("DRIVE_NAME", "Documents")
     )
     graph_client.auth()
     graph_client.resolve_site_and_drive()
@@ -1560,7 +1565,7 @@ async def run_automation_download_all_rfps(selected_company: str = ""):
         try:
             # Login
             log_event("ALL_RFPS", "Login", "Start", "Starting login")
-            await page.goto(URL, wait_until="domcontentloaded")
+            await page.goto(get_setting("URL", ""), wait_until="domcontentloaded")
             await page.fill('xpath=//*[@id="_boebpb"]/div[1]/input', USERNAME)
             await page.fill('#Password', PASSWORD)
             
@@ -1842,7 +1847,7 @@ def verify_sharepoint_files_against_dataverse(graph_client, company_name: str = 
         # ── PHASE 2: Check SharePoint files against DB ──
         log_event("SP_DV_SYNC", "Verify", "Step", "Scanning SharePoint for files without DB entries")
 
-        sp_allrfps_path = f"{SP_BASE_FOLDER}/ALLRFPs"
+        sp_allrfps_path = f"{get_setting('SP_BASE_FOLDER', 'RFP-logs')}/ALLRFPs"
 
         # List company folders
         if company_name:
@@ -1926,7 +1931,7 @@ async def sync_db_to_sharepoint(page, missing_in_sp: list, graph_client, company
 
             # Download from portal (saves to local temp first)
             status, message, needs_relogin, local_path, owner_name, publish_time = await download_single_rfp_file(
-                page, rfp_data, comp_name, OUTPUT_DIR, graph_client=graph_client
+                page, rfp_data, comp_name, get_setting("OUTPUT_DIR", os.path.join(os.getcwd(), "ALLRFPs")), graph_client=graph_client
             )
 
             if needs_relogin:
@@ -2043,8 +2048,8 @@ async def run_sync_sharepoint_dataverse(company: str = None):
 
     # Initialize SharePoint client
     graph_client = GraphClient(
-        CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-        SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+        get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+        get_setting("SHAREPOINT_HOSTNAME", "bahracables.sharepoint.com"), get_setting("SITE_PATH", "/sites/LiveSite/RFPAutomation"), get_setting("DRIVE_NAME", "Documents")
     )
     log_event("SP_DV_SYNC", "Setup", "Step", "Initializing SharePoint client")
     graph_client.auth()
