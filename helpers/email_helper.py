@@ -764,6 +764,12 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     # Normalise allowed emails to lowercase for comparison
     allowed_decline = {e.strip().lower() for e in (_decline_emails if isinstance(_decline_emails, list) else [])}
 
+    # New condition: Decline button only shown when ALL results are "No"
+    all_results_no = all(
+        (resp.get("results") or "").strip().lower() == "no"
+        for resp in responses
+    ) if responses else False
+
     # --- Collect all recipient emails ---
     all_emails = set()
     all_emails.add(_email_to_new_rfp)
@@ -775,8 +781,11 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
 
     # --- Send individual MIME email per recipient ---
     for recipient_email in all_emails:
-        # Build card: include Decline button only for allowed emails
-        show_decline = recipient_email.strip().lower() in allowed_decline
+        # Build card: include Decline button only for allowed emails AND all results are "No"
+        show_decline = (
+            recipient_email.strip().lower() in allowed_decline
+            and all_results_no
+        )
         card = {
             "originator": _originator_id,
             "type": "AdaptiveCard",
