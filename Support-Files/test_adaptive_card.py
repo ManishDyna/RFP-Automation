@@ -5,6 +5,10 @@ Run this AFTER:
   2. Port 8000 is forwarded and public in VS Code
   3. At least 1 hour has passed since Actionable Message registration
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from helpers.email_helper import send_actionable_rfp_emails
 
 # Test with a fake RFP ID
