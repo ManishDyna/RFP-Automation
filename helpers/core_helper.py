@@ -1,7 +1,9 @@
 from core.common_imports import *
 from helpers.dataverse_helper import DataverseClient
 from config.config import *
-from services.system_settings_service import get_setting
+def get_setting(key, default=None):
+    from services.system_settings_service import get_setting as _get_setting
+    return _get_setting(key, default)
 from datetime import datetime
 import logging
 

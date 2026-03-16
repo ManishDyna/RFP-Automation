@@ -209,9 +209,9 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
     # --- Build ColumnSet-based table (only this person's products) ---
     header_cols = []
     for col in columns:
-        if col["column_key"] == "email":
-            continue  # Skip email column — single person, not needed
-        col_width = 1
+        if col["column_key"] == "name":
+            continue  # Skip name column — email is shown instead
+        col_width = 2 if col["column_key"] == "email" else 1
         header_cols.append({
             "type": "Column", "width": col_width, "padding": "None",
             "items": [{"type": "TextBlock", "text": col.get("column_label", col["column_key"]),
@@ -229,15 +229,15 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
         row_columns = []
         for col in columns:
             key = col["column_key"]
-            if key == "email":
-                continue  # Skip email column
-            col_width = 1
+            if key == "name":
+                continue  # Skip name column — email is shown instead
+            col_width = 2 if key == "email" else 1
             if col.get("column_category") == "input":
                 # Editable widget with indexed ID (results_0, results_1, etc.)
                 item = _build_input_widget_indexed(col, idx)
             else:
                 # Display column
-                value = product if key == "product" else (name if key == "name" else "")
+                value = product if key == "product" else (email if key == "email" else "")
                 item = {"type": "TextBlock", "text": value, "wrap": True,
                         "size": "Small", "weight": "Bolder"}
             row_columns.append({
@@ -441,6 +441,11 @@ def send_actionable_rfp_emails(
     _originator_id = get_setting("ACTIONABLE_CARD_ORIGINATOR_ID", "")
     _callback_url = get_setting("ACTIONABLE_CARD_CALLBACK_URL", "")
     _email_to_new_rfp = get_setting("EMAIL_TO_NEW_RFP", "")
+    _email_mode = get_setting("EMAIL_MODE", "dev")
+    _dev_email = get_setting("DEV_EMAIL", "KSAGov.tenders@bahra-cables.com")
+    # Apply dev mode redirect to EMAIL_TO_NEW_RFP (same logic as master_data_service.py)
+    if _email_mode != "prod" and _email_to_new_rfp:
+        _email_to_new_rfp = _dev_email
     from services.master_data_service import get_all_rfp_team_for_emails
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
 
@@ -857,6 +862,10 @@ def send_per_rfp_email(
     _sp_base = get_setting("SP_BASE_FOLDER", "RFP-logs")
     _originator_id = get_setting("ACTIONABLE_CARD_ORIGINATOR_ID", "")
     _callback_url = get_setting("ACTIONABLE_CARD_CALLBACK_URL", "")
+    _email_mode = get_setting("EMAIL_MODE", "dev")
+    _dev_email = get_setting("DEV_EMAIL", "KSAGov.tenders@bahra-cables.com")
+    if _email_mode != "prod" and _email_to_new_rfp:
+        _email_to_new_rfp = _dev_email
     from services.master_data_service import get_all_rfp_team_for_emails
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
     from core.log_events import log_rfp_activity
@@ -985,6 +994,20 @@ def trigger_email(
     _email_to_rfp_error_in_decline = get_setting("EMAIL_TO_RFP_ERROR_IN_DECLINE", "")
     _email_to_no_new_rfp = get_setting("EMAIL_TO_NO_NEW_RFP", "")
     _email_to_automation_failure = get_setting("EMAIL_TO_AUTOMATION_FAILURE", "")
+    _email_mode = get_setting("EMAIL_MODE", "dev")
+    _dev_email  = get_setting("DEV_EMAIL", "KSAGov.tenders@bahra-cables.com")
+    if _email_mode != "prod":
+        def _dev(addr): return _dev_email if addr else ""
+        _email_to_new_rfp               = _dev(_email_to_new_rfp)
+        _email_to_new_rfp_no_match      = _dev(_email_to_new_rfp_no_match)
+        _email_to_new_rfp_with_match    = _dev(_email_to_new_rfp_with_match)
+        _email_to_rfp_reminder          = _dev(_email_to_rfp_reminder)
+        _email_to_rfp_saved_draft       = _dev(_email_to_rfp_saved_draft)
+        _email_to_rfp_error_in_submission = _dev(_email_to_rfp_error_in_submission)
+        _email_to_rfp_declined          = _dev(_email_to_rfp_declined)
+        _email_to_rfp_error_in_decline  = _dev(_email_to_rfp_error_in_decline)
+        _email_to_no_new_rfp            = _dev(_email_to_no_new_rfp)
+        _email_to_automation_failure    = _dev(_email_to_automation_failure)
 
     not_mateched_files = not_mateched_files or []
     attachments = attachments or []
@@ -1011,6 +1034,8 @@ def trigger_email(
         )
         emails = emails.dropna() if emails is not None else pd.Series([], dtype=str)
         unique_emails = emails.unique().tolist()
+        if _email_mode != "prod" and unique_emails:
+            unique_emails = [_dev_email]
 
         # Collect source files
         source_files = df["SourceFile"].dropna().unique().tolist() if "SourceFile" in df.columns else []
