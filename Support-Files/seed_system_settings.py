@@ -25,6 +25,7 @@ import config.config as config
 # Seed Data: one dict per config key
 # Only Admin-facing settings remain in Dataverse/portal.
 # Developer settings are managed via config/config.py only.
+# All email values use _PROD_* directly — independent of EMAIL_MODE.
 # ─────────────────────────────────────────────────────
 SEED_DATA = [
     # ═══════════════════════════════════════════════════
@@ -33,67 +34,67 @@ SEED_DATA = [
     # All other settings (URL, credentials, etc.) are in config/config.py.
     # ═══════════════════════════════════════════════════
 
-    {"key": "EMAIL_TO_NEW_RFP", "value": config.EMAIL_TO_NEW_RFP,
+    {"key": "EMAIL_TO_NEW_RFP", "value": "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com",
      "label": "Email: New RFP Found", "section": "Admin", "sub_section": "Email", "data_type": "email",
-     "description": "Recipient when a NEW RFP is found on the portal. Used by: RFP download automation. Sent once per new RFP with the RFP file attached and matched materials. Only active when EMAIL_MODE is 'prod'.",
+     "description": "Recipient when a NEW RFP is found on the portal. Used by: RFP download automation. Sent once per new RFP with the RFP file attached and matched materials.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "EMAIL_TO_NO_NEW_RFP", "value": config.EMAIL_TO_NO_NEW_RFP,
+    {"key": "EMAIL_TO_NO_NEW_RFP", "value": "abdullah.rawah@bahra-cables.com;Manish.soni@dynatechconsultancy.com",
      "label": "Email: No New RFP", "section": "Admin", "sub_section": "Email", "data_type": "email",
      "description": "Recipient when automation runs but finds NO new RFP on the portal. Used by: RFP download automation. Sent as a status update so admins know the bot ran successfully.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "EMAIL_TO_RFP_DECLINED", "value": config.EMAIL_TO_RFP_DECLINED,
+    {"key": "EMAIL_TO_RFP_DECLINED", "value": "abdullah.rawah@bahra-cables.com",
      "label": "Email: RFP Declined", "section": "Admin", "sub_section": "Email", "data_type": "email",
      "description": "Recipient when an RFP is declined via the portal. Used by: RFP decline automation. Confirms the decline action was completed.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "EMAIL_TO_RFP_ERROR_IN_SUBMISSION", "value": config.EMAIL_TO_RFP_ERROR_IN_SUBMISSION,
+    {"key": "EMAIL_TO_RFP_ERROR_IN_SUBMISSION", "value": "Manish.soni@dynatechconsultancy.com",
      "label": "Email: Submission Error", "section": "Admin", "sub_section": "Email", "data_type": "email",
      "description": "Recipient when an RFP submission fails with an error. Used by: RFP submit automation. Contains error details so the team can investigate and retry.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "EMAIL_TO_RFP_ERROR_IN_DECLINE", "value": config.EMAIL_TO_RFP_ERROR_IN_DECLINE,
+    {"key": "EMAIL_TO_RFP_ERROR_IN_DECLINE", "value": "Manish.soni@dynatechconsultancy.com",
      "label": "Email: Decline Error", "section": "Admin", "sub_section": "Email", "data_type": "email",
      "description": "Recipient when an RFP decline fails with an error. Used by: RFP decline automation. Contains error details for investigation.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "EMAIL_TO_AUTOMATION_FAILURE", "value": config.EMAIL_TO_AUTOMATION_FAILURE,
+    {"key": "EMAIL_TO_AUTOMATION_FAILURE", "value": "Manish.soni@dynatechconsultancy.com",
      "label": "Email: Automation Failure", "section": "Admin", "sub_section": "Email", "data_type": "email",
      "description": "Recipient when the automation bot crashes or encounters a critical failure. Used by: automation error handler. This is the most important alert email -- ensure it reaches someone who can respond quickly.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "EMAIL_TO_RFP_SUBMITTED", "value": config.EMAIL_TO_RFP_SUBMITTED,
+    {"key": "EMAIL_TO_RFP_SUBMITTED", "value": "abdullah.rawah@bahra-cables.com",
      "label": "Email: RFP Submitted", "section": "Admin", "sub_section": "Email", "data_type": "email",
      "description": "Recipient when an RFP is successfully submitted on the portal. Used by: RFP submit automation. Confirms the submission was completed.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "EMAIL_TO_RFP_SAVED_DRAFT", "value": config.EMAIL_TO_RFP_SAVED_DRAFT,
+    {"key": "EMAIL_TO_RFP_SAVED_DRAFT", "value": "arawah@bahra-cables.com",
      "label": "Email: RFP Saved Draft", "section": "Admin", "sub_section": "Email", "data_type": "email",
      "description": "Recipient when an RFP is saved as draft on the portal. Used by: RFP draft automation. Notifies the team that a draft is ready for review.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "EMAIL_TO_RFP_REMINDER", "value": config.EMAIL_TO_RFP_REMINDER,
+    {"key": "EMAIL_TO_RFP_REMINDER", "value": "abdullah.rawah@bahra-cables.com",
      "label": "Email: RFP Reminder", "section": "Admin", "sub_section": "Email", "data_type": "email",
      "description": "Recipient for RFP deadline reminder notifications. Used by: RFP reminder scheduler. Sent before RFP deadlines to prompt action.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "EMAIL_TO_NEW_RFP_WITH_MATCH", "value": config.EMAIL_TO_NEW_RFP_WITH_MATCH,
+    {"key": "EMAIL_TO_NEW_RFP_WITH_MATCH", "value": "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com",
      "label": "Email: New RFP With Match", "section": "Admin", "sub_section": "Email", "data_type": "email",
      "description": "Recipient when a new RFP is found AND has material matches in master data. Used by: RFP download automation with material matching. Contains the matched materials summary.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "EMAIL_TO_NO_MATCHED_DATA", "value": config.EMAIL_TO_NO_MATCHED_DATA,
+    {"key": "EMAIL_TO_NO_MATCHED_DATA", "value": "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com",
      "label": "Email: No Matched Data", "section": "Admin", "sub_section": "Email", "data_type": "email",
      "description": "Recipient when material matching runs but finds no matches in master data. Used by: material matching service. Alerts the team to review material master data.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "EMAIL_TO_NEW_RFP_NO_MATCH", "value": config.EMAIL_TO_NEW_RFP_NO_MATCH,
+    {"key": "EMAIL_TO_NEW_RFP_NO_MATCH", "value": "loai.albar@bahra-cables.com;theeb.alsamrah@bahra-cables.com;faiq.natto@bahra-cables.com;hossam.ahmed@bahra-cables.com;renad.jastaniah@bahra-cables.com;sec.tenderteam@bahra-cables.com;abdullah.rawah@bahra-cables.com",
      "label": "Email: New RFP No Match", "section": "Admin", "sub_section": "Email", "data_type": "email",
      "description": "Recipient when a new RFP is found but has NO material matches. Used by: RFP download automation. Alerts the team that manual material review is needed.",
      "is_editable": True, "is_sensitive": False},
 
-    {"key": "DECLINE_BUTTON_EMAILS", "value": json.dumps(["Shubham.kumbhar@dynatechconsultancy.com"]),
+    {"key": "DECLINE_BUTTON_EMAILS", "value": json.dumps(config.DECLINE_BUTTON_EMAILS),
      "label": "Decline Button Emails", "section": "Admin", "sub_section": "Email", "data_type": "json",
      "description": "Email addresses authorized to see the 'Decline RFP' button in consolidated response emails. Used by: actionable card email builder. Only these users will see the decline option. Must be a valid JSON array of email strings.",
      "is_editable": True, "is_sensitive": False},
@@ -152,6 +153,15 @@ REMOVED_KEYS = [
     "RFP_TEAM_DV_TABLE_LOGICAL", "RFP_TEAM_DV_TABLE_API",
     "RFP_TEAM_COLUMNS_TABLE_LOGICAL", "RFP_TEAM_COLUMNS_TABLE_API",
     "RFP_RESPONSE_TABLE_LOGICAL", "RFP_RESPONSE_TABLE_API",
+
+    # ── Incorrectly seeded with _PROD_/_DEV_ prefixed keys — delete these junk rows ──
+    "_PROD_EMAIL_TO_NEW_RFP", "_PROD_EMAIL_TO_NO_NEW_RFP",
+    "_PROD_EMAIL_TO_RFP_DECLINED", "_PROD_EMAIL_TO_RFP_ERROR_IN_SUBMISSION",
+    "_PROD_EMAIL_TO_RFP_ERROR_IN_DECLINE", "_PROD_EMAIL_TO_AUTOMATION_FAILURE",
+    "_PROD_EMAIL_TO_RFP_SUBMITTED", "_PROD_EMAIL_TO_RFP_SAVED_DRAFT",
+    "_PROD_EMAIL_TO_RFP_REMINDER", "_PROD_EMAIL_TO_NEW_RFP_WITH_MATCH",
+    "_PROD_EMAIL_TO_NO_MATCHED_DATA", "_PROD_EMAIL_TO_NEW_RFP_NO_MATCH",
+    "_PROD_RFP_TEAM_TABLE", "_DEV_RFP_TEAM_TABLE",
 ]
 
 
@@ -281,9 +291,66 @@ def update_existing_rows():
     print(f"\nDone! Updated: {updated}, Deleted: {deleted}")
 
 
+def update_values():
+    """Overwrite email Value fields in Dataverse with production values from SEED_DATA."""
+    print("=" * 60)
+    print("Updating email setting values to production recipients")
+    print("=" * 60)
+
+    client = DataverseClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, RESOURCE_URL)
+
+    # Fetch rows WITHOUT display name translation to get raw logical column names
+    existing_rows = client.get_all_rows(
+        SYSTEM_SETTINGS_TABLE_API,
+        table_logical_name=SYSTEM_SETTINGS_TABLE_LOGICAL,
+        use_display_names=False,
+    )
+
+    # Print first row keys so we can see the actual column names
+    if existing_rows:
+        print(f"DEBUG - Raw column names from Dataverse: {list(existing_rows[0].keys())}\n")
+
+    key_to_id = {
+        row.get("cr673_key", ""): row.get("cr673_bahra_system_settingsid", "")
+        for row in existing_rows
+        if row.get("cr673_key", "")
+    }
+    print(f"Found {len(key_to_id)} existing settings in Dataverse\n")
+
+    updated = 0
+    not_found = 0
+
+    for item in SEED_DATA:
+        key = item["key"]
+        new_value = item["value"]
+        record_id = key_to_id.get(key)
+        if not record_id:
+            print(f"  [NOT FOUND] {key}")
+            not_found += 1
+            continue
+        print(f"  [DEBUG] {key} → record_id={record_id}")
+        try:
+            client.update_row(
+                SYSTEM_SETTINGS_TABLE_API,
+                record_id,
+                {"cr673_value": str(new_value)},
+                table_logical_name=SYSTEM_SETTINGS_TABLE_LOGICAL,
+                use_display_names=False,
+            )
+            print(f"  [UPDATE] {key} → {str(new_value)[:60]}")
+            updated += 1
+        except Exception as e:
+            print(f"  [ERROR] {key}: {e}")
+
+    print(f"\nDone! Updated: {updated}, Not found: {not_found}, Total: {len(SEED_DATA)}")
+
+
 if __name__ == "__main__":
-    if "--update" in sys.argv:
+    if "--update-values" in sys.argv:
+        update_values()
+    elif "--update" in sys.argv:
         update_existing_rows()
     else:
         seed_settings()
         print("\nRun with --update to update sections/sub_sections/descriptions of existing rows")
+        print("Run with --update-values to push production email recipients into Dataverse")
