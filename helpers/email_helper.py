@@ -629,6 +629,10 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     _site_path = get_setting("SITE_PATH", "/sites/LiveSite/RFPAutomation")
     _drive_name = get_setting("DRIVE_NAME", "Documents")
     _decline_emails = get_setting("DECLINE_BUTTON_EMAILS", [])
+    _email_mode = get_setting("EMAIL_MODE", "dev")
+    _dev_email = get_setting("DEV_EMAIL", "KSAGov.tenders@bahra-cables.com")
+    if _email_mode != "prod" and _email_to_new_rfp:
+        _email_to_new_rfp = _dev_email
     from services.master_data_service import get_all_rfp_team_for_emails
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
 
