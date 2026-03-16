@@ -102,7 +102,7 @@ class DataverseClient:
             page_rows = data.get("value", [])
             all_rows.extend(page_rows)
             next_link = data.get("@odata.nextLink")
-            print(f"📊 Page {page_num}: fetched {len(page_rows)} rows (total so far: {len(all_rows)}, has next: {bool(next_link)})")
+            print(f"[Page {page_num}] fetched {len(page_rows)} rows (total so far: {len(all_rows)}, has next: {bool(next_link)})")
             url = next_link
             params = {}  # nextLink URL already contains query params
 
@@ -273,7 +273,7 @@ class DataverseClient:
         return result
 
 
-    # Get display name → logical name mapping for a table (cached)
+    # Get display name -> logical name mapping for a table (cached)
     def get_column_mapping(self, table_logical_name: str, force_refresh: bool = False) -> dict:
         """
         Get column mapping from display names to logical names.
@@ -376,4 +376,15 @@ class DataverseClient:
         else:
             error_text = response.text.encode('ascii', 'replace').decode('ascii')
             raise Exception(f"[ERROR] Update failed for '{table_api_name}': {response.status_code}, {error_text}")
+
+    def delete_row(self, table_api_name: str, record_id: str):
+        """Delete a single row from a Dataverse table by record ID."""
+        url = f"{self.api_url}{table_api_name}({record_id})"
+        response = requests.delete(url, headers=self._headers())
+        if response.status_code in [200, 204]:
+            print(f"[OK] Row deleted from '{table_api_name}'")
+            return True
+        else:
+            error_text = response.text.encode('ascii', 'replace').decode('ascii')
+            raise Exception(f"[ERROR] Delete failed for '{table_api_name}': {response.status_code}, {error_text}")
 

@@ -646,7 +646,7 @@ def _find_other_content_sheet_name(excel_path: str):
             if "other" in ln and "content" in ln:
                 return name
     except Exception as e:
-        print(f"⚠ Could not enumerate sheets: {e}")
+        print(f"[WARN] Could not enumerate sheets: {e}")
     return None
 
 def extract_keywords_from_text(
@@ -710,12 +710,12 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
     try:
         df = pd.read_excel(excel_path, sheet_name=sheet)
     except Exception as e:
-        print(f"⚠ Could not read sheet '{sheet}' from {excel_path}: {e}")
+        print(f"[WARN] Could not read sheet '{sheet}' from {excel_path}: {e}")
         return [] if include_details else set()
 
     name_col = find_column_name(df.columns, "name")
     if not name_col:
-        print("⚠ 'name' column not found; no materials extracted.")
+        print("[WARN] 'name' column not found; no materials extracted.")
         return [] if include_details else set()
 
     if filter_by_intent:
@@ -726,7 +726,7 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
             or find_column_name(df.columns, "respond intend")
         )
         if not intent_col:
-            print("⚠ 'Intend To Respond' column not found; no materials selected.")
+            print("[WARN] 'Intend To Respond' column not found; no materials selected.")
             return [] if include_details else set()
 
         def is_yes(v) -> bool:
@@ -737,7 +737,7 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
         try:
             filtered = df[df[intent_col].map(is_yes)]
         except Exception as e:
-            print(f"⚠ Could not filter by intent column '{intent_col}': {e}")
+            print(f"[WARN] Could not filter by intent column '{intent_col}': {e}")
             return [] if include_details else set()
     else:
         # Use ALL rows — no intent filtering
@@ -764,7 +764,7 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
                         "description": desc_value
                     })
 
-        print(f"🧾 Materials extracted (filter_by_intent={filter_by_intent}): {len(materials_data)}")
+        print(f"Materials extracted (filter_by_intent={filter_by_intent}): {len(materials_data)}")
         return materials_data
     else:
         # Return set of material codes only
@@ -775,5 +775,5 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
             for mat in re.findall(r"\d{9}", str(value)):
                 materials.add(mat)
 
-        print(f"🧾 Materials extracted (filter_by_intent={filter_by_intent}): {sorted(materials)}")
+        print(f"Materials extracted (filter_by_intent={filter_by_intent}): {sorted(materials)}")
         return materials

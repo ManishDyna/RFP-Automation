@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Form, Query
 from automation_logic import run_automation_download, run_automation_download_open_rfps, run_automation_submit, run_automation_decline, run_automation_reminder, run_automation_sync_portal, run_sync_sharepoint_dataverse
-from rfp_sync import run_three_way_sync_async
 
 # Import shared progress helper
 from helpers.progress_helper import update_progress as _update_progress, get_progress as _get_progress, reset_progress as _reset_progress
@@ -235,8 +234,8 @@ async def dashboard_submit_rfp_endpoint(
     Dashboard-specific endpoint: Upload file to SharePoint, then run automation
     """
     selected_company = (company or "").strip()
-    print(f"📝 Dashboard Submit RFP - RFP ID: {rfp_id} - Company: {selected_company or get_setting('COMPANY_NAME', '')}")
-    print(f"📄 File received: {excel_file.filename}")
+    print(f"Dashboard Submit RFP - RFP ID: {rfp_id} - Company: {selected_company or get_setting('COMPANY_NAME', '')}")
+    print(f"File received: {excel_file.filename}")
     
     if not rfp_id or not excel_file:
         raise HTTPException(status_code=400, detail="Both rfp_id and excel_file are required")
@@ -256,7 +255,7 @@ async def dashboard_submit_rfp_endpoint(
             temp_file.write(content)
             temp_file_path = temp_file.name
         
-        print(f"💾 Temporary file saved: {temp_file_path}")
+        print(f"[Saved] Temporary file saved: {temp_file_path}")
         
         # Initialize SharePoint client and upload file
         graph_client = GraphClient(
@@ -279,26 +278,26 @@ async def dashboard_submit_rfp_endpoint(
         clean_title = clean_rfp_title(rfp_id)
         target_company = selected_company or get_setting("COMPANY_NAME", "")
         sp_material_path = get_sharepoint_rfp_material_path(rfp_id, target_company)
-        print(f"☁️ Uploading to SharePoint: {sp_material_path}/{clean_title}{file_ext}")
+        print(f"[Upload] Uploading to SharePoint: {sp_material_path}/{clean_title}{file_ext}")
         graph_client.upload_file_as(
             temp_file_path, 
             sp_material_path,
             f"{clean_title}{file_ext}"
         )
         
-        print(f"✅ File uploaded to SharePoint (downloaded-rfp) successfully")
+        print(f"[OK] File uploaded to SharePoint (downloaded-rfp) successfully")
 
         # ==== Also save the uploaded (filled) file to rfp-upload-file folder ====
         # This is the folder the automation checks FIRST when importing the Excel file
         try:
             sp_savedrfp_path = get_sharepoint_rfp_savedrfp_path(rfp_id, target_company)
-            print(f"☁️ Uploading to SharePoint (rfp-upload-file): {sp_savedrfp_path}/{clean_title}{file_ext}")
+            print(f"[Upload] Uploading to SharePoint (rfp-upload-file): {sp_savedrfp_path}/{clean_title}{file_ext}")
             graph_client.upload_file_as(
                 temp_file_path,
                 sp_savedrfp_path,
                 f"{clean_title}{file_ext}"
             )
-            print(f"✅ File uploaded to SharePoint (rfp-upload-file) successfully")
+            print(f"[OK] File uploaded to SharePoint (rfp-upload-file) successfully")
 
             # Also save locally to rfp-upload-file folder
             local_savedrfp_folder = get_rfp_savedrfp_folder_path(rfp_id, target_company)
@@ -306,9 +305,9 @@ async def dashboard_submit_rfp_endpoint(
             with open(temp_file_path, "rb") as src:
                 with open(local_savedrfp_path, "wb") as dst:
                     dst.write(src.read())
-            print(f"💾 Saved uploaded file locally: {local_savedrfp_path}")
+            print(f"[Saved] Saved uploaded file locally: {local_savedrfp_path}")
         except Exception as e:
-            print(f"⚠️ Could not save to rfp-upload-file folder: {e}")
+            print(f"[WARN] Could not save to rfp-upload-file folder: {e}")
 
         # ==== Upload technical PDF files (if provided) to new folder structure ====
         # New structure: RFP-logs/ALLRFPs/CompanyName/RFP_title/TDS-files/
@@ -322,7 +321,7 @@ async def dashboard_submit_rfp_endpoint(
             if pdf_ext == ".pdf":
                 valid_tds_files.append(uf)
 
-        print(f"📎 TDS files received: {len(valid_tds_files)} PDF(s) — {[uf.filename for uf in valid_tds_files]}")
+        print(f"[Attachment] TDS files received: {len(valid_tds_files)} PDF(s) - {[uf.filename for uf in valid_tds_files]}")
 
         if valid_tds_files:
             sp_tds_folder = get_sharepoint_rfp_tds_path(rfp_id, target_company)
@@ -333,7 +332,7 @@ async def dashboard_submit_rfp_endpoint(
                 try:
                     content = await uf.read()
                     if not content:
-                        print(f"⚠️ TDS file '{uf.filename}' has empty content, skipping")
+                        print(f"[WARN] TDS file '{uf.filename}' has empty content, skipping")
                         continue
 
                     remote_name = os.path.basename(uf.filename or "").strip()
@@ -346,25 +345,25 @@ async def dashboard_submit_rfp_endpoint(
                         temp_pdf_paths.append(tpdf.name)
 
                     # Upload to SharePoint
-                    print(f"☁️ Uploading TDS to SharePoint: {sp_tds_folder}/{remote_name}")
+                    print(f"[Upload] Uploading TDS to SharePoint: {sp_tds_folder}/{remote_name}")
                     graph_client.upload_file_as(
                         temp_pdf_paths[-1],
                         sp_tds_folder,
                         remote_name
                     )
-                    print(f"✅ TDS uploaded to SharePoint: {remote_name}")
+                    print(f"[OK] TDS uploaded to SharePoint: {remote_name}")
 
                     # Save to local folder
                     local_tds_path = os.path.join(local_tds_folder, remote_name)
                     with open(local_tds_path, "wb") as local_file:
                         local_file.write(content)
-                    print(f"💾 TDS saved locally: {local_tds_path}")
+                    print(f"[Saved] TDS saved locally: {local_tds_path}")
                     uploaded_count += 1
 
                 except Exception as e:
-                    print(f"❌ Failed to upload TDS file '{uf.filename}': {e}")
+                    print(f"[ERROR] Failed to upload TDS file '{uf.filename}': {e}")
 
-            print(f"📦 TDS upload complete: {uploaded_count}/{len(valid_tds_files)} files saved to TDS-files folder")
+            print(f"TDS upload complete: {uploaded_count}/{len(valid_tds_files)} files saved to TDS-files folder")
         
         # Now trigger the automation in background
         # Thread-safe atomic check-and-set
@@ -387,7 +386,7 @@ async def dashboard_submit_rfp_endpoint(
         }, status_code=202)
         
     except Exception as e:
-        print(f"❌ Error in dashboard submit RFP: {str(e)}")
+        print(f"[ERROR] Error in dashboard submit RFP: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Submit RFP failed: {str(e)}")
         
     finally:
@@ -395,9 +394,9 @@ async def dashboard_submit_rfp_endpoint(
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.unlink(temp_file_path)
-                print(f"🗑️ Temporary file deleted: {temp_file_path}")
+                print(f"[Deleted] Temporary file deleted: {temp_file_path}")
             except Exception as e:
-                print(f"⚠️ Could not delete temp file: {e}")
+                print(f"[WARN] Could not delete temp file: {e}")
         # Clean up temp PDFs
         for p in temp_pdf_paths:
             try:
@@ -507,23 +506,4 @@ async def rfp_reminder_endpoint():
     return await run_automation_reminder()
 
 
-@router.get("/sync-all")
-async def sync_all_endpoint(company: str = Query("", alias="company")):
-    """
-    3-way sync: Dataverse <-> SharePoint <-> Local Host.
-    Ensures RFP records and files are consistent across all three locations.
-    """
-    selected_company = (company or "").strip()
-
-    if not _try_start_operation("sync_all"):
-        return JSONResponse({"ok": False, "message": "3-way sync already running"}, status_code=409)
-
-    async def _task():
-        try:
-            await run_three_way_sync_async(selected_company or None)
-        finally:
-            _finish_operation("sync_all")
-
-    _run_async_in_thread(_task)
-    return JSONResponse({"ok": True, "started": True, "message": "3-way sync started"}, status_code=202)
 

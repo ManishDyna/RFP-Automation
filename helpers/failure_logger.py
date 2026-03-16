@@ -39,10 +39,10 @@ async def capture_screenshot(page, save_path: str) -> Optional[str]:
         return None
     try:
         await page.screenshot(path=save_path, full_page=True)
-        print(f"📸 Screenshot saved: {save_path}")
+        print(f"[Screenshot] Screenshot saved: {save_path}")
         return save_path
     except Exception as e:
-        print(f"⚠️  Could not capture screenshot: {e}")
+        print(f"[WARN] Could not capture screenshot: {e}")
         return None
 
 
@@ -56,7 +56,7 @@ def capture_screenshot_sync(page, save_path: str) -> Optional[str]:
     try:
         return asyncio.run(capture_screenshot(page, save_path))
     except Exception as e:
-        print(f"⚠️  Could not capture screenshot (sync): {e}")
+        print(f"[WARN] Could not capture screenshot (sync): {e}")
         return None
 
 
@@ -72,7 +72,7 @@ def _upload_folder_to_sharepoint(graph_client, local_folder: str, sp_folder: str
                 graph_client.upload_file_as(fpath, sp_folder, fname)
                 uploaded.append(fname)
             except Exception as e:
-                print(f"⚠️  Could not upload {fname} to SharePoint: {e}")
+                print(f"[WARN] Could not upload {fname} to SharePoint: {e}")
     return uploaded
 
 
@@ -145,7 +145,7 @@ def record_failure_log(
         if os.path.abspath(screenshot_path) != os.path.abspath(screenshot_dest):
             shutil.copy2(screenshot_path, screenshot_dest)
         details["screenshot"] = "screenshot.png"
-        print(f"📸 Screenshot included in error folder: {folder_name}")
+        print(f"[Screenshot] Screenshot included in error folder: {folder_name}")
 
     sharepoint_path = None
     sharepoint_full_path = None
@@ -159,7 +159,7 @@ def record_failure_log(
             if uploaded:
                 sharepoint_path = sp_error_folder
                 sharepoint_full_path = f"/Shared Documents/{sp_error_folder}"
-                print(f"✅ Error folder uploaded to SharePoint: {sp_error_folder} ({len(uploaded)} files)")
+                print(f"[OK] Error folder uploaded to SharePoint: {sp_error_folder} ({len(uploaded)} files)")
         except Exception as upload_exc:  # noqa: BLE001
             upload_error = str(upload_exc)
 
@@ -205,7 +205,7 @@ def create_rfp_error_log_file(
         )
         logs = rows if rows else []
     except Exception as e:
-        print(f"⚠️  Could not fetch automation logs for RFP {rfp_id}: {e}")
+        print(f"[WARN] Could not fetch automation logs for RFP {rfp_id}: {e}")
         logs = []
 
     # Use enhanced error analysis
@@ -217,13 +217,13 @@ def create_rfp_error_log_file(
         log_data = create_enhanced_error_report(rfp_id, logs, context)
 
         print("\n" + "=" * 80)
-        print("📊 ENHANCED ERROR REPORT GENERATED")
+        print("ENHANCED ERROR REPORT GENERATED")
         print("=" * 80)
         print(format_error_report_for_display(log_data))
         print("=" * 80 + "\n")
 
     except Exception as e:
-        print(f"⚠️  Could not create enhanced error report: {e}")
+        print(f"[WARN] Could not create enhanced error report: {e}")
         log_data = {
             "rfp_id": rfp_id,
             "timestamp": datetime.utcnow().isoformat(),
@@ -252,9 +252,9 @@ def create_rfp_error_log_file(
         if format_error_report_for_display:
             with open(txt_local_path, "w", encoding="utf-8") as fp:
                 fp.write(format_error_report_for_display(log_data))
-            print(f"✅ Human-readable report saved: {txt_local_path}")
+            print(f"[OK] Human-readable report saved: {txt_local_path}")
     except Exception as e:
-        print(f"⚠️  Could not create text report: {e}")
+        print(f"[WARN] Could not create text report: {e}")
 
     # Copy screenshot into the error folder if provided
     if screenshot_path and os.path.isfile(screenshot_path):
@@ -263,7 +263,7 @@ def create_rfp_error_log_file(
         if os.path.abspath(screenshot_path) != os.path.abspath(screenshot_dest):
             shutil.copy2(screenshot_path, screenshot_dest)
         log_data["screenshot"] = "screenshot.png"
-        print(f"📸 Screenshot included in error folder: {folder_name}")
+        print(f"[Screenshot] Screenshot included in error folder: {folder_name}")
 
     sharepoint_path = None
     sharepoint_full_path = None
@@ -277,10 +277,10 @@ def create_rfp_error_log_file(
             if uploaded:
                 sharepoint_path = sp_error_folder
                 sharepoint_full_path = f"/Shared Documents/{sp_error_folder}"
-                print(f"✅ Error folder uploaded to SharePoint: {sp_error_folder} ({len(uploaded)} files)")
+                print(f"[OK] Error folder uploaded to SharePoint: {sp_error_folder} ({len(uploaded)} files)")
         except Exception as upload_exc:
             upload_error = str(upload_exc)
-            print(f"⚠️  Could not upload error log to SharePoint: {upload_error}")
+            print(f"[WARN] Could not upload error log to SharePoint: {upload_error}")
 
     return {
         "file_name": file_name,

@@ -8,15 +8,7 @@ import {
   RefreshCw,
   Search,
   Lock,
-  Shield,
-  Settings,
   Mail,
-  Code2,
-  KeyRound,
-  Zap,
-  HardDrive,
-  FolderOpen,
-  Database,
 } from 'lucide-react'
 import { PageWrapper } from '@/components/layout/page-wrapper'
 import { Card, CardContent } from '@/components/ui/card'
@@ -34,7 +26,6 @@ import {
 } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { useHasPermission } from '@/hooks/use-auth'
 import { api } from '@/lib/api'
@@ -53,32 +44,6 @@ interface SystemSetting {
   id: string
 }
 
-// Two top-level sections, each with sub-tabs
-const SECTION_CONFIG = [
-  {
-    id: 'Admin',
-    label: 'Admin Settings',
-    icon: Settings,
-    subTabs: [
-      { id: 'General', label: 'General', icon: Settings },
-      { id: 'Email', label: 'Email', icon: Mail },
-      { id: 'Security & Access', label: 'Security & Access', icon: Shield },
-    ],
-  },
-  {
-    id: 'Developer',
-    label: 'Developer Settings',
-    icon: Code2,
-    subTabs: [
-      { id: 'Azure & Auth', label: 'Azure & Auth', icon: KeyRound },
-      { id: 'Automation', label: 'Automation', icon: Zap },
-      { id: 'SharePoint', label: 'SharePoint', icon: HardDrive },
-      { id: 'File Paths', label: 'File Paths', icon: FolderOpen },
-      { id: 'Dataverse Tables', label: 'Dataverse Tables', icon: Database },
-    ],
-  },
-] as const
-
 function SystemSettingsPage() {
   const queryClient = useQueryClient()
   const canEdit = useHasPermission('system_settings.edit')
@@ -87,11 +52,7 @@ function SystemSettingsPage() {
   const [search, setSearch] = useState('')
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set())
   const [revealedValues, setRevealedValues] = useState<Record<string, string>>({})
-  const [activeSection, setActiveSection] = useState('Admin')
-  const [activeSubTab, setActiveSubTab] = useState<Record<string, string>>({
-    Admin: 'General',
-    Developer: 'Azure & Auth',
-  })
+
 
   // Edit dialog state
   const [editOpen, setEditOpen] = useState(false)
@@ -140,8 +101,9 @@ function SystemSettingsPage() {
     },
   })
 
-  // Filter settings by search
+  // Filter settings: only Admin Email settings, matching search
   const filteredSettings = settings.filter((s) => {
+    if (s.section !== 'Admin') return false
     if (!search) return true
     const q = search.toLowerCase()
     return (
@@ -150,22 +112,6 @@ function SystemSettingsPage() {
       s.description.toLowerCase().includes(q)
     )
   })
-
-  // Group settings by section → sub_section
-  const settingsMap: Record<string, Record<string, SystemSetting[]>> = {}
-  for (const s of filteredSettings) {
-    const section = s.section || 'Admin'
-    const sub = s.sub_section || 'General'
-    if (!settingsMap[section]) settingsMap[section] = {}
-    if (!settingsMap[section][sub]) settingsMap[section][sub] = []
-    settingsMap[section][sub].push(s)
-  }
-
-  // Count settings per section (for badge)
-  const sectionCounts: Record<string, number> = {}
-  for (const [section, subs] of Object.entries(settingsMap)) {
-    sectionCounts[section] = Object.values(subs).reduce((sum, arr) => sum + arr.length, 0)
-  }
 
   // Reveal sensitive value
   const handleReveal = async (key: string) => {
@@ -460,98 +406,35 @@ function SystemSettingsPage() {
         </div>
       </div>
 
-      {/* Top-level section toggle */}
-      <div className="flex gap-2 mb-4">
-        {SECTION_CONFIG.map((section) => {
-          const Icon = section.icon
-          const count = sectionCounts[section.id] || 0
-          const isActive = activeSection === section.id
-          return (
-            <button
-              key={section.id}
-              onClick={() => setActiveSection(section.id)}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
-                isActive
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {section.label}
-              {count > 0 && (
-                <Badge
-                  variant={isActive ? 'outline' : 'secondary'}
-                  className={`text-xs px-1.5 py-0 ${isActive ? 'border-slate-500 text-slate-300' : ''}`}
-                >
-                  {count}
-                </Badge>
-              )}
-            </button>
-          )
-        })}
+      {/* Email Configuration Header */}
+      <div className="flex items-center gap-2 mb-4">
+        <Mail className="h-4 w-4 text-slate-500" />
+        <h2 className="text-sm font-medium text-slate-700">Email Configuration</h2>
+        <Badge variant="secondary" className="text-xs px-1.5 py-0">
+          {filteredSettings.length}
+        </Badge>
       </div>
 
-      {/* Sub-tabs + content */}
-      {SECTION_CONFIG.map((section) => {
-        if (activeSection !== section.id) return null
-        const currentSubTab = activeSubTab[section.id] || section.subTabs[0].id
-
-        return (
-          <div key={section.id}>
-            <Tabs
-              value={currentSubTab}
-              onValueChange={(val) =>
-                setActiveSubTab((prev) => ({ ...prev, [section.id]: val }))
-              }
-            >
-              <TabsList className="mb-4">
-                {section.subTabs.map((sub) => {
-                  const SubIcon = sub.icon
-                  const subSettings = settingsMap[section.id]?.[sub.id] || []
-                  return (
-                    <TabsTrigger key={sub.id} value={sub.id} className="gap-2">
-                      <SubIcon className="h-3.5 w-3.5" />
-                      {sub.label}
-                      {subSettings.length > 0 && (
-                        <Badge variant="secondary" className="text-xs ml-1 px-1.5 py-0">
-                          {subSettings.length}
-                        </Badge>
-                      )}
-                    </TabsTrigger>
-                  )
-                })}
-              </TabsList>
-
-              {section.subTabs.map((sub) => {
-                const subSettings = settingsMap[section.id]?.[sub.id] || []
-                return (
-                  <TabsContent key={sub.id} value={sub.id}>
-                    <Card>
-                      {/* Column headers */}
-                      <div className="flex items-center gap-4 px-4 py-2 border-b bg-slate-50/50">
-                        <div className="w-[28%] text-xs font-medium text-slate-500">Setting</div>
-                        <div className="w-[17%] text-xs font-medium text-slate-500">Key</div>
-                        <div className="w-[33%] text-xs font-medium text-slate-500">Value</div>
-                        <div className="w-[8%] text-xs font-medium text-slate-500">Type</div>
-                        <div className="w-[14%] text-xs font-medium text-slate-500 text-right">Action</div>
-                      </div>
-                      <CardContent className="p-0">
-                        {subSettings.length > 0 ? (
-                          subSettings.map((s) => renderSettingRow(s))
-                        ) : (
-                          <div className="text-center py-8 text-slate-400 text-sm">
-                            No settings found{search ? ' matching your search' : ''}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-                )
-              })}
-            </Tabs>
-          </div>
-        )
-      })}
+      {/* Settings Table */}
+      <Card>
+        {/* Column headers */}
+        <div className="flex items-center gap-4 px-4 py-2 border-b bg-slate-50/50">
+          <div className="w-[28%] text-xs font-medium text-slate-500">Setting</div>
+          <div className="w-[17%] text-xs font-medium text-slate-500">Key</div>
+          <div className="w-[33%] text-xs font-medium text-slate-500">Value</div>
+          <div className="w-[8%] text-xs font-medium text-slate-500">Type</div>
+          <div className="w-[14%] text-xs font-medium text-slate-500 text-right">Action</div>
+        </div>
+        <CardContent className="p-0">
+          {filteredSettings.length > 0 ? (
+            filteredSettings.map((s) => renderSettingRow(s))
+          ) : (
+            <div className="text-center py-8 text-slate-400 text-sm">
+              No settings found{search ? ' matching your search' : ''}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

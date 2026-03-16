@@ -672,7 +672,7 @@ def get_cached_keywords(graph_client, keywords_csv_local):
                         if kw_clean:
                             keywords_list.append(kw_clean)
     except Exception as e:
-        print(f"⚠ Could not load keywords: {e}")
+        print(f"[WARN] Could not load keywords: {e}")
         keywords_list = []
     
     _KEYWORDS_CACHE["data"] = keywords_list
@@ -713,13 +713,13 @@ def ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client):
                 filename
             )
             graph_client.download_file_from_sharepoint(sp_path, local_path)
-            print(f"✅ Downloaded RFP Excel from SharePoint: {sp_path}")
+            print(f"[OK] Downloaded RFP Excel from SharePoint: {sp_path}")
             return local_path
         except Exception as e:
-            print(f"⚠️ SharePoint download attempt ({ext}): {e}")
+            print(f"[WARN] SharePoint download attempt ({ext}): {e}")
             continue
 
-    print(f"❌ RFP Excel not found on SharePoint for {rfp_id} (company: {company})")
+    print(f"[ERROR] RFP Excel not found on SharePoint for {rfp_id} (company: {company})")
     return None
 
 
@@ -1174,7 +1174,7 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
         for sheet_name in workbook.sheet_names():
             if any(vs in sheet_name.lower() for vs in validation_sheet_names):
                 dv_sheet = workbook.sheet_by_name(sheet_name)
-                print(f"         🔍 Found validation sheet: '{sheet_name}' with {dv_sheet.ncols} columns")
+                print(f"          Found validation sheet: '{sheet_name}' with {dv_sheet.ncols} columns")
                 
                 # Show all column headers in DV_sheet for debugging
                 dv_headers = []
@@ -1184,8 +1184,8 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                         dv_headers.append(f"{chr(65+c)}:'{h}'")
                     except:
                         dv_headers.append(f"{chr(65+c)}:''")
-                print(f"         📋 DV_sheet columns: {', '.join(dv_headers)}")
-                print(f"         📍 Field '{label}' is at column {chr(65+col_idx)} (index {col_idx}) in Material sheet")
+                print(f"          DV_sheet columns: {', '.join(dv_headers)}")
+                print(f"          Field '{label}' is at column {chr(65+col_idx)} (index {col_idx}) in Material sheet")
                 
                 # PRIORITY 1: Match by COLUMN POSITION (only if DV_sheet has enough columns)
                 # The dropdown for column C in Material sheet should be in column C of DV_sheet
@@ -1194,7 +1194,7 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                     dv_header = ""
                     try:
                         dv_header = str(dv_sheet.cell_value(0, col_idx)).strip()
-                        print(f"         🔍 Column {chr(65+col_idx)} in DV_sheet has header: '{dv_header}'")
+                        print(f"          Column {chr(65+col_idx)} in DV_sheet has header: '{dv_header}'")
                     except:
                         pass
                     
@@ -1216,15 +1216,15 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                     # Validate: Check if this looks like a real dropdown list
                     if 2 <= len(unique_options) <= 500:  # Reasonable dropdown size
                         dv_info = f" (DV_sheet column {chr(65+col_idx)}: '{dv_header}')" if dv_header else f" (DV_sheet column {chr(65+col_idx)})"
-                        print(f"         ✅ COLUMN POSITION MATCH{dv_info}: Found {len(unique_options)} values: {unique_options[:5]}{'...' if len(unique_options) > 5 else ''}")
+                        print(f"         [OK] COLUMN POSITION MATCH{dv_info}: Found {len(unique_options)} values: {unique_options[:5]}{'...' if len(unique_options) > 5 else ''}")
                         return unique_options
                     else:
-                        print(f"         ⚠️ Column {chr(65+col_idx)} in DV_sheet has {len(unique_options)} unique values - doesn't look like a dropdown")
+                        print(f"         [WARN] Column {chr(65+col_idx)} in DV_sheet has {len(unique_options)} unique values - doesn't look like a dropdown")
                 else:
-                    print(f"         ⚠️ Column {chr(65+col_idx)} doesn't exist in DV_sheet (only has {dv_sheet.ncols} columns)")
+                    print(f"         [WARN] Column {chr(65+col_idx)} doesn't exist in DV_sheet (only has {dv_sheet.ncols} columns)")
                 
                 # PRIORITY 2: Match by DATA PATTERN (check what type of data each column contains)
-                print(f"         🔍 Trying to match by analyzing DV_sheet data patterns...")
+                print(f"          Trying to match by analyzing DV_sheet data patterns...")
                 for col in range(dv_sheet.ncols):
                     try:
                         header_val = str(dv_sheet.cell_value(0, col)).strip()
@@ -1241,7 +1241,7 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                         
                         # Analyze data pattern
                         col_letter = chr(65+col)
-                        print(f"         🔎 Column {col_letter} '{header_val}': {len(sample_data)} values, sample: {sample_data[:3]}")
+                        print(f"          Column {col_letter} '{header_val}': {len(sample_data)} values, sample: {sample_data[:3]}")
                         
                         # Check if this column matches the field we're looking for
                         is_match = False
@@ -1295,13 +1295,13 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                             
                             unique_options = list(dict.fromkeys(options))
                             if 2 <= len(unique_options) <= 500:
-                                print(f"         ✅ DATA PATTERN MATCH (column {col_letter} '{header_val}' via {match_reason}): Found {len(unique_options)} values: {unique_options[:5]}{'...' if len(unique_options) > 5 else ''}")
+                                print(f"         [OK] DATA PATTERN MATCH (column {col_letter} '{header_val}' via {match_reason}): Found {len(unique_options)} values: {unique_options[:5]}{'...' if len(unique_options) > 5 else ''}")
                                 return unique_options
                     except Exception as e:
-                        print(f"         ⚠️ Error analyzing column {chr(65+col)}: {e}")
+                        print(f"         [WARN] Error analyzing column {chr(65+col)}: {e}")
                         continue
                 
-                print(f"         ❌ No matching dropdown column found in DV_sheet for field '{label}'")
+                print(f"         [ERROR] No matching dropdown column found in DV_sheet for field '{label}'")
         
         # Method 2: Check if there's a note/comment on the cell (some Excel files store validation in notes)
         # xlrd doesn't support reading notes directly, so we skip this
@@ -1320,7 +1320,7 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                             if val and str(val).strip() and str(val).strip() not in options:
                                 options.append(str(val).strip())
                         if options and len(options) >= 2:
-                            print(f"         ✅ Found dropdown values in same sheet column {chr(65 + check_col)}: {options[:5]}{'...' if len(options) > 5 else ''}")
+                            print(f"         [OK] Found dropdown values in same sheet column {chr(65 + check_col)}: {options[:5]}{'...' if len(options) > 5 else ''}")
                             return options
                 except:
                     continue
@@ -1328,7 +1328,7 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
         return None
         
     except Exception as e:
-        print(f"         ⚠️ Error extracting dropdown options from XLS: {e}")
+        print(f"         [WARN] Error extracting dropdown options from XLS: {e}")
         return None
 
 
@@ -1392,7 +1392,7 @@ def parse_material_sheet_xls(sheet, sheet_idx, sheet_name, workbook):
             header_row_idx = row_idx
             break
     
-    print(f"         📋 Using row {header_row_idx + 1} as header row")
+    print(f"          Using row {header_row_idx + 1} as header row")
     
     # Read column headers
     headers = {}
@@ -1431,7 +1431,7 @@ def parse_material_sheet_xls(sheet, sheet_idx, sheet_name, workbook):
         if not material_code:
             continue
         
-        print(f"         🔧 Material: {material_code} (Row {row_idx + 1})")
+        print(f"          Material: {material_code} (Row {row_idx + 1})")
         
         # Find ALL yellow cells in this material row (blank or filled)
         material_fields = []
@@ -1452,7 +1452,7 @@ def parse_material_sheet_xls(sheet, sheet_idx, sheet_name, workbook):
                 value_str = f"'{cell_value}'" if cell_value else "(empty)"
                 
                 # Show ALL yellow cells in debug output
-                print(f"            🟨 {col_letter}{row_idx+1}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
+                print(f"             {col_letter}{row_idx+1}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
                 
                 # Only include BLANK yellow cells in form
                 if is_empty:
@@ -1475,17 +1475,17 @@ def parse_material_sheet_xls(sheet, sheet_idx, sheet_name, workbook):
                             label_check = label.lower()
                             if 'country' in label_check or 'origin' in label_check:
                                 dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
-                                print(f"            📋 Using fallback country list")
+                                print(f"             Using fallback country list")
                             elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
                                 dropdown_options = ['Yes', 'No']
-                                print(f"            📋 Using fallback Yes/No")
+                                print(f"             Using fallback Yes/No")
                             elif 'vendor' in label_check or 'local' in label_check:
                                 dropdown_options = ['Yes', 'No']
-                                print(f"            📋 Using fallback Yes/No")
+                                print(f"             Using fallback Yes/No")
                             else:
                                 # If no dropdown in Excel, change field type to 'text' instead of forcing dropdown
                                 field_type = 'text'
-                                print(f"            ⚠️ No dropdown values found in Excel for '{label}' - changing to TEXT input")
+                                print(f"            [WARN] No dropdown values found in Excel for '{label}' - changing to TEXT input")
                     
                     field = {
                         "id": f"material_{sheet_idx}_{row_idx}_{col_idx}",
@@ -1533,7 +1533,7 @@ def parse_material_sheet_xls(sheet, sheet_idx, sheet_name, workbook):
         })
         section["fields"].extend(mat_data["fields"])
     
-    print(f"      📊 Material sheet '{sheet_name}': Found {len(materials_data)} materials with {len(section['fields'])} total fields")
+    print(f"       Material sheet '{sheet_name}': Found {len(materials_data)} materials with {len(section['fields'])} total fields")
     
     return section
 
@@ -1549,7 +1549,7 @@ def extract_material_listing_fields(excel_path):
     material_fields = []
     
     try:
-        print(f"🔍 Extracting material listing fields from '{sheet_name}'...")
+        print(f" Extracting material listing fields from '{sheet_name}'...")
         
         if file_ext == '.xls':
             import xlrd
@@ -1558,7 +1558,7 @@ def extract_material_listing_fields(excel_path):
             try:
                 sheet = wb.sheet_by_name(sheet_name)
             except:
-                print(f"⚠ Sheet '{sheet_name}' not found, skipping material fields")
+                print(f"[WARN] Sheet '{sheet_name}' not found, skipping material fields")
                 return []
             
             # Find header row (search first 10 rows or all rows if less)
@@ -1569,7 +1569,7 @@ def extract_material_listing_fields(excel_path):
                     header_row_idx = row_idx
                     break
             
-            print(f"         📋 Using row {header_row_idx + 1} as header row")
+            print(f"          Using row {header_row_idx + 1} as header row")
             
             # Find Name column (use same logic as extract_materials_from_excel)
             name_col_idx = None
@@ -1593,11 +1593,11 @@ def extract_material_listing_fields(excel_path):
                 material_codes = re.findall(r"\d{9}", name_value)
                 if material_codes:
                     material_row_idx = row_idx
-                    print(f"🔧Found material row at: {row_idx + 1} with material code(s): {material_codes}")
+                    print(f"Found material row at: {row_idx + 1} with material code(s): {material_codes}")
                     break
             
             if not material_row_idx:
-                print(f"⚠ No material rows found in sheet")
+                print(f"[WARN] No material rows found in sheet")
                 return []
             
             print(f"Checking row {material_row_idx + 1} for yellow cells (using flexible detection)")
@@ -1640,7 +1640,7 @@ def extract_material_listing_fields(excel_path):
                                   'description', 'material code', 'item text', 'material po text', 
                                   'comment', 'intend to respond', 'reason for not bidding']
                     if header_val.lower() in skip_columns:
-                        print(f"         ⏭️  {col_letter}: '{header_val}' - SKIPPED (identifier column)")
+                        print(f"           {col_letter}: '{header_val}' - SKIPPED (identifier column)")
                         continue  # Skip identifier/info columns
                     
                     label = header_val
@@ -1650,20 +1650,20 @@ def extract_material_listing_fields(excel_path):
                     
                     # Infer field type
                     field_type = infer_field_type(label)
-                    print(f"         🔍 Field '{label}' detected as type: '{field_type}'")
+                    print(f"          Field '{label}' detected as type: '{field_type}'")
                     
                     # TDS/File fields are ALWAYS required for materials
                     if field_type == 'file':
                         is_required = True
-                        print(f"         🔒 {col_letter}: TDS/File field marked as REQUIRED")
+                        print(f"          {col_letter}: TDS/File field marked as REQUIRED")
                     
                     # Check for dropdown options - try to extract from Excel first
                     dropdown_options = None
                     if field_type == 'dropdown':
-                        print(f"         🔎 Extracting dropdown options for '{label}' at column {col_letter} (idx={col_idx})...")
+                        print(f"          Extracting dropdown options for '{label}' at column {col_letter} (idx={col_idx})...")
                         # Try to extract dropdown options from Excel data validation or DV sheet
                         dropdown_options = get_dropdown_options_xls(wb, sheet, material_row_idx, col_idx, label)
-                        print(f"         📊 Dropdown extraction result: {len(dropdown_options) if dropdown_options else 0} options found")
+                        print(f"          Dropdown extraction result: {len(dropdown_options) if dropdown_options else 0} options found")
                         
                         # If not found in Excel, use smart fallback ONLY for specific known fields
                         if not dropdown_options:
@@ -1671,22 +1671,22 @@ def extract_material_listing_fields(excel_path):
                             if 'country' in label_check or 'origin' in label_check:
                                 # Country fields should have dropdown even if not in Excel
                                 dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
-                                print(f"         📋 {col_letter}: Detected COUNTRY field - using fallback country list")
+                                print(f"          {col_letter}: Detected COUNTRY field - using fallback country list")
                             elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
                                 # Factory fields are typically Yes/No
                                 dropdown_options = ['Yes', 'No']
-                                print(f"         📋 {col_letter}: Detected FACTORY field - using fallback Yes/No")
+                                print(f"          {col_letter}: Detected FACTORY field - using fallback Yes/No")
                             elif 'vendor' in label_check or 'local' in label_check:
                                 # Vendor fields are typically Yes/No
                                 dropdown_options = ['Yes', 'No']
-                                print(f"         📋 {col_letter}: Detected VENDOR field - using fallback Yes/No")
+                                print(f"          {col_letter}: Detected VENDOR field - using fallback Yes/No")
                             else:
                                 # For other fields (like delivery time, etc.), if no dropdown in Excel, 
                                 # change field type to 'text' instead of forcing a dropdown
                                 field_type = 'text'
-                                print(f"         ⚠️ {col_letter}: No dropdown values found in Excel for '{label}' - changing to TEXT input")
+                                print(f"         [WARN] {col_letter}: No dropdown values found in Excel for '{label}' - changing to TEXT input")
                     
-                    print(f"         🔍 {col_letter}: '{label}' - Type: {field_type} - Blank: {is_empty} - Required: {is_required}")
+                    print(f"          {col_letter}: '{label}' - Type: {field_type} - Blank: {is_empty} - Required: {is_required}")
                     
                     field = {
                         "id": f"material_field_{col_idx}",
@@ -1707,23 +1707,23 @@ def extract_material_listing_fields(excel_path):
                     
                     material_fields.append(field)
                     rgb_str = f"RGB({color_rgb[0]}, {color_rgb[1]}, {color_rgb[2]})" if color_rgb else "N/A"
-                    print(f"         ✅ {col_letter}: '{label}' - Type: {field_type} - Required: {is_required} - {rgb_str}{options_summary}")
+                    print(f"         [OK] {col_letter}: '{label}' - Type: {field_type} - Required: {is_required} - {rgb_str}{options_summary}")
             
             # Summary of fields found
-            print(f"      📊 Material listing fields summary:")
+            print(f"       Material listing fields summary:")
             print(f"         Total fields found: {len(material_fields)}")
             file_fields = [f for f in material_fields if f['type'] == 'file']
             if file_fields:
-                print(f"         📎 TDS/File fields (REQUIRED for all materials): {len(file_fields)}")
+                print(f"         [Attachment] TDS/File fields (REQUIRED for all materials): {len(file_fields)}")
                 for ff in file_fields:
                     print(f"            - {ff['label']}")
             else:
-                print(f"         ⚠️  No TDS/file fields found - materials will not have file upload option!")
+                print(f"         [WARN]  No TDS/file fields found - materials will not have file upload option!")
             
             # Dropdown fields summary
             dropdown_fields = [f for f in material_fields if f['type'] == 'dropdown']
             if dropdown_fields:
-                print(f"         📋 Dropdown fields: {len(dropdown_fields)}")
+                print(f"          Dropdown fields: {len(dropdown_fields)}")
                 for df in dropdown_fields:
                     options_preview = df.get('options', [])[:3]
                     options_str = ', '.join(options_preview) + ('...' if len(df.get('options', [])) > 3 else '')
@@ -1734,7 +1734,7 @@ def extract_material_listing_fields(excel_path):
             wb = load_workbook(excel_path, data_only=False)
             
             if sheet_name not in wb.sheetnames:
-                print(f"      ⚠ Sheet '{sheet_name}' not found, skipping material fields")
+                print(f"      [WARN] Sheet '{sheet_name}' not found, skipping material fields")
                 return []
             
             sheet = wb[sheet_name]
@@ -1747,7 +1747,7 @@ def extract_material_listing_fields(excel_path):
                     header_row_idx = row_idx
                     break
             
-            print(f"         📋 Using row {header_row_idx} as header row")
+            print(f"          Using row {header_row_idx} as header row")
             
             # Find Name column (use same logic as extract_materials_from_excel)
             name_col_idx = None
@@ -1756,11 +1756,11 @@ def extract_material_listing_fields(excel_path):
                 if 'name' in header_val.replace(" ", "").replace("_", ""):
                     name_col_idx = col_idx
                     col_letter = sheet.cell(header_row_idx, col_idx).column_letter
-                    print(f"         📍 Found Name column at: {col_letter}")
+                    print(f"          Found Name column at: {col_letter}")
                     break
             
             if name_col_idx is None:
-                print(f"         📍 No 'Name' column found in sheet")
+                print(f"          No 'Name' column found in sheet")
                 return []
             
             # Find first material row by searching Name column for 9-digit material codes (same as existing logic)
@@ -1771,15 +1771,15 @@ def extract_material_listing_fields(excel_path):
                 material_codes = re.findall(r"\d{9}", name_value)
                 if material_codes:
                     material_row_idx = row_idx
-                    print(f"         🔧 Found material row at: {row_idx} with material code(s): {material_codes}")
+                    print(f"          Found material row at: {row_idx} with material code(s): {material_codes}")
                     break
             
             if not material_row_idx:
-                print(f"      ⚠ No material rows found in sheet")
+                print(f"      [WARN] No material rows found in sheet")
                 return []
             
-            print(f"         🔧 Checking row {material_row_idx} for yellow cells (using flexible detection)")
-            print(f"         📊 Total columns to scan: {sheet.max_column}")
+            print(f"          Checking row {material_row_idx} for yellow cells (using flexible detection)")
+            print(f"          Total columns to scan: {sheet.max_column}")
             
             # Scan ALL columns for yellow cells (use flexible detection for material listing)
             for col_idx in range(1, sheet.max_column + 1):
@@ -1807,19 +1807,19 @@ def extract_material_listing_fields(excel_path):
                     is_empty = (cell_value is None or str(cell_value).strip() == "")
                     
                     if not header_val:
-                        print(f"         ⚠️  {cell.column_letter}: Cell detected but NO HEADER - skipping")
+                        print(f"         [WARN]  {cell.column_letter}: Cell detected but NO HEADER - skipping")
                         continue  # Skip columns with no header
                     
                     # Log why this field was included
                     if is_file_field and not is_yellow:
-                        print(f"         📎 {cell.column_letter}: '{header_val}' - INCLUDED (TDS/file field - REQUIRED for all materials, not yellow)")
+                        print(f"         [Attachment] {cell.column_letter}: '{header_val}' - INCLUDED (TDS/file field - REQUIRED for all materials, not yellow)")
                     
                     # Skip common read-only identifier columns
                     skip_columns = ['number', 'name', 'alternative', 'bundle', 'tier', 'answer', 
                                   'description', 'material code', 'item text', 'material po text', 
                                   'comment', 'intend to respond', 'reason for not bidding']
                     if header_val.lower() in skip_columns:
-                        print(f"         ⏭️  {cell.column_letter}: '{header_val}' - SKIPPED (identifier column)")
+                        print(f"           {cell.column_letter}: '{header_val}' - SKIPPED (identifier column)")
                         continue  # Skip identifier/info columns
                     
                     label = header_val
@@ -1833,33 +1833,33 @@ def extract_material_listing_fields(excel_path):
                     # TDS/File fields are ALWAYS required for materials
                     if field_type == 'file':
                         is_required = True
-                        print(f"         🔒 {cell.column_letter}: TDS/File field marked as REQUIRED")
+                        print(f"          {cell.column_letter}: TDS/File field marked as REQUIRED")
                     
                     # Check for dropdown options from Excel data validation
                     dropdown_options = None
                     if field_type == 'dropdown':
                         dropdown_options = get_dropdown_options_xlsx(sheet, cell)
                         if dropdown_options:
-                            print(f"         📋 {cell.column_letter}: Dropdown options found from Excel: {dropdown_options}")
+                            print(f"          {cell.column_letter}: Dropdown options found from Excel: {dropdown_options}")
                         else:
                             # Fallback: provide common options based on field name
                             label_check = label.lower()
                             if 'country' in label_check or 'origin' in label_check:
                                 dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
-                                print(f"         📋 {cell.column_letter}: Detected COUNTRY field - using country list")
+                                print(f"          {cell.column_letter}: Detected COUNTRY field - using country list")
                             elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
                                 dropdown_options = ['Yes', 'No']
-                                print(f"         📋 {cell.column_letter}: Detected FACTORY field - using Yes/No")
+                                print(f"          {cell.column_letter}: Detected FACTORY field - using Yes/No")
                             elif 'vendor' in label_check or 'local' in label_check:
                                 dropdown_options = ['Yes', 'No']
-                                print(f"         📋 {cell.column_letter}: Detected VENDOR field - using Yes/No")
+                                print(f"          {cell.column_letter}: Detected VENDOR field - using Yes/No")
                             else:
                                 dropdown_options = ['Yes', 'No', 'N/A']
-                                print(f"         📋 {cell.column_letter}: Generic dropdown - using Yes/No/N/A")
+                                print(f"          {cell.column_letter}: Generic dropdown - using Yes/No/N/A")
                             
-                            print(f"         📋 {cell.column_letter}: Fallback dropdown options: {dropdown_options}")
+                            print(f"          {cell.column_letter}: Fallback dropdown options: {dropdown_options}")
                     
-                    print(f"         🔍 {cell.column_letter}: '{label}' - Type: {field_type} - Blank: {is_empty} - Required: {is_required}")
+                    print(f"          {cell.column_letter}: '{label}' - Type: {field_type} - Blank: {is_empty} - Required: {is_required}")
                     
                     field = {
                         "id": f"material_field_{col_idx}",
@@ -1877,35 +1877,35 @@ def extract_material_listing_fields(excel_path):
                     
                     material_fields.append(field)
                     rgb_str = f"RGB{rgb_tuple}" if rgb_tuple else "N/A"
-                    print(f"         ✅ {cell.column_letter}: '{label}' - Type: {field_type} - Required: {is_required} - {rgb_str}")
+                    print(f"         [OK] {cell.column_letter}: '{label}' - Type: {field_type} - Required: {is_required} - {rgb_str}")
             
             # Summary of fields found
-            print(f"      📊 Material listing fields summary:")
+            print(f"       Material listing fields summary:")
             print(f"         Total fields found: {len(material_fields)}")
             
             # File fields
             file_fields = [f for f in material_fields if f['type'] == 'file']
             if file_fields:
-                print(f"         📎 TDS/File fields (REQUIRED for all materials): {len(file_fields)}")
+                print(f"         [Attachment] TDS/File fields (REQUIRED for all materials): {len(file_fields)}")
                 for ff in file_fields:
                     print(f"            - {ff['label']}")
             else:
-                print(f"         ⚠️  No TDS/file fields found - materials will not have file upload option!")
+                print(f"         [WARN]  No TDS/file fields found - materials will not have file upload option!")
             
             # Dropdown fields
             dropdown_fields = [f for f in material_fields if f['type'] == 'dropdown']
             if dropdown_fields:
-                print(f"         📋 Dropdown fields: {len(dropdown_fields)}")
+                print(f"          Dropdown fields: {len(dropdown_fields)}")
                 for df in dropdown_fields:
                     options_preview = df.get('options', [])[:3]
                     options_str = ', '.join(options_preview) + ('...' if len(df.get('options', [])) > 3 else '')
                     print(f"            - {df['label']}: [{options_str}]")
         
-        print(f"      ✅ Found {len(material_fields)} material listing fields from yellow cells")
+        print(f"      [OK] Found {len(material_fields)} material listing fields from yellow cells")
         return material_fields
     
     except Exception as e:
-        print(f"      ❌ Error extracting material listing fields: {e}")
+        print(f"      [ERROR] Error extracting material listing fields: {e}")
         import traceback
         traceback.print_exc()
         return []
@@ -1948,7 +1948,7 @@ def parse_excel_for_dynamic_form(excel_path):
                 
                 if is_material_sheet:
                     # For material sheets, group by material and use column headers
-                    print(f"      🔍 Scanning MATERIAL sheet '{sheet_name}' for blank yellow cells...")
+                    print(f"       Scanning MATERIAL sheet '{sheet_name}' for blank yellow cells...")
                     section = parse_material_sheet_xls(sheet, sheet_idx, sheet_name, wb)
                     if section and section.get("materials"):
                         form_structure["sections"].append(section)
@@ -1961,7 +1961,7 @@ def parse_excel_for_dynamic_form(excel_path):
                         "fields": []
                     }
                     
-                    print(f"      🔍 Scanning sheet '{sheet_name}' for blank yellow cells...")
+                    print(f"       Scanning sheet '{sheet_name}' for blank yellow cells...")
                     yellow_count = 0
                     blank_yellow_count = 0
                     
@@ -1978,7 +1978,7 @@ def parse_excel_for_dynamic_form(excel_path):
                                 col_letter = chr(65 + col_idx) if col_idx < 26 else f"Col{col_idx}"
                                 rgb_str = f"RGB({color_rgb[0]}, {color_rgb[1]}, {color_rgb[2]})" if color_rgb else "N/A"
                                 value_str = f"'{cell_value}'" if cell_value else "(empty)"
-                                print(f"🟨 {col_letter}{row_idx+1}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
+                                print(f" {col_letter}{row_idx+1}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
                                 
                                 if is_empty:
                                     blank_yellow_count += 1
@@ -2021,9 +2021,9 @@ def parse_excel_for_dynamic_form(excel_path):
                                     
                                     section["fields"].append(field)
                                     form_structure["total_fields"] += 1
-                                    print(f"            ✅ INCLUDED in form - Label: '{label}' - Type: {field_type}")
+                                    print(f"            [OK] INCLUDED in form - Label: '{label}' - Type: {field_type}")
                     
-                    print(f"      📊 Sheet '{sheet_name}': {yellow_count} yellow cells, {blank_yellow_count} blank (included in form)")
+                    print(f"       Sheet '{sheet_name}': {yellow_count} yellow cells, {blank_yellow_count} blank (included in form)")
                     
                     if section["fields"]:
                         form_structure["sections"].append(section)
@@ -2047,7 +2047,7 @@ def parse_excel_for_dynamic_form(excel_path):
                 }
                 
                 # Find all BLANK yellow cells in this sheet (cells to fill)
-                print(f"      🔍 Scanning sheet '{sheet_name}' for blank yellow cells...")
+                print(f"       Scanning sheet '{sheet_name}' for blank yellow cells...")
                 yellow_count = 0
                 blank_yellow_count = 0
                 
@@ -2065,7 +2065,7 @@ def parse_excel_for_dynamic_form(excel_path):
                             # Debug output for all yellow cells
                             rgb_str = f"RGB{rgb_tuple}" if rgb_tuple else "N/A"
                             value_str = f"'{cell_value}'" if cell_value else "(empty)"
-                            print(f"         🟨 {cell.coordinate}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
+                            print(f"          {cell.coordinate}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
                             
                             # Only include BLANK yellow cells (cells user needs to fill)
                             if is_empty:
@@ -2110,15 +2110,15 @@ def parse_excel_for_dynamic_form(excel_path):
                                 
                                 section["fields"].append(field)
                                 form_structure["total_fields"] += 1
-                                print(f"            ✅ INCLUDED in form - Label: '{label}' - Type: {field_type}")
+                                print(f"            [OK] INCLUDED in form - Label: '{label}' - Type: {field_type}")
                 
-                print(f"      📊 Sheet '{sheet_name}': {yellow_count} yellow cells, {blank_yellow_count} blank (included in form)")
+                print(f"       Sheet '{sheet_name}': {yellow_count} yellow cells, {blank_yellow_count} blank (included in form)")
                 
                 if section["fields"]:
                     form_structure["sections"].append(section)
     
     except Exception as e:
-        print(f"❌ Error parsing Excel for dynamic form: {e}")
+        print(f"[ERROR] Error parsing Excel for dynamic form: {e}")
         import traceback
         traceback.print_exc()
     
@@ -2261,7 +2261,7 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
                 selected_company = found_company
             else:
                 selected_company = get_setting("COMPANY_NAME", "")
-                print(f"⚠️ Company not found for RFP {rfp_id}, using default: {selected_company}")
+                print(f"[WARN] Company not found for RFP {rfp_id}, using default: {selected_company}")
 
         # Find Excel file — download from SharePoint if not local
         excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, selected_company, graph_client)
@@ -2394,7 +2394,7 @@ async def get_dynamic_form_structure(request: Request, rfp_id: str, company: str
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     try:
-        print(f"\n🔍 Generating dynamic form for RFP: {rfp_id}")
+        print(f"\n Generating dynamic form for RFP: {rfp_id}")
 
         # Resolve company - either from query param or by searching
         selected_company = (company or "").strip()
@@ -2405,7 +2405,7 @@ async def get_dynamic_form_structure(request: Request, rfp_id: str, company: str
                 selected_company = found_company
             else:
                 selected_company = get_setting("COMPANY_NAME", "")
-                print(f"⚠️ Company not found for RFP {rfp_id}, using default: {selected_company}")
+                print(f"[WARN] Company not found for RFP {rfp_id}, using default: {selected_company}")
 
         # Get ORIGINAL Excel file path (not unprotected) with company
         excel_path = get_rfp_excel_file_path(rfp_id, selected_company)
@@ -2416,12 +2416,12 @@ async def get_dynamic_form_structure(request: Request, rfp_id: str, company: str
                 detail=f"Excel file not found for RFP: {rfp_id}"
             )
         
-        print(f"📄 Parsing Excel: {excel_path}")
+        print(f" Parsing Excel: {excel_path}")
         
         # Parse Excel and generate form structure
         form_structure = parse_excel_for_dynamic_form(excel_path)
         
-        print(f"✅ Found {form_structure['total_fields']} yellow cells across {len(form_structure['sections'])} sheets")
+        print(f"[OK] Found {form_structure['total_fields']} yellow cells across {len(form_structure['sections'])} sheets")
         
         # Add RFP ID to response
         form_structure["rfp_id"] = rfp_id
@@ -2432,7 +2432,7 @@ async def get_dynamic_form_structure(request: Request, rfp_id: str, company: str
         })
     
     except Exception as e:
-        print(f"❌ Error generating dynamic form: {e}")
+        print(f"[ERROR] Error generating dynamic form: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generating form: {str(e)}")
@@ -2613,9 +2613,9 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
         if not company:
             # Default to COMPANY_NAME if still not found
             company = get_setting("COMPANY_NAME", "")
-            print(f"   ⚠️ Company not provided, using default: {company}")
+            print(f"   [WARN] Company not provided, using default: {company}")
 
-        print(f"   📍 Company: {company}")
+        print(f"    Company: {company}")
 
         # Parse materials data from JSON string with error handling
         try:
@@ -2638,14 +2638,14 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                 tds_files.append(value)
                 tds_file_keys.append(key)
 
-        print(f"📝 Final RFP Submission Received:")
+        print(f" Final RFP Submission Received:")
         print(f"   RFP ID: {rfp_id}")
         print(f"   Company: {company}")
         print(f"   Dynamic Fields: {len(dynamic_fields)} fields")
         print(f"   Materials: {len(materials)} items")
         print(f"   TDS Files: {len(tds_files)} files")
         if tds_files:
-            print(f"   📎 TDS File keys found: {tds_file_keys}")
+            print(f"   [Attachment] TDS File keys found: {tds_file_keys}")
 
         # Get folders - now with company parameter
         tds_folder = get_rfp_tds_folder_path(rfp_id, company)
@@ -2656,7 +2656,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
             raise HTTPException(status_code=404, detail=f"Original Excel file not found for RFP: {rfp_id}")
         
         # 1. Save TDS files
-        print(f"💾 Saving TDS files to: {tds_folder}")
+        print(f"[Saved] Saving TDS files to: {tds_folder}")
         for upload_file in tds_files:
             # Read file content
             file_content = await upload_file.read()
@@ -2664,7 +2664,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
             # Sanitize filename to prevent directory traversal
             safe_filename = os.path.basename(upload_file.filename)
             if not safe_filename or ".." in safe_filename:
-                print(f"   ⚠️ Skipping invalid filename: {upload_file.filename}")
+                print(f"   [WARN] Skipping invalid filename: {upload_file.filename}")
                 continue
 
             # Save to TDS-files folder
@@ -2672,10 +2672,10 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
             with open(file_path, 'wb') as f:
                 f.write(file_content)
 
-            print(f"   ✅ Saved: {safe_filename}")
+            print(f"   [OK] Saved: {safe_filename}")
         
         # 2. Get the unprotected Excel file (not the original protected one)
-        print(f"📖 Looking for unprotected Excel file...")
+        print(f" Looking for unprotected Excel file...")
         
         # Find the unprotected version
         base_name = os.path.basename(original_excel_path)
@@ -2685,23 +2685,23 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
         
         # If unprotected version doesn't exist, use unprotect function
         if not os.path.exists(unprotected_path):
-            print(f"⚠️ Unprotected file not found, creating it...")
+            print(f"[WARN] Unprotected file not found, creating it...")
             try:
                 from helpers.unprotect_xls import unprotect_excel_file
                 unprotected_path = unprotect_excel_file(original_excel_path, unprotected_path)
             except Exception as e:
-                print(f"⚠️ Could not unprotect file: {e}. Using original file.")
+                print(f"[WARN] Could not unprotect file: {e}. Using original file.")
                 unprotected_path = original_excel_path
         
-        print(f"📖 Using file: {unprotected_path}")
+        print(f" Using file: {unprotected_path}")
         
         # 3. Copy unprotected file to rfp-upload-file folder (keep same format)
         import shutil
-        print(f"📋 Copying unprotected file to rfp-upload-file folder...")
+        print(f" Copying unprotected file to rfp-upload-file folder...")
         shutil.copy2(unprotected_path, saved_excel_path)
         
         # 4. Add submission details sheets - handle .xls and .xlsx differently
-        print(f"✍️ Adding submission data to Excel...")
+        print(f" Adding submission data to Excel...")
         
         is_old_format = saved_excel_path.endswith('.xls') and not saved_excel_path.endswith('.xlsx')
         
@@ -2719,10 +2719,10 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                 
                 # Find and update existing sheets
                 sheet_names = rb.sheet_names()
-                print(f"   📋 Found sheets: {sheet_names}")
+                print(f"    Found sheets: {sheet_names}")
                 
                 # Write dynamic form fields to their respective cells
-                print(f"   ✍️ Writing {len(dynamic_fields)} dynamic form fields...")
+                print(f"    Writing {len(dynamic_fields)} dynamic form fields...")
                 for field_id, field_data in dynamic_fields.items():
                     try:
                         sheet_idx = field_data['sheet_index']
@@ -2735,9 +2735,9 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         ws = wb.get_sheet(sheet_idx)
                         ws.write(row, col, value)
                         
-                        print(f"      ✅ {sheet_name} - Cell ({row}, {col}): {value}")
+                        print(f"      [OK] {sheet_name} - Cell ({row}, {col}): {value}")
                     except Exception as e:
-                        print(f"      ⚠️ Error writing field {field_id}: {e}")
+                        print(f"      [WARN] Error writing field {field_id}: {e}")
                 
                 # 3. Update "Other Content" sheet with material information
                 other_content_idx = None
@@ -2747,7 +2747,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         break
                 
                 if other_content_idx is not None:
-                    print(f"   ✍️ Updating Other Content sheet with material details...")
+                    print(f"    Updating Other Content sheet with material details...")
                     ws_content = wb.get_sheet(other_content_idx)
                     
                     # Read existing sheet to find where to place data
@@ -2769,7 +2769,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         except:
                             continue
                     
-                    print(f"   📊 Found {len(col_map)} column mappings")
+                    print(f"    Found {len(col_map)} column mappings")
                     
                     # Find rows with material codes and update them directly using column mapping
                     for row_idx in range(1, content_sheet.nrows):
@@ -2784,7 +2784,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                             for mat in materials:
                                 mat_code = mat.get('material_code', '')
                                 if mat_code and mat_code in row_text:
-                                    print(f"   ✅ Updating row {row_idx + 1} for material {mat_code}")
+                                    print(f"   [OK] Updating row {row_idx + 1} for material {mat_code}")
                                     
                                     # Get all dynamic fields from the material
                                     material_fields = mat.get('fields', {})
@@ -2808,27 +2808,27 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                                         if col_idx is not None:
                                             try:
                                                 ws_content.write(row_idx, col_idx, str(field_value))
-                                                print(f"      ✅ {field_label}: {field_value}")
+                                                print(f"      [OK] {field_label}: {field_value}")
                                                 fields_written += 1
                                             except Exception as e:
-                                                print(f"      ⚠️ Error writing {field_label}: {e}")
+                                                print(f"      [WARN] Error writing {field_label}: {e}")
                                         else:
-                                            print(f"      ⚠️ No column found for: {field_label}")
+                                            print(f"      [WARN] No column found for: {field_label}")
                                     
-                                    print(f"   📊 Material {mat_code}: {fields_written} fields written")
+                                    print(f"    Material {mat_code}: {fields_written} fields written")
                                     break  # Found and updated, move to next row
                         except Exception as e:
                             continue
                 
                 # Save the modified workbook
                 wb.save(saved_excel_path)
-                print(f"✅ Excel file (.xls) updated with user data: {saved_excel_path}")
+                print(f"[OK] Excel file (.xls) updated with user data: {saved_excel_path}")
                 
             except ImportError as ie:
-                print(f"⚠️ xlrd/xlwt/xlutils not installed: {ie}")
+                print(f"[WARN] xlrd/xlwt/xlutils not installed: {ie}")
                 print(f"   File copied but data not updated. Install: pip install xlrd xlwt xlutils")
             except Exception as e:
-                print(f"⚠️ Error updating .xls file: {e}")
+                print(f"[WARN] Error updating .xls file: {e}")
                 import traceback
                 traceback.print_exc()
                 print(f"   File was copied to: {saved_excel_path}")
@@ -2842,10 +2842,10 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                 # Load the workbook (preserves formatting)
                 wb = load_workbook(saved_excel_path)
                 
-                print(f"   📋 Found sheets: {wb.sheetnames}")
+                print(f"    Found sheets: {wb.sheetnames}")
                 
                 # Write dynamic form fields to their respective cells
-                print(f"   ✍️ Writing {len(dynamic_fields)} dynamic form fields...")
+                print(f"    Writing {len(dynamic_fields)} dynamic form fields...")
                 for field_id, field_data in dynamic_fields.items():
                     try:
                         sheet_name = field_data['sheet_name']
@@ -2857,11 +2857,11 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         if sheet_name in wb.sheetnames:
                             ws = wb[sheet_name]
                             ws.cell(row=row, column=col, value=value)
-                            print(f"      ✅ {sheet_name} - Cell ({row}, {col}): {value}")
+                            print(f"      [OK] {sheet_name} - Cell ({row}, {col}): {value}")
                         else:
-                            print(f"      ⚠️ Sheet '{sheet_name}' not found")
+                            print(f"      [WARN] Sheet '{sheet_name}' not found")
                     except Exception as e:
-                        print(f"      ⚠️ Error writing field {field_id}: {e}")
+                        print(f"      [WARN] Error writing field {field_id}: {e}")
                 
                 # 3. Update "Other Content" sheet with material information
                 content_sheet = None
@@ -2871,7 +2871,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         break
                 
                 if content_sheet:
-                    print(f"   ✍️ Updating Other Content sheet with material details...")
+                    print(f"    Updating Other Content sheet with material details...")
                     
                     # Find column indices by searching headers (map all columns dynamically)
                     header_row = 1  # Usually headers are in first row
@@ -2886,7 +2886,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                             normalized_header = header_val.replace('*', '').strip().lower()
                             col_map[normalized_header] = cell.column
                     
-                    print(f"   📊 Found {len(col_map)} column mappings")
+                    print(f"    Found {len(col_map)} column mappings")
                     
                     # Find rows with material codes and update them directly using column mapping
                     for row in content_sheet.iter_rows(min_row=2, max_row=content_sheet.max_row):
@@ -2897,7 +2897,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         for mat in materials:
                             mat_code = mat.get('material_code', '')
                             if mat_code and mat_code in row_text:
-                                print(f"   ✅ Updating row {row[0].row} for material {mat_code}")
+                                print(f"   [OK] Updating row {row[0].row} for material {mat_code}")
                                 
                                 # Get all dynamic fields from the material
                                 material_fields = mat.get('fields', {})
@@ -2921,24 +2921,24 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                                     if col_num is not None:
                                         try:
                                             content_sheet.cell(row=row[0].row, column=col_num, value=str(field_value))
-                                            print(f"      ✅ {field_label}: {field_value}")
+                                            print(f"      [OK] {field_label}: {field_value}")
                                             fields_written += 1
                                         except Exception as e:
-                                            print(f"      ⚠️ Error writing {field_label}: {e}")
+                                            print(f"      [WARN] Error writing {field_label}: {e}")
                                     else:
-                                        print(f"      ⚠️ No column found for: {field_label}")
+                                        print(f"      [WARN] No column found for: {field_label}")
                                 
-                                print(f"   📊 Material {mat_code}: {fields_written} fields written")
+                                print(f"    Material {mat_code}: {fields_written} fields written")
                                 break  # Found and updated, move to next row
                 
                 # Save the workbook
                 wb.save(saved_excel_path)
                 wb.close()
                 
-                print(f"✅ Excel file (.xlsx) updated with user data: {saved_excel_path}")
+                print(f"[OK] Excel file (.xlsx) updated with user data: {saved_excel_path}")
                 
             except Exception as e:
-                print(f"⚠️ Error updating .xlsx file: {e}")
+                print(f"[WARN] Error updating .xlsx file: {e}")
                 import traceback
                 traceback.print_exc()
                 print(f"   File was copied to: {saved_excel_path}")
@@ -2948,7 +2948,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
         auto_submit_status = "pending"
 
         # 4. Upload to SharePoint
-        print(f"\n📤 Uploading files to SharePoint...")
+        print(f"\n[Upload] Uploading files to SharePoint...")
         try:
             # Initialize SharePoint client
             graph_client = GraphClient(
@@ -2962,20 +2962,20 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
             if os.path.exists(saved_excel_path):
                 sp_savedrfp_path = get_sharepoint_rfp_savedrfp_path(rfp_id, company)
                 saved_excel_filename = os.path.basename(saved_excel_path)
-                print(f"☁️ Uploading Excel file to SharePoint: {sp_savedrfp_path}/{saved_excel_filename}")
+                print(f"[Upload] Uploading Excel file to SharePoint: {sp_savedrfp_path}/{saved_excel_filename}")
                 graph_client.upload_file_as(
                     saved_excel_path,
                     sp_savedrfp_path,
                     saved_excel_filename
                 )
-                print(f"✅ Excel file uploaded to SharePoint successfully")
+                print(f"[OK] Excel file uploaded to SharePoint successfully")
 
             # Upload TDS files to SharePoint TDS-files folder
             if os.path.exists(tds_folder):
                 sp_tds_path = get_sharepoint_rfp_tds_path(rfp_id, company)
                 tds_file_list = os.listdir(tds_folder)
                 if tds_file_list:
-                    print(f"☁️ Uploading {len(tds_file_list)} TDS files to SharePoint...")
+                    print(f"[Upload] Uploading {len(tds_file_list)} TDS files to SharePoint...")
                     for tds_filename in tds_file_list:
                         tds_file_path = os.path.join(tds_folder, tds_filename)
                         if os.path.isfile(tds_file_path):
@@ -2984,56 +2984,56 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                                 sp_tds_path,
                                 tds_filename
                             )
-                            print(f"   ✅ Uploaded: {tds_filename}")
-                    print(f"✅ All TDS files uploaded to SharePoint successfully")
+                            print(f"   [OK] Uploaded: {tds_filename}")
+                    print(f"[OK] All TDS files uploaded to SharePoint successfully")
                 else:
-                    print(f"ℹ️ No TDS files to upload")
+                    print(f"[INFO] No TDS files to upload")
             
-            print(f"✅ SharePoint upload completed successfully")
+            print(f"[OK] SharePoint upload completed successfully")
             sharepoint_status = "success"
         except Exception as e:
-            print(f"⚠️ SharePoint upload error: {e}")
+            print(f"[WARN] SharePoint upload error: {e}")
             import traceback
             traceback.print_exc()
             sharepoint_status = f"failed: {str(e)}"
             # Continue with the request but track the failure
 
         # 6. Trigger automatic RFP submission
-        print(f"\n🚀 Triggering automatic RFP submission...")
+        print(f"\n Triggering automatic RFP submission...")
         try:
             # Check if this specific RFP is already being submitted
             if _is_rfp_submitting(rfp_id):
-                print(f"⚠️ RFP {rfp_id} is already being submitted, skipping duplicate trigger")
+                print(f"[WARN] RFP {rfp_id} is already being submitted, skipping duplicate trigger")
             elif not os.path.exists(saved_excel_path):
-                print(f"⚠️ Saved Excel file not found, skipping automatic submission")
+                print(f"[WARN] Saved Excel file not found, skipping automatic submission")
             else:
                 # Add RFP to submitting set BEFORE creating task
                 _add_submitting_rfp(rfp_id)
-                print(f"✅ RFP {rfp_id} marked as submitting")
+                print(f"[OK] RFP {rfp_id} marked as submitting")
                 
                 # Trigger submission automation in background with state management
                 async def _submit_task():
                     try:
                         await run_automation_submit(rfp_id, company)
-                        print(f"✅ Automatic RFP submission completed for: {rfp_id}")
+                        print(f"[OK] Automatic RFP submission completed for: {rfp_id}")
                     except Exception as e:
-                        print(f"❌ Automatic submission failed for {rfp_id}: {e}")
+                        print(f"[ERROR] Automatic submission failed for {rfp_id}: {e}")
                         import traceback
                         traceback.print_exc()
                     finally:
                         _remove_submitting_rfp(rfp_id)
-                        print(f"✅ RFP {rfp_id} removed from submitting list")
+                        print(f"[OK] RFP {rfp_id} removed from submitting list")
                 
                 try:
                     asyncio.create_task(_submit_task())
-                    print(f"✅ Automatic RFP submission triggered in background for: {rfp_id}")
+                    print(f"[OK] Automatic RFP submission triggered in background for: {rfp_id}")
                 except Exception as task_error:
                     # If task creation fails, remove from submitting set
                     _remove_submitting_rfp(rfp_id)
                     raise task_error
             auto_submit_status = "started"
         except Exception as e:
-            print(f"⚠️ Failed to trigger automatic submission: {e}")
+            print(f"[WARN] Failed to trigger automatic submission: {e}")
             import traceback
             traceback.print_exc()
             auto_submit_status = f"failed: {str(e)}"

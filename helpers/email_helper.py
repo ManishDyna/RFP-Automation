@@ -414,7 +414,7 @@ def _download_sp_file_bytes(graph_client, sp_path: str) -> bytes:
         if resp.status_code == 200:
             return resp.content
     except Exception as e:
-        print(f"⚠ Could not download SP file {sp_path}: {e}")
+        print(f"[WARN] Could not download SP file {sp_path}: {e}")
     return None
 
 
@@ -485,7 +485,7 @@ def send_actionable_rfp_emails(
         if file_bytes:
             attachment_files.append((fname, file_bytes))
         else:
-            print(f"⚠ Could not load attachment: {fname}")
+            print(f"[WARN] Could not load attachment: {fname}")
 
     # Matched materials note (passed into the Adaptive Card)
     if matched_csv_path and os.path.exists(matched_csv_path):
@@ -499,13 +499,13 @@ def send_actionable_rfp_emails(
     # Sender email (must match the registered sender in Actionable Message dashboard)
     sender_email = "D365FOadmin@bahra-electric.com"
 
-    # Group team members by email → one email per person with all their products
+    # Group team members by email -> one email per person with all their products
     from collections import OrderedDict
     grouped = OrderedDict()
     for member in RFP_TEAM_TABLE:
         em = member.get("email", "")
         if not em:
-            print(f"⚠ No email configured for {member.get('name', '?')}, skipping")
+            print(f"[WARN] No email configured for {member.get('name', '?')}, skipping")
             continue
         em_lower = em.lower()
         if em_lower not in grouped:
@@ -574,11 +574,11 @@ def send_actionable_rfp_emails(
             )
 
             if response.status_code == 202:
-                print(f"✅ Actionable email sent for {rfp_id} to {person_name} ({person_email}) — {len(person_products)} products")
+                print(f"[OK] Actionable email sent for {rfp_id} to {person_name} ({person_email}) - {len(person_products)} products")
             else:
-                print(f"❌ Actionable email failed for {rfp_id} to {person_name}: {response.status_code} {response.text}")
+                print(f"[ERROR] Actionable email failed for {rfp_id} to {person_name}: {response.status_code} {response.text}")
         except Exception as e:
-            print(f"❌ Failed to send email to {person_name}: {e}")
+            print(f"[ERROR] Failed to send email to {person_name}: {e}")
 
     # Log activity once per RFP
     log_rfp_activity(
@@ -664,7 +664,7 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
             if fname == matched_csv_name:
                 matched_line = "No matched materials were found for this RFP."
             else:
-                print(f"⚠ Could not load attachment: {fname}")
+                print(f"[WARN] Could not load attachment: {fname}")
 
     # --- Build Adaptive Card with filled response table + Decline button ---
     from services.rfp_team_columns_service import get_all_columns as _get_all_cols
@@ -825,11 +825,11 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
             )
             if response.status_code == 202:
                 decline_tag = " [+Decline]" if show_decline else ""
-                print(f"✅ Consolidated email sent for {rfp_id} to {recipient_email}{decline_tag}")
+                print(f"[OK] Consolidated email sent for {rfp_id} to {recipient_email}{decline_tag}")
             else:
-                print(f"❌ Consolidated email failed for {rfp_id} to {recipient_email}: {response.status_code} {response.text}")
+                print(f"[ERROR] Consolidated email failed for {rfp_id} to {recipient_email}: {response.status_code} {response.text}")
         except Exception as e:
-            print(f"❌ Failed to send consolidated email to {recipient_email}: {e}")
+            print(f"[ERROR] Failed to send consolidated email to {recipient_email}: {e}")
 
 
 def send_per_rfp_email(
@@ -936,7 +936,7 @@ def send_per_rfp_email(
     response = requests.post(_flow_url, headers={"Content-Type": "application/json"}, data=json.dumps(payload))
 
     if response.status_code in [200, 202]:
-        print(f"✅ Per-RFP email sent for: {rfp_id}")
+        print(f"[OK] Per-RFP email sent for: {rfp_id}")
         log_rfp_activity(
             rfp_id=rfp_id,
             Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -946,7 +946,7 @@ def send_per_rfp_email(
             company_name=company_name,
         )
     else:
-        print(f"❌ Per-RFP email failed for {rfp_id}: {response.status_code} - {response.text}")
+        print(f"[ERROR] Per-RFP email failed for {rfp_id}: {response.status_code} - {response.text}")
 
     return rfp_id
 
@@ -1181,7 +1181,7 @@ def trigger_email(
 
     elif email_flag == "automation_failure":
         if not subject:
-            subject = "⚠ Automation Failure"
+            subject = "[WARN] Automation Failure"
         if not body_html:
             body_html = """
             <p>Dear Team,</p>
@@ -1193,7 +1193,7 @@ def trigger_email(
     # === Failure fallback ===
     else:
         if not subject:
-            subject = "⚠ Automation Failure"
+            subject = "[WARN] Automation Failure"
         if not body_html:
             body_html = """
             <p>Dear Client,</p>
@@ -1226,7 +1226,7 @@ def trigger_email(
     response = requests.post(_flow_url, headers={"Content-Type": "application/json"}, data=json.dumps(payload))
 
     if response.status_code in [200, 202]:
-        print(f"✅ Email sent: {subject}")
+        print(f"[OK] Email sent: {subject}")
         if len(rfp_titles) > 0:
             for title in rfp_titles:
                 print("title:-",title)
@@ -1239,6 +1239,6 @@ def trigger_email(
                     company_name=company_name
                 )
     else:
-        print(f"❌ Email sending failed: {response.status_code} - {response.text}")
+        print(f"[ERROR] Email sending failed: {response.status_code} - {response.text}")
 
     return rfp_titles

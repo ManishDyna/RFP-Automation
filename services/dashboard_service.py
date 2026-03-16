@@ -6,9 +6,40 @@ Moved from Dashboard/backend/dashboard_backend.py
 from core.common_imports import *
 from helpers.core_helper import DATAVERSE, get_rfp_activity_data_from_db
 from fastapi import HTTPException
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 from services.system_settings_service import get_setting
+
+# IST offset: UTC+5:30
+_IST_OFFSET = timedelta(hours=5, minutes=30)
+_IST_TZ = timezone(_IST_OFFSET)
+
+
+def _ist_to_utc_iso(dt_val) -> str:
+    """
+    Convert a naive datetime (assumed IST) to UTC ISO 8601 string with 'Z' suffix.
+    This allows the frontend browser to correctly display it in the user's local timezone.
+    Returns '-' for invalid/empty values.
+    """
+    if dt_val is None:
+        return "-"
+    if isinstance(dt_val, str):
+        if not dt_val.strip() or dt_val.strip() == "-":
+            return "-"
+        try:
+            dt_val = pd.to_datetime(dt_val, errors="coerce")
+            if pd.isna(dt_val):
+                return "-"
+        except Exception:
+            return "-"
+    if hasattr(dt_val, 'tzinfo') and dt_val.tzinfo is not None:
+        # Already timezone-aware — convert directly to UTC
+        utc_dt = dt_val.astimezone(timezone.utc)
+    else:
+        # Naive datetime — assume IST
+        ist_dt = dt_val.replace(tzinfo=_IST_TZ)
+        utc_dt = ist_dt.astimezone(timezone.utc)
+    return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 # ===== DASHBOARD DATA CACHE (TTL) =====
 import threading
@@ -26,23 +57,18 @@ def invalidate_dashboard_caches():
 
 
 def format_publish_time(publish_time_str):
-    """Format publish time string for display"""
+    """Format publish time string to UTC ISO 8601 (assumes IST input)."""
     if not publish_time_str or publish_time_str == "":
         return "-"
 
     try:
         if isinstance(publish_time_str, str):
-            if "/" in publish_time_str and ("AM" in publish_time_str or "PM" in publish_time_str):
-                dt = pd.to_datetime(publish_time_str, errors="coerce")
-                if pd.notna(dt):
-                    return dt.strftime("%Y-%m-%d %H:%M")
-            elif "T" in publish_time_str:
-                dt = pd.to_datetime(publish_time_str, errors="coerce")
-                if pd.notna(dt):
-                    return dt.strftime("%Y-%m-%d %H:%M")
+            dt = pd.to_datetime(publish_time_str, errors="coerce")
+            if pd.notna(dt):
+                return _ist_to_utc_iso(dt)
 
         if hasattr(publish_time_str, 'strftime'):
-            return publish_time_str.strftime("%Y-%m-%d %H:%M")
+            return _ist_to_utc_iso(publish_time_str)
 
     except Exception as e:
         print(f"Error formatting publish time '{publish_time_str}': {e}")
@@ -200,7 +226,7 @@ def get_dashboard_data():
 
                 for row in rfp_df.to_dict('records'):
                     end_dt = row.get("_RFP_End_Date_dt")
-                    end_str = end_dt.strftime("%Y-%m-%d %H:%M") if pd.notna(end_dt) else str(row.get("RFP_End_Date", ""))
+                    end_str = _ist_to_utc_iso(end_dt) if pd.notna(end_dt) else str(row.get("RFP_End_Date", ""))
 
                     # Debug: Track date distribution
                     if pd.isna(end_dt):
@@ -279,7 +305,7 @@ def get_dashboard_data():
         last_run_action = "-"
         if not auto_df.empty and "RunDate" in auto_df.columns and auto_df["RunDate"].notna().any():
             last_row = auto_df.iloc[0]
-            last_run_time = last_row["RunDate"].strftime("%Y-%m-%d %H:%M")
+            last_run_time = _ist_to_utc_iso(last_row["RunDate"])
             last_run_id = str(last_row.get("RunID", "-")) if last_row.get("RunID", "") else "-"
             last_run_action = str(last_row.get("Action", "-")) if last_row.get("Action", "") else "-"
 
@@ -314,6 +340,8 @@ def get_dashboard_data():
         return data
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Error building dashboard: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error building dashboard: {str(e)}")
 
@@ -384,7 +412,7 @@ def get_all_rfp_data():
                 # Use to_dict('records') for building list (faster than iterrows, safer than itertuples)
                 for row in rfp_df.to_dict('records'):
                     end_dt = row.get("_RFP_End_Date_dt")
-                    end_str = end_dt.strftime("%Y-%m-%d %H:%M") if pd.notna(end_dt) else str(row.get("RFP_End_Date", ""))
+                    end_str = _ist_to_utc_iso(end_dt) if pd.notna(end_dt) else str(row.get("RFP_End_Date", ""))
 
                     rfp_link = row.get("Link", "") or row.get("link", "")
                     if not rfp_link:

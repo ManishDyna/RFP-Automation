@@ -1,6 +1,22 @@
 import sys
 import asyncio
 
+# Fix for Windows: force UTF-8 stdout/stderr so emoji in print() don't crash
+import os
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8:replace")
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        import io
+        try:
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 # Fix for Windows: Playwright requires ProactorEventLoop for subprocess support
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
