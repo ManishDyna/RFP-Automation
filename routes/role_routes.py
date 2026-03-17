@@ -15,6 +15,7 @@ from services.dynamic_role_service import (
     update_role,
     delete_role,
     get_role_permissions,
+    get_all_permissions_count_by_role,
     set_role_permissions,
     seed_default_roles,
     invalidate_role_cache,
@@ -36,11 +37,11 @@ async def api_list_roles(
     try:
         roles = list_roles(top=1000)
 
-        # Enrich each role with permission count
+        # Single bulk query instead of N+1 per-role queries
+        perm_counts = get_all_permissions_count_by_role()
         for role in roles:
             role_name = role.get("name", "")
-            perms = get_role_permissions(role_name)
-            role["permissions_count"] = len(perms)
+            role["permissions_count"] = perm_counts.get(role_name, 0)
 
         return JSONResponse({"ok": True, "roles": roles})
     except Exception as e:

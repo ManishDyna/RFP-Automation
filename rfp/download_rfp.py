@@ -950,11 +950,12 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
 
 
 async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
-    """Returns the list of newly downloaded RFP titles (excludes skipped ones)."""
+    """Returns dict with 'successful', 'skipped', and 'failed' title lists."""
     log_event("RFP", "Download Batch", "Start", f"Starting download for {len(rfps)} RFPs")
     missing = []
     successful = []
     skipped = []
+    failed = []
     total_rfps = len(rfps)
 
     for row in rfps:
@@ -970,7 +971,6 @@ async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
 
     if missing:
         log_event("RFP", "Retry", "Downloading", f"Retrying {len(missing)} failed downloads")
-        still_missing = []
         for row in missing:
             title = row.get("Title", "")
             log_event("RFP", "Retry", "Downloading", "Attempt 2", title)
@@ -979,11 +979,11 @@ async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
                 successful.append(title)
                 log_event("RFP", "Retry", "Success", f"Successfully downloaded on retry", title)
             else:
-                still_missing.append(title)
+                failed.append(title)
                 log_event("RFP", "Retry", "Fail", "Failed on retry attempt", title)
 
-        if still_missing:
-            for t in still_missing:
+        if failed:
+            for t in failed:
                 log_event("RFP", "Retry", "Fail", "Still missing after retry", t)
         else:
             log_event("RFP", "Retry", "Success", "All failed downloads recovered on retry")
@@ -991,9 +991,9 @@ async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
     # Summary log
     new_download_count = len(successful)
     skipped_count = len(skipped)
-    failed_count = len(missing) if not missing else (len(still_missing) if 'still_missing' in locals() and still_missing else 0)
+    failed_count = len(failed)
     summary_msg = f"Download batch complete. Total: {total_rfps}, New: {new_download_count}, Skipped: {skipped_count}, Failed: {failed_count}"
     log_event("RFP", "Download Batch", "Complete", summary_msg)
 
-    return successful
+    return {"successful": successful, "skipped": skipped, "failed": failed}
    

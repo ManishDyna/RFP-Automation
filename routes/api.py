@@ -4,7 +4,7 @@ All routes are prefixed with /api
 """
 
 from fastapi import APIRouter, Request, HTTPException, Query, Depends
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, HTMLResponse
 from services.user_service import (
     authenticate_user, list_users, get_user, create_user, update_user, delete_user, get_user_by_email
 )
@@ -34,6 +34,10 @@ from collections import defaultdict
 import threading
 
 router = APIRouter(prefix="/api", tags=["API"])
+
+# Separate root-level router for the password-reset HTML page (no /api prefix)
+# The email reset link points to /reset-password (root), so this must stay at root level
+reset_router = APIRouter(tags=["Password Reset"])
 
 
 # ==================== RATE LIMITING ====================
@@ -389,6 +393,165 @@ async def api_reset_password(request: Request):
         ip_address=get_request_ip(request),
     )
 
+    return JSONResponse({"ok": True})
+
+
+# ==================== RESET PASSWORD HTML PAGE (Root Level) ====================
+
+@reset_router.get("/reset-password")
+async def reset_password_page(request: Request):
+    """Serve the reset password form page (opened from email link)."""
+    base_url = str(request.base_url).rstrip("/")
+    login_url = f"{base_url}/login"
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reset Password - Bahra E-Bidding</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Segoe UI', Arial, Helvetica, sans-serif; padding: 20px; }}
+        .card {{ background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); width: 100%; max-width: 440px; overflow: hidden; }}
+        .card-header {{ background: #4f46e5; padding: 32px; text-align: center; }}
+        .card-header h1 {{ color: #fff; font-size: 22px; font-weight: 600; }}
+        .card-body {{ padding: 36px 32px; }}
+        .card-body h2 {{ font-size: 20px; color: #1a1a2e; margin-bottom: 8px; }}
+        .card-body p {{ font-size: 14px; color: #666; margin-bottom: 24px; line-height: 1.5; }}
+        .form-group {{ margin-bottom: 20px; }}
+        .form-group label {{ display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }}
+        .form-group input {{ width: 100%; padding: 12px 14px; border: 1.5px solid #d1d5db; border-radius: 8px; font-size: 15px; transition: border-color 0.2s, box-shadow 0.2s; outline: none; }}
+        .form-group input:focus {{ border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }}
+        .btn {{ width: 100%; padding: 13px; background: #4f46e5; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.2s; letter-spacing: 0.3px; }}
+        .btn:hover {{ background: #4338ca; }}
+        .btn:disabled {{ background: #a5b4fc; cursor: not-allowed; }}
+        .alert {{ padding: 12px 16px; border-radius: 8px; font-size: 14px; margin-top: 16px; display: none; }}
+        .alert-danger {{ background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }}
+        .alert-success {{ background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }}
+        .spinner {{ display: inline-block; width: 16px; height: 16px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 8px; vertical-align: middle; }}
+        @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+        .back-link {{ display: block; text-align: center; margin-top: 20px; color: #4f46e5; text-decoration: none; font-size: 14px; font-weight: 500; }}
+        .back-link:hover {{ text-decoration: underline; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="card-header">
+            <h1>Bahra E-Bidding</h1>
+        </div>
+        <div class="card-body">
+            <h2>Set New Password</h2>
+            <p>Enter your new password below to reset your account password.</p>
+            <form id="resetForm">
+                <div class="form-group">
+                    <label for="newPwd">New Password</label>
+                    <input type="password" id="newPwd" placeholder="Enter new password" required minlength="6">
+                </div>
+                <div class="form-group">
+                    <label for="confirmPwd">Confirm Password</label>
+                    <input type="password" id="confirmPwd" placeholder="Confirm new password" required minlength="6">
+                </div>
+                <button type="submit" class="btn" id="submitBtn">Reset Password</button>
+            </form>
+            <div class="alert alert-danger" id="errorAlert"></div>
+            <div class="alert alert-success" id="successAlert"></div>
+            <a href="{login_url}" class="back-link">Back to Login</a>
+        </div>
+    </div>
+    <script>
+    (function(){{
+        const form = document.getElementById('resetForm');
+        const btn = document.getElementById('submitBtn');
+        const errorAlert = document.getElementById('errorAlert');
+        const successAlert = document.getElementById('successAlert');
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token');
+
+        if (!token) {{
+            errorAlert.textContent = 'Invalid or missing reset token. Please request a new password reset link.';
+            errorAlert.style.display = 'block';
+            btn.disabled = true;
+        }}
+
+        form.addEventListener('submit', async function(e) {{
+            e.preventDefault();
+            errorAlert.style.display = 'none';
+            successAlert.style.display = 'none';
+
+            const password = document.getElementById('newPwd').value;
+            const confirm = document.getElementById('confirmPwd').value;
+
+            if (password.length < 6) {{
+                errorAlert.textContent = 'Password must be at least 6 characters long.';
+                errorAlert.style.display = 'block';
+                return;
+            }}
+            if (password !== confirm) {{
+                errorAlert.textContent = 'Passwords do not match.';
+                errorAlert.style.display = 'block';
+                return;
+            }}
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Resetting...';
+
+            try {{
+                const res = await fetch('/reset-password', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ token: token, password: password }})
+                }});
+                const data = await res.json().catch(() => ({{}}));
+                if (!res.ok) throw new Error(data.detail || 'Failed to reset password');
+
+                successAlert.textContent = 'Password reset successfully! Redirecting to login...';
+                successAlert.style.display = 'block';
+                form.style.display = 'none';
+                setTimeout(() => {{ window.location.href = '{login_url}'; }}, 2000);
+            }} catch(err) {{
+                errorAlert.textContent = err.message;
+                errorAlert.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = 'Reset Password';
+            }}
+        }});
+    }})();
+    </script>
+</body>
+</html>""")
+
+
+@reset_router.post("/reset-password")
+async def reset_password_root(request: Request):
+    """Handle reset password form POST from the HTML page (root-level path)."""
+    body = await request.json()
+    token = (body.get("token") or "").strip()
+    new_password = (body.get("password") or "")
+    if not token:
+        raise HTTPException(status_code=400, detail="Token is required")
+    if not new_password:
+        raise HTTPException(status_code=400, detail="Password is required")
+
+    secret = request.app.state.__dict__.get("secret_key", "change-me-please")
+    data = _verify_token(secret, token)
+    email = (data.get("email") or "").strip()
+    users = get_user_by_email(email) or []
+    if not users:
+        raise HTTPException(status_code=404, detail="User not found")
+    record_id = users[0].get("record_id")
+    ok = update_user(record_id, {"password": str(new_password)})
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update password")
+
+    update_password_changed(record_id)
+    log_event(
+        action=AuditAction.PASSWORD_RESET,
+        category=AuditCategory.AUTH,
+        actor_email=email,
+        target_type="User",
+        target_id=record_id,
+        ip_address=get_request_ip(request),
+    )
     return JSONResponse({"ok": True})
 
 

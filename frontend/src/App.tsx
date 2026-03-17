@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { DialogProvider, useDialogs } from '@/contexts/dialog-context'
 import { PermissionGuard } from '@/components/auth/permission-guard'
 import { AccessDenied } from '@/components/auth/access-denied'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 // Lazy-loaded pages for code splitting (only load when route is accessed)
 const LoginPage = lazy(() => import('@/pages/login'))
@@ -193,12 +194,14 @@ function App() {
           },
         }}
       />
-      <Suspense fallback={<LoadingScreen />}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/*" element={<ProtectedLayout />} />
-        </Routes>
-      </Suspense>
+      <ErrorBoundary>
+        <Suspense fallback={<LoadingScreen />}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/*" element={<ProtectedLayout />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
     </DialogProvider>
   )
 }

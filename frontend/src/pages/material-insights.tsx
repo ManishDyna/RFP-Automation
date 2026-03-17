@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Filter,
   Building2,
-  TrendingUp,
   RotateCcw,
   CheckCircle2,
   XCircle,
@@ -49,40 +48,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { api } from '@/lib/api'
-
-function StatCard({
-  title,
-  value,
-  icon: Icon,
-  trend,
-  className,
-}: {
-  title: string
-  value: string | number
-  icon: React.ElementType
-  trend?: string
-  className?: string
-}) {
-  return (
-    <div className={`rounded-xl p-4 ${className}`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-slate-600">{title}</p>
-          <p className="text-2xl font-bold text-slate-800 mt-1">{value}</p>
-          {trend && (
-            <p className="text-xs text-emerald-600 font-medium mt-1 flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" />
-              {trend}
-            </p>
-          )}
-        </div>
-        <div className="w-10 h-10 rounded-lg bg-white/60 flex items-center justify-center">
-          <Icon className="h-5 w-5 text-slate-600" />
-        </div>
-      </div>
-    </div>
-  )
-}
+import { StatCard } from '@/components/shared/stat-card'
 
 export default function MaterialInsightsPage() {
   const [searchParams, setSearchParams] = useSearchParams()

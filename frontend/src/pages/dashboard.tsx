@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
 import { useDialogs } from '@/contexts/dialog-context'
-import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
+import { useRef, useState, useCallback, useEffect, useMemo, memo } from 'react'
 import { useAutomationStatus } from '@/hooks/use-automation'
 import {
   Download,
@@ -186,7 +186,7 @@ interface RfpTableRowProps {
   onViewBreakdown?: (rfpId: string) => void
 }
 
-function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchData, onViewBreakdown }: RfpTableRowProps) {
+const RfpTableRow = memo(function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchData, onViewBreakdown }: RfpTableRowProps) {
   const isDownloading = downloadingRfpId === rfp.RFP_ID
   const pct = matchData?.match_percentage ?? null
   return (
@@ -270,7 +270,7 @@ function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeSta
       </TableCell>
     </TableRow>
   )
-}
+})
 
 // RFP Table Component with virtualization for large datasets
 interface RfpTableProps {

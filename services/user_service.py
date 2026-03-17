@@ -23,11 +23,9 @@ DISPLAY_COLUMNS = [
 
 
 def _get_primary_id_attribute(table_logical_name: str) -> str:
-    """Fetch the primary id logical attribute name for a Dataverse table."""
-    url = f"{DATAVERSE.api_url}EntityDefinitions(LogicalName='{table_logical_name}')?$select=PrimaryIdAttribute"
-    resp = requests.get(url, headers=DATAVERSE._headers())
-    resp.raise_for_status()
-    return resp.json()["PrimaryIdAttribute"]
+    """Fetch the primary id logical attribute name for a Dataverse table (cached)."""
+    from helpers.metadata_cache import get_primary_id
+    return get_primary_id(table_logical_name)
 
 
 def _get_column_map() -> Dict[str, str]:

@@ -11,11 +11,33 @@ setup_master_data_tables.py.
 
 import json
 import requests
+import threading
 from datetime import datetime, timezone
 from typing import Optional, List, Dict
 
 from helpers.core_helper import DATAVERSE
 from services.system_settings_service import get_setting
+
+# ---------------------------------------------------------------------------
+# TTL Cache for list operations (5-minute, thread-safe)
+# ---------------------------------------------------------------------------
+_MATERIALS_CACHE = {"data": None, "ts": 0, "key": None}
+_KEYWORDS_CACHE = {"data": None, "ts": 0, "key": None}
+_CACHE_TTL = 300  # 5 minutes
+_MATERIALS_LOCK = threading.Lock()
+_KEYWORDS_LOCK = threading.Lock()
+
+
+def _invalidate_materials_cache():
+    _MATERIALS_CACHE["data"] = None
+    _MATERIALS_CACHE["ts"] = 0
+    _MATERIALS_CACHE["key"] = None
+
+
+def _invalidate_keywords_cache():
+    _KEYWORDS_CACHE["data"] = None
+    _KEYWORDS_CACHE["ts"] = 0
+    _KEYWORDS_CACHE["key"] = None
 
 
 # ---------------------------------------------------------------------------
@@ -27,12 +49,9 @@ def _now_iso() -> str:
 
 
 def _get_primary_id(table_logical: str) -> str:
-    try:
-        url = f"{DATAVERSE.api_url}EntityDefinitions(LogicalName='{table_logical}')?$select=PrimaryIdAttribute"
-        resp = requests.get(url, headers=DATAVERSE._headers())
-        return resp.json().get("PrimaryIdAttribute", "")
-    except Exception:
-        return ""
+    """Get primary ID attribute name for a table (cached)."""
+    from helpers.metadata_cache import get_primary_id
+    return get_primary_id(table_logical)
 
 
 def _extract_record_id(row: dict, pk_logical: str) -> str:
@@ -57,11 +76,21 @@ def _hard_delete(table_api: str, record_id: str) -> bool:
 # Material Master
 # ---------------------------------------------------------------------------
 
-def list_materials(search: Optional[str] = None, page: int = 1, page_size: int = 100) -> dict:
+def list_materials(search: Optional[str] = None, page: int = 1, page_size: int = 100, force_refresh: bool = False) -> dict:
     """
-    Return paginated materials.
+    Return paginated materials with TTL caching.
+    Cache is used for default queries (no search, page 1). Searches bypass cache.
     Response: {"materials": [...], "total": int, "page": int, "page_size": int}
     """
+    from time import time as _now
+    cache_key = f"{search}:{page}:{page_size}"
+    now = _now()
+
+    # Use cache for repeated identical queries
+    if not force_refresh and not search:
+        if _MATERIALS_CACHE["data"] is not None and _MATERIALS_CACHE["key"] == cache_key and (now - _MATERIALS_CACHE["ts"]) < _CACHE_TTL:
+            return _MATERIALS_CACHE["data"]
+
     filter_expr = "is_active eq 'true'"
     if search:
         escaped = search.replace("'", "''")
@@ -90,7 +119,16 @@ def list_materials(search: Optional[str] = None, page: int = 1, page_size: int =
     for row in rows:
         row["record_id"] = _extract_record_id(row, pk_logical)
 
-    return {"materials": rows, "page": page, "page_size": page_size}
+    data = {"materials": rows, "page": page, "page_size": page_size}
+
+    # Cache non-search results
+    if not search:
+        with _MATERIALS_LOCK:
+            _MATERIALS_CACHE["data"] = data
+            _MATERIALS_CACHE["ts"] = now
+            _MATERIALS_CACHE["key"] = cache_key
+
+    return data
 
 
 def get_material(record_id: str) -> Optional[dict]:
@@ -141,12 +179,14 @@ def create_material(code: str, description: str = "") -> bool:
         "created_date": _now_iso(),
         "updated_date": _now_iso(),
     }
-    return DATAVERSE.insert_row(
+    result = DATAVERSE.insert_row(
         table_api_name=get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'),
         data=data,
         table_logical_name=get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master'),
         use_display_names=True,
     )
+    _invalidate_materials_cache()
+    return result
 
 
 def update_material(record_id: str, code: str, description: str = "") -> bool:
@@ -155,17 +195,21 @@ def update_material(record_id: str, code: str, description: str = "") -> bool:
         "description": description.strip(),
         "updated_date": _now_iso(),
     }
-    return DATAVERSE.update_row(
+    result = DATAVERSE.update_row(
         table_api_name=get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'),
         record_id=record_id,
         data=data,
         table_logical_name=get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master'),
         use_display_names=True,
     )
+    _invalidate_materials_cache()
+    return result
 
 
 def delete_material(record_id: str) -> bool:
-    return _hard_delete(get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'), record_id)
+    result = _hard_delete(get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'), record_id)
+    _invalidate_materials_cache()
+    return result
 
 
 def bulk_import_materials(rows: List[Dict]) -> dict:
@@ -229,7 +273,15 @@ def get_all_materials_for_matching() -> List[str]:
 # Keywords
 # ---------------------------------------------------------------------------
 
-def list_keywords(search: Optional[str] = None, page: int = 1, page_size: int = 200) -> dict:
+def list_keywords(search: Optional[str] = None, page: int = 1, page_size: int = 200, force_refresh: bool = False) -> dict:
+    from time import time as _now
+    cache_key = f"{search}:{page}:{page_size}"
+    now = _now()
+
+    if not force_refresh and not search:
+        if _KEYWORDS_CACHE["data"] is not None and _KEYWORDS_CACHE["key"] == cache_key and (now - _KEYWORDS_CACHE["ts"]) < _CACHE_TTL:
+            return _KEYWORDS_CACHE["data"]
+
     filter_expr = "is_active eq 'true'"
     if search:
         escaped = search.replace("'", "''")
@@ -253,7 +305,15 @@ def list_keywords(search: Optional[str] = None, page: int = 1, page_size: int = 
     for row in rows:
         row["record_id"] = _extract_record_id(row, pk_logical)
 
-    return {"keywords": rows, "page": page, "page_size": page_size}
+    data = {"keywords": rows, "page": page, "page_size": page_size}
+
+    if not search:
+        with _KEYWORDS_LOCK:
+            _KEYWORDS_CACHE["data"] = data
+            _KEYWORDS_CACHE["ts"] = now
+            _KEYWORDS_CACHE["key"] = cache_key
+
+    return data
 
 
 def get_keyword(record_id: str) -> Optional[dict]:
@@ -300,12 +360,14 @@ def create_keyword(keyword: str) -> bool:
         "created_date": _now_iso(),
         "updated_date": _now_iso(),
     }
-    return DATAVERSE.insert_row(
+    result = DATAVERSE.insert_row(
         table_api_name=get_setting('KEYWORDS_TABLE_API', 'cr673_bahra_keywordses'),
         data=data,
         table_logical_name=get_setting('KEYWORDS_TABLE_LOGICAL', 'cr673_bahra_keywords'),
         use_display_names=True,
     )
+    _invalidate_keywords_cache()
+    return result
 
 
 def update_keyword(record_id: str, keyword: str) -> bool:
@@ -313,17 +375,21 @@ def update_keyword(record_id: str, keyword: str) -> bool:
         "keyword": keyword.strip().upper(),
         "updated_date": _now_iso(),
     }
-    return DATAVERSE.update_row(
+    result = DATAVERSE.update_row(
         table_api_name=get_setting('KEYWORDS_TABLE_API', 'cr673_bahra_keywordses'),
         record_id=record_id,
         data=data,
         table_logical_name=get_setting('KEYWORDS_TABLE_LOGICAL', 'cr673_bahra_keywords'),
         use_display_names=True,
     )
+    _invalidate_keywords_cache()
+    return result
 
 
 def delete_keyword(record_id: str) -> bool:
-    return _hard_delete(get_setting('KEYWORDS_TABLE_API', 'cr673_bahra_keywordses'), record_id)
+    result = _hard_delete(get_setting('KEYWORDS_TABLE_API', 'cr673_bahra_keywordses'), record_id)
+    _invalidate_keywords_cache()
+    return result
 
 
 def bulk_import_keywords(keywords: List[str]) -> dict:

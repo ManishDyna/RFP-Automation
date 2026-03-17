@@ -408,7 +408,10 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
 
     # Download RFP files (filtering already done in scrape_open_rfps)
     log_event("RFP", "Download", "Start", f"Downloading {len(open_rfps)}")
-    new_rfp_titles = await download_rfp_files(page, open_rfps, company_name, graph_client)
+    download_result = await download_rfp_files(page, open_rfps, company_name, graph_client)
+    new_rfp_titles = download_result["successful"]
+    skipped_titles = download_result["skipped"]
+    failed_titles = download_result["failed"]
 
     # Build end-date lookup (title → end date) from the scraped RFP list
     rfp_end_dates = {
@@ -419,18 +422,33 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
     # ── CASE 2: No new RFP found ──────────────────────────────────────────────
     if not new_rfp_titles:
         log_event("RFP", "Process", "Skip", "No new RFPs downloaded - skipping process_folder")
+
+        if failed_titles:
+            # Some RFPs failed to download — warn the team
+            failed_list = "".join(f"<li>{t}</li>" for t in failed_titles)
+            body_html = f"""
+            <p>Dear Team,</p>
+            <p>The automation ran for <b>{company_name}</b>, but <b>no new RFPs</b> were downloaded.</p>
+            <p><b>{len(skipped_titles)}</b> RFP(s) were already processed.</p>
+            <p><b>{len(failed_titles)}</b> RFP(s) could not be downloaded (download button may be unavailable):</p>
+            <ul>{failed_list}</ul>
+            <p>Best Regards,<br>Automation System</p>
+            """
+        else:
+            body_html = f"""
+            <p>Dear Team,</p>
+            <p>The automation ran successfully for <b>{company_name}</b>, but <b>no new RFPs</b> were found.</p>
+            <p>All <b>{len(skipped_titles)}</b> open RFPs already exist in the database.</p>
+            <p>Best Regards,<br>Automation System</p>
+            """
+
         trigger_email(
             email_flag="no_new_rfp",
             subject=f"No New RFP Available - {company_name} ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})",
-            body_html=f"""
-            <p>Dear Team,</p>
-            <p>The automation ran successfully for <b>{company_name}</b>, but <b>no new RFPs</b> were found.</p>
-            <p>All <b>{len(open_rfps)}</b> open RFPs already exist in the database.</p>
-            <p>Best Regards,<br>Automation System</p>
-            """,
+            body_html=body_html,
             company_name=company_name,
         )
-        log_event("SYSTEM", "DownloadRFP", "Success", "Download flow finished (all RFPs already existed)")
+        log_event("SYSTEM", "DownloadRFP", "Success", f"Download flow finished (skipped: {len(skipped_titles)}, failed: {len(failed_titles)})")
         return
 
     # ── CASE 1: New RFP(s) found — process materials then send 1 email per RFP ─

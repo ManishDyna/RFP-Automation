@@ -13,7 +13,6 @@ import {
   Calendar,
   Building2,
   ListFilter,
-  TrendingUp,
   Clock,
   CheckCircle2,
   XCircle,
@@ -22,6 +21,8 @@ import {
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
+import { StatCard } from '@/components/shared/stat-card'
+import { StatusBadge } from '@/components/shared/status-badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -80,65 +81,6 @@ const participationOptions = [
   { value: 'not_participated', label: 'Not Participated' },
   { value: 'declined', label: 'Declined' },
 ]
-
-function StatusBadge({ status }: { status: string }) {
-  const statusMap: Record<string, { label: string; variant: 'warning' | 'success' | 'destructive' | 'secondary' | 'info'; icon: React.ElementType }> = {
-    open: { label: 'Open', variant: 'warning', icon: Clock },
-    not_participant: { label: 'Not Participant', variant: 'destructive', icon: XCircle },
-    submitted: { label: 'Submitted', variant: 'success', icon: CheckCircle2 },
-    declined: { label: 'Declined', variant: 'destructive', icon: XCircle },
-    'saved draft': { label: 'Saved Draft', variant: 'secondary', icon: ListFilter },
-    downloaded: { label: 'Downloaded', variant: 'info', icon: Download },
-    draft: { label: 'Draft', variant: 'secondary', icon: ListFilter },
-  }
-
-  const { label, variant, icon: Icon } = statusMap[status?.toLowerCase()] || {
-    label: status || 'Unknown',
-    variant: 'secondary' as const,
-    icon: ListFilter
-  }
-
-  return (
-    <Badge variant={variant} className="gap-1.5 font-medium">
-      <Icon className="h-3 w-3" />
-      {label}
-    </Badge>
-  )
-}
-
-function StatCard({
-  title,
-  value,
-  icon: Icon,
-  trend,
-  className
-}: {
-  title: string
-  value: string | number
-  icon: React.ElementType
-  trend?: string
-  className?: string
-}) {
-  return (
-    <div className={`rounded-xl p-4 ${className}`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-slate-600">{title}</p>
-          <p className="text-2xl font-bold text-slate-800 mt-1">{value}</p>
-          {trend && (
-            <p className="text-xs text-emerald-600 font-medium mt-1 flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" />
-              {trend}
-            </p>
-          )}
-        </div>
-        <div className="w-10 h-10 rounded-lg bg-white/60 flex items-center justify-center">
-          <Icon className="h-5 w-5 text-slate-600" />
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // Define available columns
 const AVAILABLE_COLUMNS = {

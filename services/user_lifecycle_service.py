@@ -89,19 +89,10 @@ def get_or_create_user_status(user_id: str) -> Dict:
     return get_user_status(user_id) or data
 
 
-_primary_id_attr_cache: Dict[str, str] = {}
-
-
 def _get_primary_id_attribute(table_logical_name: str) -> str:
-    """Get PrimaryIdAttribute for a table (cached per process lifetime)."""
-    if table_logical_name not in _primary_id_attr_cache:
-        try:
-            meta_url = f"{DATAVERSE.api_url}EntityDefinitions(LogicalName='{table_logical_name}')?$select=PrimaryIdAttribute"
-            resp = requests.get(meta_url, headers=DATAVERSE._headers())
-            _primary_id_attr_cache[table_logical_name] = resp.json().get("PrimaryIdAttribute", "")
-        except Exception:
-            _primary_id_attr_cache[table_logical_name] = ""
-    return _primary_id_attr_cache[table_logical_name]
+    """Get PrimaryIdAttribute for a table (cached)."""
+    from helpers.metadata_cache import get_primary_id
+    return get_primary_id(table_logical_name)
 
 
 def _get_status_record_id(user_id: str) -> Optional[str]:
