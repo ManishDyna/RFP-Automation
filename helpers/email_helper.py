@@ -210,19 +210,17 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
     # Determine own editable products
     if own_products is None:
         own_products = products
-    own_products_set = set(own_products)
 
-    # Build product→emails map from all team members
-    product_email_map = {}
+    # Build list of all team member rows (product + email pairs)
+    # Each row is one person's product assignment
     if all_team_members:
-        for m in all_team_members:
-            p = m.get("product", "")
-            if p and p != "All":
-                product_email_map.setdefault(p, []).append(m.get("email", ""))
-        all_product_names = list(product_email_map.keys())
+        all_member_rows = [
+            {"product": m["product"], "email": m.get("email", ""), "name": m.get("name", "")}
+            for m in all_team_members
+            if m.get("product") and m["product"] != "All"
+        ]
     else:
-        all_product_names = products
-        product_email_map = {p: [email] for p in products}
+        all_member_rows = [{"product": p, "email": email, "name": name} for p in products]
 
     # --- Build ColumnSet-based table header ---
     header_cols = []
@@ -244,10 +242,11 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
 
     data_rows = []
     editable_idx = 0
-    for product in all_product_names:
-        is_own = product in own_products_set
-        assigned_emails = product_email_map.get(product, [])
-        display_email = email if is_own else "; ".join(assigned_emails)
+    for member_row in all_member_rows:
+        row_product = member_row["product"]
+        row_email = member_row["email"]
+        # This row is editable if the product belongs to the current person AND their email matches
+        is_own = row_product in own_products and row_email.lower() == email.lower()
 
         row_columns = []
         for col in columns:
@@ -265,7 +264,7 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
                             "color": "Accent", "wrap": True, "size": "Small", "isSubtle": True}
             else:
                 # Display column
-                value = product if key == "product" else (display_email if key == "email" else "")
+                value = row_product if key == "product" else (row_email if key == "email" else "")
                 item = {"type": "TextBlock", "text": value, "wrap": True,
                         "size": "Small", "weight": "Bolder"}
             row_columns.append({
@@ -382,8 +381,8 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
         "hideOriginalBody": True,
         "padding": "Default",
         "body": body_items,
-        "actions": [] if readonly else [
-            {
+        "actions": [
+            *([] if readonly else [{
                 "type": "Action.Http",
                 "title": "Submit All Responses",
                 "method": "POST",
@@ -394,7 +393,7 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
                 "body": json.dumps(submit_body),
                 "style": "positive",
                 "isPrimary": True,
-            },
+            }]),
             {
                 "type": "Action.Http",
                 "title": "Refresh Status",
@@ -405,7 +404,7 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
                 ],
                 "body": json.dumps({
                     "rfp_id": rfp_id,
-                    "products": products,
+                    "products": own_products,
                     "name": name,
                     "email": email,
                     "company_name": company_name,

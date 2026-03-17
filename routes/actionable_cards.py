@@ -134,14 +134,12 @@ def _build_refresh_card(
         for p in products:
             user_product_responses[p] = user_resp
 
-    # --- Build product→emails map from team table ---
-    product_email_map = {}
-    for m in team_table:
-        p = m.get("product", "")
-        if p and p != "All":
-            product_email_map.setdefault(p, []).append(m.get("email", ""))
-    all_product_names = list(product_email_map.keys())
-    own_products_set = set(products)
+    # --- Build list of all team member rows (one row per person+product) ---
+    all_member_rows = [
+        {"product": m["product"], "email": m.get("email", ""), "name": m.get("name", "")}
+        for m in team_table
+        if m.get("product") and m["product"] != "All"
+    ]
 
     # --- Build table header (showing all products) ---
     header_cols = []
@@ -162,28 +160,28 @@ def _build_refresh_card(
 
     data_rows = []
     editable_idx = 0
-    for product in all_product_names:
-        is_own = product in own_products_set
-        assigned_emails = product_email_map.get(product, [])
+    for member_row in all_member_rows:
+        row_product = member_row["product"]
+        row_email = member_row["email"]
+        row_name = member_row["name"]
+        # This row is editable if product belongs to current person AND email matches
+        is_own = row_product in products and row_email.lower() == user_email_key
 
-        # Find response for this product
+        # Find response for this row's person+product
         product_response = {}
         if is_own:
-            product_response = user_product_responses.get(product, {})
+            product_response = user_product_responses.get(row_product, {})
         else:
-            # Look through all responses for this product's assigned emails
-            for assigned_email in assigned_emails:
-                other_resp = response_lookup.get(assigned_email.lower(), {})
-                if other_resp:
-                    if "products" in other_resp and isinstance(other_resp["products"], list):
-                        for pr in other_resp["products"]:
-                            if pr.get("product") == product:
-                                product_response = pr
-                                break
-                    elif other_resp.get("results") or other_resp.get("remarks"):
-                        product_response = other_resp
-                if product_response:
-                    break
+            # Look up this specific person's response
+            other_resp = response_lookup.get(row_email.lower(), {})
+            if other_resp:
+                if "products" in other_resp and isinstance(other_resp["products"], list):
+                    for pr in other_resp["products"]:
+                        if pr.get("product") == row_product:
+                            product_response = pr
+                            break
+                elif other_resp.get("results") or other_resp.get("remarks"):
+                    product_response = other_resp
 
         row_columns = []
         for col in columns:
@@ -201,8 +199,8 @@ def _build_refresh_card(
                     item = {"type": "TextBlock", "text": value,
                             "color": color, "wrap": True, "size": "Small"}
             else:
-                display_name = name if is_own else "; ".join(assigned_emails)
-                value = product if key == "product" else (display_name if key == "name" else "")
+                display_name = name if is_own else row_name or row_email
+                value = row_product if key == "product" else (display_name if key == "name" else "")
                 item = {"type": "TextBlock", "text": value, "wrap": True,
                         "size": "Small", "weight": "Bolder"}
             row_columns.append({
