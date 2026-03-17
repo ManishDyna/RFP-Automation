@@ -134,7 +134,16 @@ def _build_refresh_card(
         for p in products:
             user_product_responses[p] = user_resp
 
-    # --- Build table showing only this person's products ---
+    # --- Build product→emails map from team table ---
+    product_email_map = {}
+    for m in team_table:
+        p = m.get("product", "")
+        if p and p != "All":
+            product_email_map.setdefault(p, []).append(m.get("email", ""))
+    all_product_names = list(product_email_map.keys())
+    own_products_set = set(products)
+
+    # --- Build table header (showing all products) ---
     header_cols = []
     for col in columns:
         if col["column_key"] == "email":
@@ -152,28 +161,56 @@ def _build_refresh_card(
     }
 
     data_rows = []
-    for idx, product in enumerate(products):
-        p_resp = user_product_responses.get(product, {})
+    editable_idx = 0
+    for product in all_product_names:
+        is_own = product in own_products_set
+        assigned_emails = product_email_map.get(product, [])
+
+        # Find response for this product
+        product_response = {}
+        if is_own:
+            product_response = user_product_responses.get(product, {})
+        else:
+            # Look through all responses for this product's assigned emails
+            for assigned_email in assigned_emails:
+                other_resp = response_lookup.get(assigned_email.lower(), {})
+                if other_resp:
+                    if "products" in other_resp and isinstance(other_resp["products"], list):
+                        for pr in other_resp["products"]:
+                            if pr.get("product") == product:
+                                product_response = pr
+                                break
+                    elif other_resp.get("results") or other_resp.get("remarks"):
+                        product_response = other_resp
+                if product_response:
+                    break
+
         row_columns = []
         for col in columns:
             key = col["column_key"]
             if key == "email":
                 continue
             if col.get("column_category") == "input":
-                if not user_has_submitted:
-                    item = _build_input_widget_indexed(col, idx)
+                if is_own and not user_has_submitted:
+                    # Editable for own unsubmitted products
+                    item = _build_input_widget_indexed(col, editable_idx)
                 else:
-                    value = p_resp.get(key, "") or "-"
+                    # Show actual response or "Pending"
+                    value = product_response.get(key, "") or "Pending"
+                    color = "Good" if value != "Pending" else "Accent"
                     item = {"type": "TextBlock", "text": value,
-                            "color": "Good", "wrap": True, "size": "Small"}
+                            "color": color, "wrap": True, "size": "Small"}
             else:
-                value = product if key == "product" else (name if key == "name" else "")
+                display_name = name if is_own else "; ".join(assigned_emails)
+                value = product if key == "product" else (display_name if key == "name" else "")
                 item = {"type": "TextBlock", "text": value, "wrap": True,
                         "size": "Small", "weight": "Bolder"}
             row_columns.append({
                 "type": "Column", "width": 1, "padding": "None",
                 "items": [item],
             })
+        if is_own and not user_has_submitted:
+            editable_idx += 1
         data_rows.append({
             "type": "ColumnSet",
             "separator": True,

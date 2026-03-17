@@ -192,21 +192,39 @@ def _build_input_widget_indexed(col_def: dict, index: int) -> dict:
         }
 
 
-def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_name, callback_url, originator_id, matched_line=""):
+def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_name, callback_url, originator_id, matched_line="", readonly=False, all_team_members=None, own_products=None):
     """
     Build an Adaptive Card JSON string for one person (grouped by email).
-    Shows only the products assigned to this person with editable input fields
-    for each product row. One Submit sends all product responses at once.
+    Shows ALL products from the team, but only the person's own products
+    have editable input fields. Other rows show "Pending".
 
     Args:
-        products: list of product names assigned to this person
-                  (e.g., ["Cables", "TBS and BED"])
+        products: list of product names assigned to this person (own products)
+        all_team_members: full RFP_TEAM_TABLE for building all product rows
+        own_products: explicit list of products this person can edit (defaults to products)
     """
     from services.rfp_team_columns_service import get_all_columns, get_input_columns
     columns = get_all_columns()
     input_columns = get_input_columns()
 
-    # --- Build ColumnSet-based table (only this person's products) ---
+    # Determine own editable products
+    if own_products is None:
+        own_products = products
+    own_products_set = set(own_products)
+
+    # Build product→emails map from all team members
+    product_email_map = {}
+    if all_team_members:
+        for m in all_team_members:
+            p = m.get("product", "")
+            if p and p != "All":
+                product_email_map.setdefault(p, []).append(m.get("email", ""))
+        all_product_names = list(product_email_map.keys())
+    else:
+        all_product_names = products
+        product_email_map = {p: [email] for p in products}
+
+    # --- Build ColumnSet-based table header ---
     header_cols = []
     for col in columns:
         if col["column_key"] == "name":
@@ -225,7 +243,12 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
     }
 
     data_rows = []
-    for idx, product in enumerate(products):
+    editable_idx = 0
+    for product in all_product_names:
+        is_own = product in own_products_set
+        assigned_emails = product_email_map.get(product, [])
+        display_email = email if is_own else "; ".join(assigned_emails)
+
         row_columns = []
         for col in columns:
             key = col["column_key"]
@@ -233,17 +256,24 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
                 continue  # Skip name column — email is shown instead
             col_width = 2 if key == "email" else 1
             if col.get("column_category") == "input":
-                # Editable widget with indexed ID (results_0, results_1, etc.)
-                item = _build_input_widget_indexed(col, idx)
+                if is_own and not readonly:
+                    # Editable widget with indexed ID (results_0, results_1, etc.)
+                    item = _build_input_widget_indexed(col, editable_idx)
+                else:
+                    # Read-only: show "Pending"
+                    item = {"type": "TextBlock", "text": "Pending",
+                            "color": "Accent", "wrap": True, "size": "Small", "isSubtle": True}
             else:
                 # Display column
-                value = product if key == "product" else (email if key == "email" else "")
+                value = product if key == "product" else (display_email if key == "email" else "")
                 item = {"type": "TextBlock", "text": value, "wrap": True,
                         "size": "Small", "weight": "Bolder"}
             row_columns.append({
                 "type": "Column", "width": col_width, "padding": "None",
                 "items": [item],
             })
+        if is_own and not readonly:
+            editable_idx += 1
         data_rows.append({
             "type": "ColumnSet",
             "separator": True,
@@ -294,7 +324,7 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
     ]
 
     # --- Product list text ---
-    products_text = ", ".join(f"**{p}**" for p in products)
+    products_text = ", ".join(f"**{p}**" for p in own_products)
 
     # --- Assemble full card body ---
     body_items = [
@@ -313,7 +343,7 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
         },
         {
             "type": "TextBlock",
-            "text": "Please fill in your Results and Remarks for each product below.",
+            "text": "Below is the list of all products for your reference." if readonly else "Please fill in your Results and Remarks for each product below.",
             "wrap": True,
             "size": "Small",
             "spacing": "Small",
@@ -330,16 +360,16 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
         *footer_items,
     ]
 
-    # Build submit body with indexed input bindings per product
+    # Build submit body with indexed input bindings for own editable products only
     submit_body = {
         "rfp_id": rfp_id,
-        "products": products,
+        "products": own_products,
         "name": name,
         "email": email,
         "company_name": company_name,
     }
     # Add indexed input column bindings: results_0, remarks_0, results_1, remarks_1, etc.
-    for idx in range(len(products)):
+    for idx in range(len(own_products)):
         for col in input_columns:
             field_id = f"{col['column_key']}_{idx}"
             submit_body[field_id] = "{{" + field_id + ".value}}"
@@ -352,7 +382,7 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
         "hideOriginalBody": True,
         "padding": "Default",
         "body": body_items,
-        "actions": [
+        "actions": [] if readonly else [
             {
                 "type": "Action.Http",
                 "title": "Submit All Responses",
@@ -451,14 +481,19 @@ def send_actionable_rfp_emails(
     from services.master_data_service import get_all_rfp_team_for_emails
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
 
-    # Include EMAIL_TO_NEW_RFP config recipients if not already in team table
+    # Collect all unique product names from the RFP team (for read-only "All" recipients)
+    all_team_products = list(dict.fromkeys(
+        m["product"] for m in RFP_TEAM_TABLE if m.get("product")
+    ))
+
+    # Include EMAIL_TO_NEW_RFP config recipients if not already in team table (as read-only)
     team_emails_lower = {m.get("email", "").lower() for m in RFP_TEAM_TABLE if m.get("email")}
     if _email_to_new_rfp:
         for _single_email in _email_to_new_rfp.split(";"):
             _single_email = _single_email.strip()
             if _single_email and _single_email.lower() not in team_emails_lower:
                 RFP_TEAM_TABLE = RFP_TEAM_TABLE + [
-                    {"product": "All", "name": _single_email.split("@")[0].replace(".", " ").title(), "email": _single_email}
+                    {"product": "All", "name": _single_email.split("@")[0].replace(".", " ").title(), "email": _single_email, "readonly": True}
                 ]
                 team_emails_lower.add(_single_email.lower())
     from core.log_events import log_rfp_activity
@@ -520,15 +555,17 @@ def send_actionable_rfp_emails(
             continue
         em_lower = em.lower()
         if em_lower not in grouped:
-            grouped[em_lower] = {"name": member["name"], "email": em, "products": []}
+            grouped[em_lower] = {"name": member["name"], "email": em, "products": [], "readonly": member.get("readonly", False)}
         grouped[em_lower]["products"].append(member["product"])
 
     for em_lower, info in grouped.items():
         person_name = info["name"]
         person_email = info["email"]
-        person_products = info["products"]
+        is_readonly = info["readonly"]
+        # For read-only "All" recipients, show all team products instead of just "All"
+        person_products = all_team_products if is_readonly else info["products"]
 
-        # Build adaptive card JSON with all products for this person
+        # Build adaptive card JSON with all products visible, only own products editable
         card_json = _build_adaptive_card_json(
             rfp_id=rfp_id,
             products=person_products,
@@ -539,6 +576,9 @@ def send_actionable_rfp_emails(
             callback_url=_callback_url,
             originator_id=_originator_id,
             matched_line=matched_line,
+            readonly=is_readonly,
+            all_team_members=RFP_TEAM_TABLE,
+            own_products=person_products,
         )
 
         # Build email HTML with embedded adaptive card
