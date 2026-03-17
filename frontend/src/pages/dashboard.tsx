@@ -682,8 +682,7 @@ export default function DashboardPage() {
   // Format last run step info
   const formatLastRun = (time: string, runId?: string) => {
     if (!time || time === '-') return 'Never'
-    // if (runId && runId !== '-') return `${runId} • ${time}`
-    return time
+    return formatDateMDY(time)
   }
 
   return (
