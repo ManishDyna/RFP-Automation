@@ -653,12 +653,20 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     sp_file_names = file_data["FileNames"]
     sp_source_files = file_data["SourceFiles"]
 
-    # Also try to find matched materials CSV on SharePoint
+    # Also try to find matched materials CSV on SharePoint (filename has timestamp)
     clean_title = clean_rfp_title(rfp_id)
-    matched_csv_name = f"matched_materials_{clean_title}.csv"
-    matched_csv_sp = f"{_sp_base}/ALLRFPs/{company_name}/{clean_title}/{matched_csv_name}"
-    sp_file_names.append(matched_csv_name)
-    sp_source_files.append(f"/Shared Documents/{matched_csv_sp}")
+    sp_rfp_folder = f"{_sp_base}/ALLRFPs/{company_name}/{clean_title}"
+    matched_csv_name = None
+    try:
+        folder_files = graph_client.list_files_in_directory(sp_rfp_folder, file_extensions=[".csv"])
+        for f in folder_files:
+            if f["name"].startswith(f"matched_materials_{clean_title}"):
+                matched_csv_name = f["name"]
+                sp_file_names.append(matched_csv_name)
+                sp_source_files.append(f"/Shared Documents/{sp_rfp_folder}/{matched_csv_name}")
+                break
+    except Exception as e:
+        print(f"[WARN] Could not list SP folder for matched CSV: {e}")
 
     attachment_files = []  # list of (filename, bytes)
     matched_line = ""
@@ -667,16 +675,19 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
         file_bytes = _download_sp_file_bytes(graph_client, clean_sp_path)
         if file_bytes:
             attachment_files.append((fname, file_bytes))
-            if fname == matched_csv_name:
+            if matched_csv_name and fname == matched_csv_name:
                 matched_line = (
                     "The matched materials file contains system suggested materials that match Bahra offerings. "
                     "It is important that you verify the complete RFP file. Do not rely solely on the matched materials file."
                 )
         else:
-            if fname == matched_csv_name:
+            if matched_csv_name and fname == matched_csv_name:
                 matched_line = "No matched materials were found for this RFP."
             else:
                 print(f"[WARN] Could not load attachment: {fname}")
+
+    if not matched_csv_name:
+        matched_line = "No matched materials were found for this RFP."
 
     # --- Build Adaptive Card with filled response table + Decline button ---
     from services.rfp_team_columns_service import get_all_columns as _get_all_cols
