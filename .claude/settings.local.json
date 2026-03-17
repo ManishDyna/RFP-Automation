@@ -51,7 +51,8 @@
       "Bash(do git:*)",
       "Bash(echo \"Found in: $hash - $msg\")",
       "Bash(break)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(git checkout:*)"
     ]
   }
 }

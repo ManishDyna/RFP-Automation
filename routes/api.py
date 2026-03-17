@@ -19,6 +19,7 @@ from services.user_lifecycle_service import (
     is_account_locked, is_user_active, record_failed_login, clear_failed_attempts,
     update_last_login, get_or_create_user_status, activate_user, deactivate_user,
     unlock_user, validate_password_strength, update_password_changed, get_user_status,
+    check_user_status_for_login, update_status_on_login,
 )
 from middleware.auth import get_current_user, require_permission, get_request_ip
 from services.system_settings_service import get_setting
@@ -133,25 +134,25 @@ async def api_login(request: Request):
         )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # Check if account is locked (persistent lockout in Dataverse)
+    # Single Dataverse call to check locked + active status
     user_id = user.get("record_id", "")
-    locked, minutes_remaining = is_account_locked(user_id)
-    if locked:
+    status_info = check_user_status_for_login(user_id)
+
+    if status_info["is_locked"]:
         log_event(
             action=AuditAction.LOGIN_FAILED,
             category=AuditCategory.AUTH,
             actor_email=email,
             target_type="Session",
-            details=json.dumps({"reason": "Account locked", "minutes_remaining": minutes_remaining}),
+            details=json.dumps({"reason": "Account locked", "minutes_remaining": status_info["minutes_remaining"]}),
             ip_address=client_ip,
         )
         raise HTTPException(
             status_code=423,
-            detail=f"Account is locked. Try again in {minutes_remaining} minutes."
+            detail=f"Account is locked. Try again in {status_info['minutes_remaining']} minutes."
         )
 
-    # Check if account is active
-    if not is_user_active(user_id):
+    if not status_info["is_active"]:
         log_event(
             action=AuditAction.LOGIN_FAILED,
             category=AuditCategory.AUTH,
@@ -162,11 +163,10 @@ async def api_login(request: Request):
         )
         raise HTTPException(status_code=403, detail="Your account has been deactivated. Please contact an administrator.")
 
-    # Clear failed attempts on successful login
+    # Clear rate limits + update Dataverse status in single PATCH
     _clear_failed_attempts(email)
     _clear_failed_attempts(f"ip:{client_ip}")
-    clear_failed_attempts(user_id)
-    update_last_login(user_id)
+    update_status_on_login(user_id, status_record=status_info.get("status_record"))
 
     # Load user permissions from dynamic RBAC
     user["permissions"] = get_user_permissions(user)

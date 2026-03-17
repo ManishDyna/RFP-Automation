@@ -186,24 +186,10 @@ def delete_user(record_id: str) -> bool:
 def authenticate_user(email: str, password: str) -> Optional[Dict]:
     """Authenticate user by email and password."""
     try:
-        print(f"[DEBUG] authenticate_user called with email='{email}'")
-
-        # First, check if user exists by email only
-        users_by_email = list_users(filters={"email": email}, top=1)
-        print(f"[DEBUG] Users found by email only: {len(users_by_email) if users_by_email else 0}")
-        if users_by_email:
-            print(f"[DEBUG] User in DB: email='{users_by_email[0].get('email')}', password='{users_by_email[0].get('password')}'")
-            print(f"[DEBUG] Provided password: '{password}'")
-
-        # Now check with both email and password
         users = list_users(filters={"email": email, "password": password}, top=1)
-        print(f"[DEBUG] Users found with email+password: {len(users) if users else 0}")
-
         if not users:
-            print("[DEBUG] No matching user found - returning None")
             return None
         user = users[0]
-        print(f"[DEBUG] Login successful for: {user.get('email')}")
         return {
             "name": user.get("name"),
             "email": user.get("email"),
@@ -212,5 +198,5 @@ def authenticate_user(email: str, password: str) -> Optional[Dict]:
             "record_id": user.get("record_id"),
         }
     except Exception as e:
-        print(f"[DEBUG] authenticate_user exception: {e}")
+        print(f"[ERROR] authenticate_user exception: {e}")
         return None

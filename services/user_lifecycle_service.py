@@ -89,25 +89,35 @@ def get_or_create_user_status(user_id: str) -> Dict:
     return get_user_status(user_id) or data
 
 
+_primary_id_attr_cache: Dict[str, str] = {}
+
+
+def _get_primary_id_attribute(table_logical_name: str) -> str:
+    """Get PrimaryIdAttribute for a table (cached per process lifetime)."""
+    if table_logical_name not in _primary_id_attr_cache:
+        try:
+            meta_url = f"{DATAVERSE.api_url}EntityDefinitions(LogicalName='{table_logical_name}')?$select=PrimaryIdAttribute"
+            resp = requests.get(meta_url, headers=DATAVERSE._headers())
+            _primary_id_attr_cache[table_logical_name] = resp.json().get("PrimaryIdAttribute", "")
+        except Exception:
+            _primary_id_attr_cache[table_logical_name] = ""
+    return _primary_id_attr_cache[table_logical_name]
+
+
 def _get_status_record_id(user_id: str) -> Optional[str]:
     """Get the Dataverse record ID for a user's status record."""
     col_map = _get_column_mapping()
     user_id_logical = col_map.get("user_id", "cr673_user_id")
     filter_expr = f"{user_id_logical} eq '{user_id}'"
 
-    # Get primary key attribute
-    try:
-        meta_url = f"{DATAVERSE.api_url}EntityDefinitions(LogicalName='{get_setting('USER_STATUS_TABLE_LOGICAL', 'cr673_bahra_user_status')}')?$select=PrimaryIdAttribute"
-        resp = requests.get(meta_url, headers=DATAVERSE._headers())
-        primary_id_attr = resp.json().get("PrimaryIdAttribute", "")
-    except Exception:
-        primary_id_attr = ""
+    table_logical = get_setting('USER_STATUS_TABLE_LOGICAL', 'cr673_bahra_user_status')
+    primary_id_attr = _get_primary_id_attribute(table_logical)
 
     result = DATAVERSE.query_rows(
         table_api_name=get_setting('USER_STATUS_TABLE_API', 'cr673_bahra_user_statuses'),
         filter_expr=filter_expr,
         top=1,
-        table_logical_name=get_setting('USER_STATUS_TABLE_LOGICAL', 'cr673_bahra_user_status'),
+        table_logical_name=table_logical,
         use_display_names=False,
     )
     rows = result.get("value", []) if isinstance(result, dict) else []
@@ -141,6 +151,51 @@ def _update_status_field(user_id: str, updates: Dict) -> bool:
 def update_last_login(user_id: str) -> bool:
     """Record a successful login timestamp."""
     return _update_status_field(user_id, {"last_login": _now_iso()})
+
+
+def update_status_on_login(user_id: str, status_record: dict = None) -> bool:
+    """
+    Combined update for successful login: clear failed attempts + update last_login
+    in a single PATCH. Reuses record_id from status_record if available to avoid
+    extra Dataverse lookups.
+    """
+    updates = {
+        "failed_attempts": "0",
+        "locked_until": "",
+        "last_login": _now_iso(),
+        "update_date": _now_iso(),
+    }
+
+    record_id = None
+    if status_record:
+        # Try to extract record_id from the already-fetched status record
+        table_logical = get_setting('USER_STATUS_TABLE_LOGICAL', 'cr673_bahra_user_status')
+        primary_id_attr = _get_primary_id_attribute(table_logical)
+        if primary_id_attr:
+            col_map = _get_column_mapping()
+            # status_record uses display names, check both display and logical keys
+            for key, value in status_record.items():
+                logical_key = col_map.get(key, key)
+                if logical_key == primary_id_attr or key == primary_id_attr:
+                    record_id = value
+                    break
+
+    if not record_id:
+        record_id = _get_status_record_id(user_id)
+
+    if not record_id:
+        get_or_create_user_status(user_id)
+        record_id = _get_status_record_id(user_id)
+        if not record_id:
+            return False
+
+    return DATAVERSE.update_row(
+        table_api_name=get_setting('USER_STATUS_TABLE_API', 'cr673_bahra_user_statuses'),
+        record_id=record_id,
+        data=updates,
+        table_logical_name=get_setting('USER_STATUS_TABLE_LOGICAL', 'cr673_bahra_user_status'),
+        use_display_names=True,
+    )
 
 
 def record_failed_login(user_id: str) -> bool:
@@ -193,6 +248,45 @@ def is_account_locked(user_id: str) -> tuple:
         pass
 
     return False, 0
+
+
+# ==================== COMBINED LOGIN CHECK ====================
+
+def check_user_status_for_login(user_id: str) -> dict:
+    """
+    Single Dataverse call to check locked + active status for login.
+    Returns dict with: is_locked, minutes_remaining, is_active, status_record.
+    """
+    status = get_user_status(user_id)
+    if not status:
+        return {"is_locked": False, "minutes_remaining": 0, "is_active": True, "status_record": None}
+
+    # Check locked
+    is_locked, minutes_remaining = False, 0
+    locked_until = status.get("locked_until")
+    if locked_until:
+        try:
+            lock_time = datetime.fromisoformat(locked_until.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            if now < lock_time:
+                is_locked = True
+                minutes_remaining = int((lock_time - now).total_seconds() / 60) + 1
+        except (ValueError, TypeError):
+            pass
+
+    # Check active
+    is_active_val = status.get("is_active")
+    if isinstance(is_active_val, bool):
+        is_active = is_active_val
+    else:
+        is_active = str(is_active_val).lower() in ("true", "1", "yes") if is_active_val else True
+
+    return {
+        "is_locked": is_locked,
+        "minutes_remaining": minutes_remaining,
+        "is_active": is_active,
+        "status_record": status,
+    }
 
 
 # ==================== ACTIVATE / DEACTIVATE ====================
