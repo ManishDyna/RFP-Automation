@@ -451,12 +451,16 @@ def send_actionable_rfp_emails(
     from services.master_data_service import get_all_rfp_team_for_emails
     RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
 
-    # Include EMAIL_TO_NEW_RFP config recipient if not already in team table
+    # Include EMAIL_TO_NEW_RFP config recipients if not already in team table
     team_emails_lower = {m.get("email", "").lower() for m in RFP_TEAM_TABLE if m.get("email")}
-    if _email_to_new_rfp and _email_to_new_rfp.lower() not in team_emails_lower:
-        RFP_TEAM_TABLE = RFP_TEAM_TABLE + [
-            {"product": "All", "name": _email_to_new_rfp.split("@")[0].replace(".", " ").title(), "email": _email_to_new_rfp}
-        ]
+    if _email_to_new_rfp:
+        for _single_email in _email_to_new_rfp.split(";"):
+            _single_email = _single_email.strip()
+            if _single_email and _single_email.lower() not in team_emails_lower:
+                RFP_TEAM_TABLE = RFP_TEAM_TABLE + [
+                    {"product": "All", "name": _single_email.split("@")[0].replace(".", " ").title(), "email": _single_email}
+                ]
+                team_emails_lower.add(_single_email.lower())
     from core.log_events import log_rfp_activity
 
     # Get Graph API token for sending mail
@@ -1012,8 +1016,6 @@ def trigger_email(
     _flow_url = get_setting("FLOW_URL", "")
     _sp_base = get_setting("SP_BASE_FOLDER", "RFP-logs")
     _email_to_new_rfp = get_setting("EMAIL_TO_NEW_RFP", "")
-    _email_to_new_rfp_no_match = get_setting("EMAIL_TO_NEW_RFP_NO_MATCH", "")
-    _email_to_new_rfp_with_match = get_setting("EMAIL_TO_NEW_RFP_WITH_MATCH", "")
     _email_to_rfp_reminder = get_setting("EMAIL_TO_RFP_REMINDER", "")
     _email_to_rfp_saved_draft = get_setting("EMAIL_TO_RFP_SAVED_DRAFT", "")
     _email_to_rfp_error_in_submission = get_setting("EMAIL_TO_RFP_ERROR_IN_SUBMISSION", "")
@@ -1026,8 +1028,6 @@ def trigger_email(
     if _email_mode != "prod":
         def _dev(addr): return _dev_email if addr else ""
         _email_to_new_rfp               = _dev(_email_to_new_rfp)
-        _email_to_new_rfp_no_match      = _dev(_email_to_new_rfp_no_match)
-        _email_to_new_rfp_with_match    = _dev(_email_to_new_rfp_with_match)
         _email_to_rfp_reminder          = _dev(_email_to_rfp_reminder)
         _email_to_rfp_saved_draft       = _dev(_email_to_rfp_saved_draft)
         _email_to_rfp_error_in_submission = _dev(_email_to_rfp_error_in_submission)
@@ -1110,20 +1110,6 @@ def trigger_email(
         else:
             # Nothing to send
             return rfp_titles
-
-    # === New RFP found but no material match — attach the RFP file(s) ===
-    elif csv_file == "not_matched_data":
-        unique_emails = [_email_to_new_rfp_no_match]
-        rfp_titles = [Path(f).stem for f in not_mateched_files]
-        auto_subject, auto_body = _build_rfp_notification_html(rfp_titles, rfp_end_dates)
-        if not subject:
-            subject = auto_subject
-        if not body_html:
-            body_html = auto_body
-        file_data = create_file_names_and_source_files(rfp_titles, company_name)
-        file_names = file_data["FileNames"]
-        source_files = file_data["SourceFiles"]
-        email_to = _email_to_new_rfp_no_match
 
     # === Reminder emails ===
     elif email_flag == "reminder":
@@ -1217,19 +1203,6 @@ def trigger_email(
     # === CASE 2: No new RFP found on portal ===
     elif email_flag == "no_new_rfp":
         email_to = _email_to_no_new_rfp
-
-    # === New RFP found with matched materials — send RFP file to a separate recipient ===
-    elif email_flag == "new_rfp_with_match":
-        rfp_titles = incoming_rfp_titles
-        auto_subject, auto_body = _build_rfp_notification_html(rfp_titles, rfp_end_dates)
-        if not subject:
-            subject = auto_subject
-        if not body_html:
-            body_html = auto_body
-        file_data = create_file_names_and_source_files(rfp_titles, company_name)
-        file_names = file_data["FileNames"]
-        source_files = file_data["SourceFiles"]
-        email_to = _email_to_new_rfp_with_match
 
     elif email_flag == "automation_failure":
         if not subject:

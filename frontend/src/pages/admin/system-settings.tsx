@@ -143,7 +143,12 @@ function SystemSettingsPage() {
         return
       }
     } else {
-      setEditValue(setting.value)
+      // For EMAIL_TO_ fields, convert semicolons to newlines for easier editing
+      if (setting.key?.startsWith('EMAIL_TO_') && setting.value?.includes(';')) {
+        setEditValue(setting.value.split(';').map((e: string) => e.trim()).filter(Boolean).join('\n'))
+      } else {
+        setEditValue(setting.value)
+      }
     }
     setEditSetting(setting)
     setEditError('')
@@ -168,7 +173,12 @@ function SystemSettingsPage() {
       }
     }
     setEditError('')
-    updateMutation.mutate({ key: editSetting.key, value: editValue })
+    // For EMAIL_TO_ fields, convert newlines back to semicolons for storage
+    let saveValue = editValue
+    if (editSetting.key?.startsWith('EMAIL_TO_') && editValue.includes('\n')) {
+      saveValue = editValue.split('\n').map((e: string) => e.trim()).filter(Boolean).join(';')
+    }
+    updateMutation.mutate({ key: editSetting.key, value: saveValue })
   }
 
   // Render value display
@@ -226,6 +236,26 @@ function SystemSettingsPage() {
         >
           {displayVal}
         </span>
+      )
+    }
+
+    // Detect multi-email values (semicolon-separated emails)
+    if (setting.value?.includes(';') && setting.value?.includes('@')) {
+      const emails = setting.value.split(';').filter((e: string) => e.trim())
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="text-sm text-slate-600 cursor-help"
+              style={{ maxWidth: '400px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}
+            >
+              {emails.length} recipient{emails.length !== 1 ? 's' : ''}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-md text-xs whitespace-pre-line">
+            {emails.map((e: string) => e.trim()).join('\n')}
+          </TooltipContent>
+        </Tooltip>
       )
     }
 
@@ -526,10 +556,27 @@ function SystemSettingsPage() {
                     setEditError('')
                   }}
                 />
+              ) : editSetting?.key?.startsWith('EMAIL_TO_') ? (
+                <>
+                  <textarea
+                    id="edit-value"
+                    value={editValue}
+                    onChange={(e) => {
+                      setEditValue(e.target.value)
+                      setEditError('')
+                    }}
+                    rows={6}
+                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
+                    placeholder="One email per line"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">
+                    {editValue.split('\n').filter((e: string) => e.trim()).length} recipient(s) — one email per line
+                  </p>
+                </>
               ) : (
                 <Input
                   id="edit-value"
-                  type={editSetting?.data_type === 'email' ? 'email' : 'text'}
+                  type="text"
                   value={editValue}
                   onChange={(e) => {
                     setEditValue(e.target.value)

@@ -54,15 +54,7 @@ export const SETTING_CONTEXT: Record<string, SettingContext> = {
     impact: 'warning',
     tags: ['Email', 'RFP Processing'],
   },
-  EMAIL_TO_NEW_RFP_WITH_MATCH: {
-    impact: 'warning',
-    tags: ['Email', 'RFP Processing'],
-  },
   EMAIL_TO_NO_MATCHED_DATA: {
-    impact: 'warning',
-    tags: ['Email', 'RFP Processing'],
-  },
-  EMAIL_TO_NEW_RFP_NO_MATCH: {
     impact: 'warning',
     tags: ['Email', 'RFP Processing'],
   },
