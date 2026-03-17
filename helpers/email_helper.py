@@ -413,6 +413,8 @@ def _download_sp_file_bytes(graph_client, sp_path: str) -> bytes:
         resp = requests.get(url, headers=graph_client.headers)
         if resp.status_code == 200:
             return resp.content
+        else:
+            print(f"[WARN] SP download returned {resp.status_code} for {sp_path}")
     except Exception as e:
         print(f"[WARN] Could not download SP file {sp_path}: {e}")
     return None
@@ -645,6 +647,7 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
         _sp_hostname, _site_path, _drive_name,
     )
     graph_client.auth()
+    graph_client.resolve_site_and_drive()
 
     file_data = create_file_names_and_source_files([rfp_id], company_name)
     sp_file_names = file_data["FileNames"]
