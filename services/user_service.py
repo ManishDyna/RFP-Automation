@@ -14,7 +14,6 @@ from services.system_settings_service import get_setting
 DISPLAY_COLUMNS = [
     "created_date",
     "email",
-    "mobile_number",
     "name",
     "role",
     "password",
@@ -96,13 +95,15 @@ def list_users(
     out: List[Dict] = []
     for r in rows:
         disp_row = _row_to_display(r, colmap, primary_id_attr)
-        disp_row["created_display"] = _fmt_iso(disp_row.get("created_date"))
-        disp_row["updated_display"] = _fmt_iso(disp_row.get("update_date"))
+        created_display = _fmt_iso(disp_row.get("created_date"))
+        updated_display = _fmt_iso(disp_row.get("update_date"))
         if select_display_columns:
             disp_row = {
                 "record_id": disp_row["record_id"],
                 **{k: disp_row.get(k) for k in select_display_columns}
             }
+        disp_row["created_display"] = created_display
+        disp_row["updated_display"] = updated_display
         out.append(disp_row)
     return out
 
@@ -133,7 +134,7 @@ def create_user(payload: Dict) -> bool:
     data.setdefault("created_date", now_iso)
     data.setdefault("update_date", now_iso)
 
-    for field in ["email", "name", "mobile_number", "role", "password"]:
+    for field in ["email", "name", "role", "password"]:
         if field in data and data[field] is not None:
             data[field] = str(data[field])
 
@@ -150,7 +151,7 @@ def update_user(record_id: str, updates: Dict) -> bool:
     data = dict(updates or {})
     data.setdefault("update_date", datetime.utcnow().isoformat())
 
-    for field in ["email", "name", "mobile_number", "role", "password"]:
+    for field in ["email", "name", "role", "password"]:
         if field in data and data[field] is not None:
             data[field] = str(data[field])
 
@@ -170,6 +171,18 @@ def get_user_by_email(email: str) -> Optional[List[Dict]]:
         return users if users else None
     except Exception:
         return None
+
+
+def check_email_exists(email: str, exclude_record_id: str = None) -> bool:
+    """Check if a user with the given email already exists.
+    Optionally exclude a record_id (for update scenarios).
+    """
+    users = get_user_by_email(email)
+    if not users:
+        return False
+    if exclude_record_id:
+        return any(u.get("record_id") != exclude_record_id for u in users)
+    return True
 
 
 def delete_user(record_id: str) -> bool:

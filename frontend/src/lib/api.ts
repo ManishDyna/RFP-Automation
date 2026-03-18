@@ -376,15 +376,12 @@ export const api = {
   createUser: async (userData: {
     name: string
     email: string
-    mobile: string
     role: string
     password: string
   }) => {
-    // Map 'mobile' to 'mobile_number' for backend compatibility
     const payload = {
       name: userData.name,
       email: userData.email,
-      mobile_number: userData.mobile,
       role: userData.role,
       password: userData.password,
     }
@@ -398,12 +395,7 @@ export const api = {
   },
 
   updateUser: async (userId: string, userData: any) => {
-    // Map 'mobile' to 'mobile_number' for backend compatibility
     const payload = { ...userData }
-    if ('mobile' in payload) {
-      payload.mobile_number = payload.mobile
-      delete payload.mobile
-    }
     const response = await fetch(ENDPOINTS.USERS.UPDATE(userId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

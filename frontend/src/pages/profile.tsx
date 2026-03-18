@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { User, Mail, Phone, Shield, Key, Save } from 'lucide-react'
+import { User, Mail, Shield, Key, Save } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -16,7 +16,6 @@ import { api } from '@/lib/api'
 
 const profileSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
-  mobile: z.string().optional(),
 })
 
 const passwordSchema = z.object({
@@ -40,7 +39,6 @@ export default function ProfilePage() {
     resolver: zodResolver(profileSchema),
     defaultValues: {
       name: user?.name || '',
-      mobile: user?.mobile || '',
     },
   })
 
@@ -57,7 +55,7 @@ export default function ProfilePage() {
     setSavingProfile(true)
     try {
       await api.updateProfile(data)
-      setUser({ ...user!, name: data.name, mobile: data.mobile })
+      setUser({ ...user!, name: data.name })
       toast.success('Profile updated successfully')
     } catch (error: any) {
       toast.error(error.message || 'Failed to update profile')
@@ -126,19 +124,6 @@ export default function ProfilePage() {
                 <p className="text-xs text-muted-foreground">
                   Email cannot be changed
                 </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="mobile">Mobile Number</Label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="mobile"
-                    {...profileForm.register('mobile')}
-                    placeholder="+1 234 567 8900"
-                    className="pl-10"
-                  />
-                </div>
               </div>
 
               <div className="space-y-2">

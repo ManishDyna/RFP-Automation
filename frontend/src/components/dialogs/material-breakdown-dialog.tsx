@@ -19,10 +19,8 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -99,7 +97,7 @@ export function MaterialBreakdownDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold text-slate-800">
             Material Breakdown — {rfpId}
@@ -185,8 +183,8 @@ export function MaterialBreakdownDialog({
             </div>
 
             {/* Materials Table */}
-            <ScrollArea className="flex-1 max-h-[380px] border border-slate-200 rounded-lg">
-              <Table>
+            <div className="flex-1 max-h-[380px] border border-slate-200 rounded-lg overflow-auto">
+              <table className="min-w-full caption-bottom text-sm">
                 <TableHeader className="sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10">
                   <TableRow className="border-slate-200">
                     <TableHead className="text-slate-600 font-semibold w-[130px]">
@@ -195,7 +193,7 @@ export function MaterialBreakdownDialog({
                         Code
                       </span>
                     </TableHead>
-                    <TableHead className="text-slate-600 font-semibold">
+                    <TableHead className="text-slate-600 font-semibold min-w-[350px]">
                       <span className="flex items-center gap-1">
                         <FileText className="h-3.5 w-3.5" />
                         Description
@@ -230,8 +228,8 @@ export function MaterialBreakdownDialog({
                         <TableCell className="font-mono text-sm font-medium text-slate-700">
                           {mat.material_code}
                         </TableCell>
-                        <TableCell className="text-sm text-slate-600 max-w-[250px] truncate" title={mat.name || mat.description || ''}>
-                          {mat.master_description || mat.name || mat.description || '-'}
+                        <TableCell className="text-sm text-slate-600">
+                          {mat.master_description || mat.description || '-'}
                         </TableCell>
                         <TableCell>
                           {mat.is_matched ? (
@@ -262,8 +260,8 @@ export function MaterialBreakdownDialog({
                     ))
                   )}
                 </TableBody>
-              </Table>
-            </ScrollArea>
+              </table>
+            </div>
           </>
         )}
       </DialogContent>

@@ -6,7 +6,7 @@ All routes are prefixed with /api
 from fastapi import APIRouter, Request, HTTPException, Query, Depends
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, HTMLResponse
 from services.user_service import (
-    authenticate_user, list_users, get_user, create_user, update_user, delete_user, get_user_by_email
+    authenticate_user, list_users, get_user, create_user, update_user, delete_user, get_user_by_email, check_email_exists
 )
 from services.dashboard_service import (
     get_dashboard_data_cached, get_all_rfp_data_cached, get_logs_data_cached,
@@ -401,8 +401,8 @@ async def api_reset_password(request: Request):
 @reset_router.get("/reset-password")
 async def reset_password_page(request: Request):
     """Serve the reset password form page (opened from email link)."""
-    base_url = str(request.base_url).rstrip("/")
-    login_url = f"{base_url}/login"
+    frontend_url = get_setting("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    login_url = f"{frontend_url}/login"
     return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1357,6 +1357,34 @@ async def api_create_user(request: Request, user: dict = Depends(require_permiss
     """Create a new user"""
 
     body = await request.json()
+
+    # Server-side validation
+    name = (body.get("name") or "").strip()
+    if not name or len(name) < 2:
+        raise HTTPException(status_code=400, detail="Name must be at least 2 characters")
+
+    email = (body.get("email") or "").strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    import re as _re
+    if not _re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email")
+
+    role = (body.get("role") or "").strip()
+    if not role:
+        raise HTTPException(status_code=400, detail="Role is required")
+
+    password = body.get("password") or ""
+    if not password:
+        raise HTTPException(status_code=400, detail="Password is required")
+    pwd_valid, pwd_error = validate_password_strength(password)
+    if not pwd_valid:
+        raise HTTPException(status_code=400, detail=pwd_error)
+
+    # Duplicate email check
+    if check_email_exists(email):
+        raise HTTPException(status_code=409, detail="Email already in use")
+
     ok = create_user(body)
     if not ok:
         raise HTTPException(status_code=400, detail="Failed to create user")
@@ -1381,6 +1409,39 @@ async def api_update_user(request: Request, record_id: str, user: dict = Depends
     """Update a user"""
 
     body = await request.json()
+
+    # Server-side validation for update
+    name = (body.get("name") or "").strip()
+    if "name" in body and (not name or len(name) < 2):
+        raise HTTPException(status_code=400, detail="Name must be at least 2 characters")
+
+    email = (body.get("email") or "").strip()
+    if "email" in body:
+        if not email:
+            raise HTTPException(status_code=400, detail="Email is required")
+        import re as _re
+        if not _re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
+            raise HTTPException(status_code=400, detail="Please enter a valid email")
+
+    role = (body.get("role") or "").strip()
+    if "role" in body and not role:
+        raise HTTPException(status_code=400, detail="Role is required")
+
+    # Validate password strength if provided
+    password = body.get("password") or ""
+    if password:
+        pwd_valid, pwd_error = validate_password_strength(password)
+        if not pwd_valid:
+            raise HTTPException(status_code=400, detail=pwd_error)
+
+    # Duplicate email check (if email is being changed)
+    if email and check_email_exists(email, exclude_record_id=record_id):
+        raise HTTPException(status_code=409, detail="Email already in use")
+
+    # Strip empty password so it doesn't overwrite existing
+    if "password" in body and not body["password"]:
+        del body["password"]
+
     ok = update_user(record_id, body)
     if not ok:
         raise HTTPException(status_code=400, detail="Failed to update user")
