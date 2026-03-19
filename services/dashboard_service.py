@@ -174,6 +174,8 @@ def get_dashboard_data():
         unique_companies = set()
         total_submitted_rfps = 0
         total_declined_rfps = 0
+        total_open_rfps = 0
+        total_not_participated_rfps = 0
 
         if not rfp_df.empty:
             if "RFP_End_Date" in rfp_df.columns:
@@ -216,6 +218,25 @@ def get_dashboard_data():
                 participated_lower = rfp_df["participated"].fillna("").str.strip().str.lower()
                 total_submitted_rfps = int(((participated_lower == "submitted") | (participated_lower == "yes")).sum())
                 total_declined_rfps = int((participated_lower == "declined").sum())
+
+                # Count open and not-participated using same logic as _normalize_participation() in api.py
+                # Uses dateutil parser for consistent date parsing with RFP Insights page
+                from dateutil import parser as du_parser
+                now_dt_calc = datetime.now()
+                for _, r in rfp_df.iterrows():
+                    p_val = (r.get("participated") or "").strip().lower()
+                    if p_val in ("", "no", "open", "not participated"):
+                        raw_date = str(r.get("RFP_End_Date", "") or "")
+                        end_dt_parsed = None
+                        if raw_date:
+                            try:
+                                end_dt_parsed = du_parser.parse(raw_date).replace(tzinfo=None)
+                            except Exception:
+                                pass
+                        if end_dt_parsed and end_dt_parsed < now_dt_calc:
+                            total_not_participated_rfps += 1
+                        else:
+                            total_open_rfps += 1
 
                 # Use to_dict('records') for remaining logic (faster than iterrows, safer than itertuples)
                 # Use current datetime to hide RFPs where deadline has passed
@@ -330,6 +351,8 @@ def get_dashboard_data():
             "saved_draft_rfps": saved_draft_rfp_list,
             "total_submitted_rfps": total_submitted_rfps,
             "total_declined_rfps": total_declined_rfps,
+            "total_open_rfps": total_open_rfps,
+            "total_not_participated_rfps": total_not_participated_rfps,
             "companies_rfps": companies_rfps,
             "unique_companies": unique_companies_list
         }

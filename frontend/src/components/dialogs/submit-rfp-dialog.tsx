@@ -25,14 +25,6 @@ import {
 } from '@/components/ui/select'
 import { api } from '@/lib/api'
 
-// Company options - should match config.py COMPANY_OPTIONS
-const COMPANY_OPTIONS = [
-  'Saudi Electricity Company',
-  'Aramco e-Marketplace',
-  'SABIC - Saudi Basic Industries Corp.',
-  'HADEED - RAJHI STEEL',
-]
-
 const submitRfpSchema = z.object({
   rfp_id: z.string().min(1, 'RFP ID is required'),
   company: z.string().min(1, 'Please select a company'),
@@ -57,6 +49,13 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
   const [pdfFiles, setPdfFiles] = useState<File[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [rfpValidation, setRfpValidation] = useState<RfpValidationState>({ status: 'idle' })
+  const [companyOptions, setCompanyOptions] = useState<string[]>([])
+
+  useEffect(() => {
+    if (open) {
+      api.getCompanyOptions().then((res) => setCompanyOptions(res.options)).catch(() => {})
+    }
+  }, [open])
 
   const {
     register,
@@ -255,7 +254,7 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
                 <SelectValue placeholder="Select company" />
               </SelectTrigger>
               <SelectContent>
-                {COMPANY_OPTIONS.map((company) => (
+                {companyOptions.map((company: string) => (
                   <SelectItem key={company} value={company}>
                     {company}
                   </SelectItem>

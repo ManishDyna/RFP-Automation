@@ -90,7 +90,7 @@ const AVAILABLE_COLUMNS = {
   deadline: { label: 'Deadline', default: true },
   status: { label: 'Status', default: true },
   participation: { label: 'Participation', default: true },
-  materialMatch: { label: 'Material Match', default: false },
+  materialMatch: { label: 'Material Code Match', default: false },
   keywordMatch: { label: 'Keyword Match', default: false },
 } as const
 
@@ -396,7 +396,7 @@ export default function RfpInsightsPage() {
             <div className="space-y-2">
               <Label htmlFor="material_match" className="text-slate-600 text-sm flex items-center gap-1.5">
                 <ListFilter className="h-3.5 w-3.5" />
-                Material Match
+                Material Code Match
               </Label>
               <Select
                 value={filters.material_match || 'all'}
@@ -606,7 +606,7 @@ export default function RfpInsightsPage() {
                       <TableHead className="text-slate-600 font-semibold">Deadline</TableHead>
                     )}
                     {visibleColumns.materialMatch && (
-                      <TableHead className="text-slate-600 font-semibold">Material Match</TableHead>
+                      <TableHead className="text-slate-600 font-semibold">Material Code Match</TableHead>
                     )}
                     {visibleColumns.keywordMatch && (
                       <TableHead className="text-slate-600 font-semibold">Keyword Match</TableHead>

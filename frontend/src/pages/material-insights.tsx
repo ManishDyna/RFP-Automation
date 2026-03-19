@@ -195,7 +195,7 @@ export default function MaterialInsightsPage() {
       {/* Stats Overview */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard
-          title="Unique Materials"
+          title="Unique Material Codes"
           value={stats.total_unique_materials || 0}
           icon={Package}
           className="stat-card-blue"
@@ -216,7 +216,7 @@ export default function MaterialInsightsPage() {
           title="Submitted RFPs"
           value={stats.submitted_rfp_count || 0}
           icon={Send}
-          trend={`${stats.total_material_rfp_links || 0} material links, ${stats.total_keyword_rfp_links || 0} keyword links`}
+          trend={`${stats.total_material_rfp_links || 0} material code links, ${stats.total_keyword_rfp_links || 0} keyword links`}
           className="stat-card-rose"
         />
       </div>
@@ -230,7 +230,7 @@ export default function MaterialInsightsPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
                   <BarChart3 className="h-4 w-4 text-indigo-500" />
-                  Top 10 Materials by RFP Count
+                  Top 10 Material Codes by RFP Count
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -317,7 +317,7 @@ export default function MaterialInsightsPage() {
           <TabsList>
             <TabsTrigger value="materials" className="gap-1.5">
               <Package className="h-4 w-4" />
-              Materials
+              Material Codes
               {stats.total_unique_materials ? (
                 <Badge variant="secondary" className="ml-1 text-xs">{stats.total_unique_materials}</Badge>
               ) : null}
@@ -462,7 +462,7 @@ export default function MaterialInsightsPage() {
                   <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
                     <Package className="h-8 w-8 text-slate-400" />
                   </div>
-                  <p className="text-lg font-medium text-slate-600 mb-2">No materials found</p>
+                  <p className="text-lg font-medium text-slate-600 mb-2">No material codes found</p>
                   <p className="text-sm text-slate-400 mb-4">
                     No matched material codes found in any RFPs
                   </p>

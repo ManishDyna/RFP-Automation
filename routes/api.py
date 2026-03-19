@@ -1483,6 +1483,14 @@ async def api_delete_user(request: Request, record_id: str, user: dict = Depends
     return JSONResponse({"ok": True})
 
 
+# ==================== COMPANY OPTIONS ENDPOINT ====================
+
+@router.get("/company-options")
+async def api_company_options():
+    """Return the list of company options from config."""
+    from config.config import COMPANY_OPTIONS
+    return {"ok": True, "options": COMPANY_OPTIONS}
+
 # ==================== RFP VALIDATION ENDPOINTS ====================
 
 @router.get("/validate-rfp")

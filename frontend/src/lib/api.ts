@@ -850,6 +850,14 @@ export const api = {
     return handleResponse(response)
   },
 
+  // ==================== Config ====================
+  getCompanyOptions: async () => {
+    const response = await fetch(ENDPOINTS.CONFIG.COMPANY_OPTIONS, {
+      credentials: 'include',
+    })
+    return handleResponse<{ ok: boolean; options: string[] }>(response)
+  },
+
   // ==================== Audit Logs ====================
   getAuditLogs: async (params: {
     page?: number

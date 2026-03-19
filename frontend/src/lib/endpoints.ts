@@ -172,6 +172,10 @@ export const ENDPOINTS = {
       REORDER: `${API_PREFIX}/master-data/rfp-team-columns/reorder`,
     },
   },
+  // ==================== CONFIG (routes/api.py) ====================
+  CONFIG: {
+    COMPANY_OPTIONS: `${API_PREFIX}/company-options`,
+  },
   // ==================== SYSTEM SETTINGS (routes/system_settings_routes.py) ====================
   SYSTEM_SETTINGS: {
     LIST: `${API_PREFIX}/system-settings/list`,

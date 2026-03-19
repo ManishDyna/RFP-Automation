@@ -23,6 +23,8 @@ import {
   ArrowRightLeft,
   Eye,
   BarChart3,
+  FolderOpen,
+  AlertCircle,
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -61,10 +63,19 @@ function MetricCard({ title, value, icon, trend, trendUp, href, variant = 'defau
     info: 'bg-sky-50 text-sky-600',
   }
 
+  const cardBgStyles = {
+    default: 'stat-card-violet',
+    success: 'stat-card-emerald',
+    warning: 'stat-card-blue',
+    danger: 'stat-card-rose',
+    info: 'stat-card-amber',
+  }
+
   const content = (
     <Card className={cn(
       'relative overflow-hidden transition-all duration-200',
       'hover:shadow-md hover:border-slate-300',
+      cardBgStyles[variant],
       href && 'cursor-pointer group'
     )}>
       <CardContent className="p-5">
@@ -700,9 +711,11 @@ export default function DashboardPage() {
       }
     >
       {/* Metrics Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6 mb-8">
         {isLoading ? (
           <>
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
             <MetricCardSkeleton />
             <MetricCardSkeleton />
             <MetricCardSkeleton />
@@ -718,6 +731,13 @@ export default function DashboardPage() {
               href="/dashboard/rfp-insights?status=downloaded"
             />
             <MetricCard
+              title="Open"
+              value={data?.total_open_rfps || 0}
+              icon={<FolderOpen className="h-5 w-5" />}
+              variant="info"
+              href="/dashboard/rfp-insights?status=open"
+            />
+            <MetricCard
               title="Submitted"
               value={data?.total_submitted_rfps || 0}
               icon={<CheckCircle2 className="h-5 w-5" />}
@@ -730,6 +750,13 @@ export default function DashboardPage() {
               icon={<XCircle className="h-5 w-5" />}
               variant="danger"
               href="/dashboard/rfp-insights?status=declined"
+            />
+            <MetricCard
+              title="Not Participated"
+              value={data?.total_not_participated_rfps || 0}
+              icon={<AlertCircle className="h-5 w-5" />}
+              variant="default"
+              href="/dashboard/rfp-insights?status=not_participant"
             />
             <MetricCard
               title="Last Automation"
