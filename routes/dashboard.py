@@ -367,7 +367,7 @@ def _safe_use_display_names() -> bool:
     return bool(get_setting("AUTOMATION_SCHEDULE_TABLE_LOGICAL", ""))
 
 @router.get("/schedule-automation/latest")
-async def get_latest_schedule(request: Request, user: dict = Depends(require_permission("schedule_automation.view"))):
+async def get_latest_schedule(request: Request, user: dict = Depends(require_permission("schedule_automation.manage"))):
     try:
         rows = DATAVERSE.get_rows_from_dataverse(
             table_api_name=get_setting("AUTOMATION_SCHEDULE_TABLE_API", ""),

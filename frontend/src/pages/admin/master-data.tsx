@@ -153,9 +153,9 @@ function ImportDialog({ open, onClose, type, onImport, isPending }: ImportDialog
 
 function MaterialsTab() {
   const queryClient = useQueryClient()
-  const canCreate = useHasPermission('master_data.create')
-  const canEdit   = useHasPermission('master_data.edit')
-  const canDelete = useHasPermission('master_data.delete')
+  const canCreate = useHasPermission('material_master.create')
+  const canEdit   = useHasPermission('material_master.edit')
+  const canDelete = useHasPermission('material_master.delete')
 
   const [search, setSearch]             = useState('')
   const [dialogOpen, setDialogOpen]     = useState(false)
@@ -392,9 +392,9 @@ function MaterialsTab() {
 
 function KeywordsTab() {
   const queryClient = useQueryClient()
-  const canCreate = useHasPermission('master_data.create')
-  const canEdit   = useHasPermission('master_data.edit')
-  const canDelete = useHasPermission('master_data.delete')
+  const canCreate = useHasPermission('keyword_master.create')
+  const canEdit   = useHasPermission('keyword_master.edit')
+  const canDelete = useHasPermission('keyword_master.delete')
 
   const [search, setSearch]           = useState('')
   const [dialogOpen, setDialogOpen]   = useState(false)
@@ -634,9 +634,9 @@ const RFP_TEAM_CORE_KEYS = RFP_TEAM_CORE_FIELDS.map(f => f.column_key)
 
 function RfpTeamTab() {
   const queryClient = useQueryClient()
-  const canCreate = useHasPermission('master_data.create')
-  const canEdit   = useHasPermission('master_data.edit')
-  const canDelete = useHasPermission('master_data.delete')
+  const canCreate = useHasPermission('rfp_team.create')
+  const canEdit   = useHasPermission('rfp_team.edit')
+  const canDelete = useHasPermission('rfp_team.delete')
 
   const [search, setSearch]           = useState('')
   const [dialogOpen, setDialogOpen]   = useState(false)
@@ -960,9 +960,9 @@ function RfpTeamTab() {
 
 function ColumnConfigTab() {
   const queryClient = useQueryClient()
-  const canCreate = useHasPermission('master_data.create')
-  const canEdit   = useHasPermission('master_data.edit')
-  const canDelete = useHasPermission('master_data.delete')
+  const canCreate = useHasPermission('column_config.create')
+  const canEdit   = useHasPermission('column_config.edit')
+  const canDelete = useHasPermission('column_config.delete')
 
   const [dialogOpen, setDialogOpen]     = useState(false)
   const [editingItem, setEditingItem]   = useState<any>(null)
@@ -1574,6 +1574,18 @@ function EmailPreviewContent({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function MasterDataPage() {
+  const canViewMaterials = useHasPermission('material_master.view')
+  const canViewKeywords = useHasPermission('keyword_master.view')
+  const canViewRfpTeam = useHasPermission('rfp_team.view')
+  const canViewColumns = useHasPermission('column_config.view')
+
+  // Default to the first visible tab
+  const defaultTab = canViewMaterials ? 'materials'
+    : canViewKeywords ? 'keywords'
+    : canViewRfpTeam ? 'rfp-team'
+    : canViewColumns ? 'column-config'
+    : 'materials'
+
   return (
     <PageWrapper
       title="Master Data"
@@ -1581,25 +1593,33 @@ export default function MasterDataPage() {
     >
       <Card>
         <CardContent className="p-6">
-          <Tabs defaultValue="materials">
+          <Tabs defaultValue={defaultTab}>
             <TabsList className="mb-6">
-              <TabsTrigger value="materials">Material Codes</TabsTrigger>
-              <TabsTrigger value="keywords">Keywords</TabsTrigger>
-              <TabsTrigger value="rfp-team">RFP Team</TabsTrigger>
-              <TabsTrigger value="column-config">Column Config</TabsTrigger>
+              {canViewMaterials && <TabsTrigger value="materials">Material Codes</TabsTrigger>}
+              {canViewKeywords && <TabsTrigger value="keywords">Keywords</TabsTrigger>}
+              {canViewRfpTeam && <TabsTrigger value="rfp-team">RFP Team</TabsTrigger>}
+              {canViewColumns && <TabsTrigger value="column-config">Column Config</TabsTrigger>}
             </TabsList>
-            <TabsContent value="materials">
-              <MaterialsTab />
-            </TabsContent>
-            <TabsContent value="keywords">
-              <KeywordsTab />
-            </TabsContent>
-            <TabsContent value="rfp-team">
-              <RfpTeamTab />
-            </TabsContent>
-            <TabsContent value="column-config">
-              <ColumnConfigTab />
-            </TabsContent>
+            {canViewMaterials && (
+              <TabsContent value="materials">
+                <MaterialsTab />
+              </TabsContent>
+            )}
+            {canViewKeywords && (
+              <TabsContent value="keywords">
+                <KeywordsTab />
+              </TabsContent>
+            )}
+            {canViewRfpTeam && (
+              <TabsContent value="rfp-team">
+                <RfpTeamTab />
+              </TabsContent>
+            )}
+            {canViewColumns && (
+              <TabsContent value="column-config">
+                <ColumnConfigTab />
+              </TabsContent>
+            )}
           </Tabs>
         </CardContent>
       </Card>

@@ -9,7 +9,6 @@ import {
   Download,
   CheckCircle2,
   XCircle,
-  Clock,
   Building2,
   ExternalLink,
   Send,
@@ -25,6 +24,7 @@ import {
   BarChart3,
   FolderOpen,
   AlertCircle,
+  ChevronDown,
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -39,6 +39,7 @@ import { Progress } from '@/components/ui/progress'
 import { MaterialBreakdownDialog } from '@/components/dialogs/material-breakdown-dialog'
 import { api } from '@/lib/api'
 import { cn, formatDateMDY } from '@/lib/utils'
+import { useHasPermission } from '@/hooks/use-auth'
 
 // Threshold for enabling virtualization (only virtualize when > this many rows)
 const VIRTUALIZATION_THRESHOLD = 50
@@ -78,11 +79,11 @@ function MetricCard({ title, value, icon, trend, trendUp, href, variant = 'defau
       cardBgStyles[variant],
       href && 'cursor-pointer group'
     )}>
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-slate-500">{title}</p>
-            <p className="text-2xl font-bold text-slate-900 tracking-tight">{value}</p>
+      <CardContent className="p-3 sm:p-4 xl:p-5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-1 sm:space-y-2 min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-slate-500 truncate">{title}</p>
+            <p className="font-bold text-slate-900 tracking-tight text-base sm:text-lg xl:text-xl break-words">{value}</p>
             {trend && (
               <div className={cn(
                 'inline-flex items-center gap-1 text-xs font-medium',
@@ -93,7 +94,7 @@ function MetricCard({ title, value, icon, trend, trendUp, href, variant = 'defau
               </div>
             )}
           </div>
-          <div className={cn('p-3 rounded-xl', variantStyles[variant])}>
+          <div className={cn('p-2 sm:p-3 rounded-xl shrink-0', variantStyles[variant])}>
             {icon}
           </div>
         </div>
@@ -116,11 +117,11 @@ function MetricCard({ title, value, icon, trend, trendUp, href, variant = 'defau
 function MetricCardSkeleton() {
   return (
     <Card>
-      <CardContent className="p-5">
+      <CardContent className="p-3 sm:p-4 xl:p-5">
         <div className="flex items-start justify-between">
           <div className="space-y-3">
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-9 w-16" />
+            <Skeleton className="h-4 w-20 sm:w-24" />
+            <Skeleton className="h-7 sm:h-9 w-14 sm:w-16" />
           </div>
           <Skeleton className="h-12 w-12 rounded-xl" />
         </div>
@@ -195,9 +196,11 @@ interface RfpTableRowProps {
   downloadingRfpId?: string | null
   matchData?: { match_percentage: number; total_materials: number; matched_count: number } | null
   onViewBreakdown?: (rfpId: string) => void
+  canDownload?: boolean
+  canSubmit?: boolean
 }
 
-const RfpTableRow = memo(function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchData, onViewBreakdown }: RfpTableRowProps) {
+const RfpTableRow = memo(function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchData, onViewBreakdown, canDownload = true, canSubmit = true }: RfpTableRowProps) {
   const isDownloading = downloadingRfpId === rfp.RFP_ID
   const pct = matchData?.match_percentage ?? null
   return (
@@ -248,16 +251,18 @@ const RfpTableRow = memo(function RfpTableRow({ rfp, index, showActions, tableTy
       </TableCell>
       <TableCell className="text-right">
         <div className="flex items-center justify-end gap-2">
-          <Button
-            size="sm"
-            disabled={isDownloading}
-            onClick={() => onDownloadExcel?.(rfp.RFP_ID, rfp.Company_Name)}
-            className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
-          >
-            <FileSpreadsheet className={`h-3.5 w-3.5 mr-1.5 ${isDownloading ? 'animate-spin' : ''}`} />
-            {isDownloading ? '...' : 'Excel'}
-          </Button>
-          {showActions && tableType === 'draft' && (
+          {canDownload && (
+            <Button
+              size="sm"
+              disabled={isDownloading}
+              onClick={() => onDownloadExcel?.(rfp.RFP_ID, rfp.Company_Name)}
+              className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <FileSpreadsheet className={`h-3.5 w-3.5 mr-1.5 ${isDownloading ? 'animate-spin' : ''}`} />
+              {isDownloading ? '...' : 'Excel'}
+            </Button>
+          )}
+          {canSubmit && showActions && tableType === 'draft' && (
             <Button
               size="sm"
               onClick={() => onChangeStatus?.(rfp.RFP_ID, 'submitted')}
@@ -267,7 +272,7 @@ const RfpTableRow = memo(function RfpTableRow({ rfp, index, showActions, tableTy
               Mark Submitted
             </Button>
           )}
-          {showActions && tableType === 'open' && (
+          {canSubmit && showActions && tableType === 'open' && (
             <Button
               size="sm"
               onClick={() => onSubmit?.(rfp.RFP_ID)}
@@ -294,9 +299,11 @@ interface RfpTableProps {
   downloadingRfpId?: string | null
   matchPercentages?: Record<string, { match_percentage: number; total_materials: number; matched_count: number }>
   onViewBreakdown?: (rfpId: string) => void
+  canDownload?: boolean
+  canSubmit?: boolean
 }
 
-function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchPercentages = {}, onViewBreakdown }: RfpTableProps) {
+function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchPercentages = {}, onViewBreakdown, canDownload = true, canSubmit = true }: RfpTableProps) {
   const parentRef = useRef<HTMLDivElement>(null)
 
   // Use virtualization only for large datasets
@@ -351,6 +358,8 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
               downloadingRfpId={downloadingRfpId}
               matchData={matchPercentages[rfp.RFP_ID] || null}
               onViewBreakdown={onViewBreakdown}
+              canDownload={canDownload}
+              canSubmit={canSubmit}
             />
           ))}
         </TableBody>
@@ -452,16 +461,18 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button
-                          size="sm"
-                          disabled={isDownloading}
-                          onClick={() => onDownloadExcel?.(rfp.RFP_ID, rfp.Company_Name)}
-                          className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
-                        >
-                          <FileSpreadsheet className={`h-3.5 w-3.5 mr-1.5 ${isDownloading ? 'animate-spin' : ''}`} />
-                          {isDownloading ? '...' : 'Excel'}
-                        </Button>
-                        {showActions && tableType === 'draft' && (
+                        {canDownload && (
+                          <Button
+                            size="sm"
+                            disabled={isDownloading}
+                            onClick={() => onDownloadExcel?.(rfp.RFP_ID, rfp.Company_Name)}
+                            className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                          >
+                            <FileSpreadsheet className={`h-3.5 w-3.5 mr-1.5 ${isDownloading ? 'animate-spin' : ''}`} />
+                            {isDownloading ? '...' : 'Excel'}
+                          </Button>
+                        )}
+                        {canSubmit && showActions && tableType === 'draft' && (
                           <Button
                             size="sm"
                             onClick={() => onChangeStatus?.(rfp.RFP_ID, 'submitted')}
@@ -471,7 +482,7 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
                             Mark Submitted
                           </Button>
                         )}
-                        {showActions && tableType === 'open' && (
+                        {canSubmit && showActions && tableType === 'open' && (
                           <Button
                             size="sm"
                             onClick={() => onSubmit?.(rfp.RFP_ID)}
@@ -499,6 +510,8 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
 
 // Main Dashboard Component
 export default function DashboardPage() {
+  const canDownloadRfp = useHasPermission('rfp.download')
+  const canSubmitRfp = useHasPermission('rfp.submit')
   const { openSubmitRfpDialog } = useDialogs()
   const queryClient = useQueryClient()
   const { data, isLoading, refetch, isRefetching } = useQuery({
@@ -590,6 +603,7 @@ export default function DashboardPage() {
   const [matchPercentages, setMatchPercentages] = useState<Record<string, { match_percentage: number; total_materials: number; matched_count: number }>>({})
 
   // Material Breakdown Dialog state
+  const [rfpManagementExpanded, setRfpManagementExpanded] = useState(true)
   const [breakdownDialogOpen, setBreakdownDialogOpen] = useState(false)
   const [breakdownRfpId, setBreakdownRfpId] = useState<string | null>(null)
   const [breakdownCompany, setBreakdownCompany] = useState<string | null>(null)
@@ -637,10 +651,6 @@ export default function DashboardPage() {
   const stats = data?.rfp || {}
   const companies = data?.unique_companies || []
   const companiesRfps = data?.companies_rfps || {}
-  const lastRunTime = data?.automation?.last_run_time
-  const lastRunId = data?.automation?.last_run_id
-  const lastRunAction = data?.automation?.last_run_action
-
   // Collect all RFP IDs and their company mappings for batch fetch
   const { allRfpIds, rfpCompanyMap } = useMemo(() => {
     const ids: string[] = []
@@ -690,12 +700,6 @@ export default function DashboardPage() {
     setBreakdownDialogOpen(true)
   }, [rfpCompanyMap])
 
-  // Format last run step info
-  const formatLastRun = (time: string, runId?: string) => {
-    if (!time || time === '-') return 'Never'
-    return formatDateMDY(time)
-  }
-
   return (
     <PageWrapper
       title="Dashboard"
@@ -711,10 +715,9 @@ export default function DashboardPage() {
       }
     >
       {/* Metrics Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6 mb-8">
+      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 mb-8">
         {isLoading ? (
           <>
-            <MetricCardSkeleton />
             <MetricCardSkeleton />
             <MetricCardSkeleton />
             <MetricCardSkeleton />
@@ -758,20 +761,19 @@ export default function DashboardPage() {
               variant="default"
               href="/dashboard/rfp-insights?status=not_participant"
             />
-            <MetricCard
-              title="Last Automation"
-              value={formatLastRun(lastRunTime, lastRunId)}
-              // trend={lastRunAction && lastRunAction !== '-' ? lastRunAction : undefined}
-              icon={<Clock className="h-5 w-5" />}
-              variant="info"
-            />
           </>
         )}
       </div>
 
       {/* RFP Management Section */}
       <Card className="border-slate-200">
-        <CardHeader className="border-b border-slate-100 bg-slate-50/50">
+        <CardHeader
+          className={cn(
+            'bg-slate-50/50 cursor-pointer select-none transition-colors hover:bg-slate-100/50',
+            rfpManagementExpanded && 'border-b border-slate-100'
+          )}
+          onClick={() => setRfpManagementExpanded(!rfpManagementExpanded)}
+        >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-indigo-50">
@@ -785,10 +787,14 @@ export default function DashboardPage() {
                   RFPs with passed deadlines are hidden
                 </p>
               </div>
+              <ChevronDown className={cn(
+                'h-5 w-5 text-slate-400 transition-transform duration-200',
+                !rfpManagementExpanded && '-rotate-90'
+              )} />
             </div>
             <Button
               size="sm"
-              onClick={handleSyncPortal}
+              onClick={(e) => { e.stopPropagation(); handleSyncPortal(); }}
               disabled={isRefetching || automationStatus?.sync_running}
               className="bg-indigo-600 hover:bg-indigo-700 h-9"
             >
@@ -797,7 +803,7 @@ export default function DashboardPage() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
+        {rfpManagementExpanded && <CardContent className="p-0">
           {isLoading ? (
             <div className="p-6 space-y-4">
               <Skeleton className="h-10 w-full" />
@@ -913,6 +919,8 @@ export default function DashboardPage() {
                               downloadingRfpId={downloadingRfpId}
                               matchPercentages={matchPercentages}
                               onViewBreakdown={handleViewBreakdown}
+                              canDownload={canDownloadRfp}
+                              canSubmit={canSubmitRfp}
                             />
                           </TabsContent>
                           <TabsContent value="submitted" className="mt-0">
@@ -922,6 +930,8 @@ export default function DashboardPage() {
                               downloadingRfpId={downloadingRfpId}
                               matchPercentages={matchPercentages}
                               onViewBreakdown={handleViewBreakdown}
+                              canDownload={canDownloadRfp}
+                              canSubmit={canSubmitRfp}
                             />
                           </TabsContent>
                           <TabsContent value="draft" className="mt-0">
@@ -934,6 +944,8 @@ export default function DashboardPage() {
                               downloadingRfpId={downloadingRfpId}
                               matchPercentages={matchPercentages}
                               onViewBreakdown={handleViewBreakdown}
+                              canDownload={canDownloadRfp}
+                              canSubmit={canSubmitRfp}
                             />
                           </TabsContent>
                           <TabsContent value="declined" className="mt-0">
@@ -943,6 +955,8 @@ export default function DashboardPage() {
                               downloadingRfpId={downloadingRfpId}
                               matchPercentages={matchPercentages}
                               onViewBreakdown={handleViewBreakdown}
+                              canDownload={canDownloadRfp}
+                              canSubmit={canSubmitRfp}
                             />
                           </TabsContent>
                         </div>
@@ -953,7 +967,7 @@ export default function DashboardPage() {
               })}
             </Tabs>
           )}
-        </CardContent>
+        </CardContent>}
       </Card>
 
       {/* Material Breakdown Dialog */}

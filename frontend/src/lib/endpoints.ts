@@ -124,6 +124,8 @@ export const ENDPOINTS = {
     CREATE: `${API_PREFIX}/roles/create`,
     UPDATE: (id: string) => `${API_PREFIX}/roles/update/${id}`,
     DELETE: (id: string) => `${API_PREFIX}/roles/delete/${id}`,
+    TOGGLE_STATUS: (id: string) => `${API_PREFIX}/roles/toggle-status/${id}`,
+    HARD_DELETE: (id: string) => `${API_PREFIX}/roles/hard-delete/${id}`,
     GET: (id: string) => `${API_PREFIX}/roles/${id}`,
     GET_PERMISSIONS: (id: string) => `${API_PREFIX}/roles/${id}/permissions`,
     SET_PERMISSIONS: (id: string) => `${API_PREFIX}/roles/${id}/permissions`,

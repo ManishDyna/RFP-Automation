@@ -1,7 +1,10 @@
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useEffect, useState, Suspense, lazy } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import { useAuth } from '@/hooks/use-auth'
+import { api } from '@/lib/api'
+import { formatDateMDY } from '@/lib/utils'
 import { Sidebar } from '@/components/layout/sidebar'
 import { Header } from '@/components/layout/header'
 import { cn } from '@/lib/utils'
@@ -74,6 +77,17 @@ function ProtectedLayout() {
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [sapPasswordOpen, setSapPasswordOpen] = useState(false)
 
+  // Fetch dashboard data for last automation time (shares cache with dashboard page)
+  const { data: dashboardData } = useQuery({
+    queryKey: ['dashboardData'],
+    queryFn: api.getDashboardData,
+    staleTime: 5 * 60 * 1000,
+    enabled: isAuthenticated,
+  })
+
+  const lastAutoTime = dashboardData?.automation?.last_run_time
+  const lastAutomationDisplay = lastAutoTime && lastAutoTime !== '-' ? formatDateMDY(lastAutoTime) : undefined
+
   useEffect(() => {
     checkSession()
   }, [checkSession])
@@ -115,16 +129,33 @@ function ProtectedLayout() {
         <Header
           onDownloadAll={() => { setDownloadMode('all'); setDownloadCompanyOpen(true) }}
           onRefresh={handleRefresh}
+          lastAutomationTime={lastAutomationDisplay}
         />
 
         <main className="p-6 min-h-[calc(100vh-64px)]">
           <Suspense fallback={<PageLoader />}>
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/dashboard/rfp-insights" element={<RfpInsightsPage />} />
-              <Route path="/dashboard/material-insights" element={<MaterialInsightsPage />} />
-              <Route path="/dashboard/logs" element={<LogsPage />} />
+              <Route path="/dashboard" element={
+                <PermissionGuard permission="dashboard.view" fallback={<AccessDenied />}>
+                  <DashboardPage />
+                </PermissionGuard>
+              } />
+              <Route path="/dashboard/rfp-insights" element={
+                <PermissionGuard permission="rfp.view" fallback={<AccessDenied />}>
+                  <RfpInsightsPage />
+                </PermissionGuard>
+              } />
+              <Route path="/dashboard/material-insights" element={
+                <PermissionGuard permission="material_insights.view" fallback={<AccessDenied />}>
+                  <MaterialInsightsPage />
+                </PermissionGuard>
+              } />
+              <Route path="/dashboard/logs" element={
+                <PermissionGuard permission="logs.view" fallback={<AccessDenied />}>
+                  <LogsPage />
+                </PermissionGuard>
+              } />
               <Route path="/dashboard/profile" element={<ProfilePage />} />
               <Route path="/dashboard/analytics" element={
                 <PermissionGuard permission="analytics.view" fallback={<AccessDenied />}>
@@ -152,7 +183,7 @@ function ProtectedLayout() {
                 </PermissionGuard>
               } />
               <Route path="/admin/master-data" element={
-                <PermissionGuard permission="master_data.view" fallback={<AccessDenied />}>
+                <PermissionGuard permission={['material_master.view', 'keyword_master.view', 'rfp_team.view', 'column_config.view']} fallback={<AccessDenied />}>
                   <MasterDataPage />
                 </PermissionGuard>
               } />

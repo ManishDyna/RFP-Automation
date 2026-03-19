@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { useHasPermission } from '@/hooks/use-auth'
 import { formatDateMDY } from '@/lib/utils'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -95,6 +96,7 @@ const AVAILABLE_COLUMNS = {
 } as const
 
 export default function RfpInsightsPage() {
+  const canDownloadRfp = useHasPermission('rfp.download')
   const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState({
     status: searchParams.get('status') || '',
@@ -730,15 +732,17 @@ export default function RfpInsightsPage() {
                               </a>
                             </Button>
                           )}
-                          <Button
-                            size="sm"
-                            className="h-8 bg-emerald-600 hover:bg-emerald-700 shadow-sm"
-                            disabled={downloadingRfpId === rfp.RFP_ID}
-                            onClick={() => handleDownloadExcel(rfp.RFP_ID, rfp.Company_Name)}
-                          >
-                            <FileSpreadsheet className={`h-3.5 w-3.5 mr-1.5 ${downloadingRfpId === rfp.RFP_ID ? 'animate-spin' : ''}`} />
-                            {downloadingRfpId === rfp.RFP_ID ? 'Downloading...' : 'Excel'}
-                          </Button>
+                          {canDownloadRfp && (
+                            <Button
+                              size="sm"
+                              className="h-8 bg-emerald-600 hover:bg-emerald-700 shadow-sm"
+                              disabled={downloadingRfpId === rfp.RFP_ID}
+                              onClick={() => handleDownloadExcel(rfp.RFP_ID, rfp.Company_Name)}
+                            >
+                              <FileSpreadsheet className={`h-3.5 w-3.5 mr-1.5 ${downloadingRfpId === rfp.RFP_ID ? 'animate-spin' : ''}`} />
+                              {downloadingRfpId === rfp.RFP_ID ? 'Downloading...' : 'Excel'}
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

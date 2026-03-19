@@ -204,22 +204,79 @@ def update_role(record_id: str, updates: Dict) -> bool:
 def delete_role(record_id: str) -> Dict:
     """
     Soft-delete a role (set is_active=False).
-    Prevents deleting system roles.
+    Prevents deleting the Admin role.
     Returns {"ok": bool, "error": str}.
     """
     role = get_role(record_id)
     if not role:
         return {"ok": False, "error": "Role not found"}
 
-    is_system = str(role.get("is_system", "false")).lower() in ("true", "1", "yes")
-    if is_system:
-        return {"ok": False, "error": "Cannot delete system roles"}
+    if (role.get("name", "")).lower() == "admin":
+        return {"ok": False, "error": "Cannot delete the Admin role"}
 
     result = update_role(record_id, {"is_active": "false"})
     if role.get("name"):
         invalidate_role_cache(role["name"])
 
     return {"ok": result, "error": "" if result else "Failed to deactivate role"}
+
+
+def toggle_role_status(record_id: str) -> Dict:
+    """
+    Toggle a role's active/inactive status.
+    Prevents toggling the Admin role.
+    Returns {"ok": bool, "is_active": bool, "error": str}.
+    """
+    role = get_role(record_id)
+    if not role:
+        return {"ok": False, "is_active": False, "error": "Role not found"}
+
+    if (role.get("name", "")).lower() == "admin":
+        return {"ok": False, "is_active": True, "error": "Cannot toggle the Admin role"}
+
+    currently_active = str(role.get("is_active", "true")).lower() != "false"
+    new_status = "false" if currently_active else "true"
+
+    result = update_role(record_id, {"is_active": new_status})
+    if role.get("name"):
+        invalidate_role_cache(role["name"])
+
+    return {
+        "ok": result,
+        "is_active": not currently_active,
+        "error": "" if result else "Failed to toggle role status",
+    }
+
+
+def hard_delete_role(record_id: str) -> Dict:
+    """
+    Permanently delete a role and all its permission mappings from Dataverse.
+    Prevents deleting the Admin role.
+    Returns {"ok": bool, "error": str}.
+    """
+    role = get_role(record_id)
+    if not role:
+        return {"ok": False, "error": "Role not found"}
+
+    if (role.get("name", "")).lower() == "admin":
+        return {"ok": False, "error": "Cannot permanently delete the Admin role"}
+
+    role_name = role.get("name", "")
+
+    # 1. Delete all permission mappings for this role
+    if role_name:
+        _delete_role_permissions(role_name)
+        invalidate_role_cache(role_name)
+
+    # 2. Hard-delete the role record itself
+    try:
+        DATAVERSE.delete_row(
+            table_api_name=get_setting('ROLES_TABLE_API', 'cr673_bahra_roleses'),
+            record_id=record_id,
+        )
+        return {"ok": True, "error": ""}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to permanently delete role: {str(e)}"}
 
 
 # ==================== ROLE-PERMISSION MAPPING ====================

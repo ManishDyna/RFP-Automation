@@ -516,6 +516,22 @@ export const api = {
     return handleResponse(response)
   },
 
+  toggleRoleStatus: async (id: string) => {
+    const response = await fetch(ENDPOINTS.ROLES.TOGGLE_STATUS(id), {
+      method: 'PATCH',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  hardDeleteRole: async (id: string) => {
+    const response = await fetch(ENDPOINTS.ROLES.HARD_DELETE(id), {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
   getRolePermissions: async (id: string) => {
     const response = await fetch(ENDPOINTS.ROLES.GET_PERMISSIONS(id), { credentials: 'include' })
     return handleResponse<{ ok: boolean; permissions: string[] }>(response)

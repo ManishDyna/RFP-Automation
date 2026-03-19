@@ -14,13 +14,15 @@ from services.dynamic_role_service import (
     create_role,
     update_role,
     delete_role,
+    toggle_role_status,
+    hard_delete_role,
     get_role_permissions,
     get_all_permissions_count_by_role,
     set_role_permissions,
     seed_default_roles,
     invalidate_role_cache,
 )
-from services.permission_definitions import PERMISSIONS, PERMISSION_GROUPS, MODULE_LABELS
+from services.permission_definitions import PERMISSIONS, PERMISSION_GROUPS, MODULE_LABELS, PERMISSION_CATEGORIES
 from services.audit_service import log_event, AuditAction, AuditCategory
 
 router = APIRouter(prefix="/api", tags=["Roles"])
@@ -179,6 +181,67 @@ async def api_delete_role(
     return JSONResponse({"ok": True, "message": f"Role '{role.get('name')}' deactivated"})
 
 
+@router.patch("/roles/toggle-status/{record_id}")
+async def api_toggle_role_status(
+    request: Request,
+    record_id: str,
+    user: dict = Depends(require_permission("role_management.edit")),
+):
+    """Toggle a role's active/inactive status. System roles cannot be toggled."""
+    role = get_role(record_id)
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    result = toggle_role_status(record_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Failed to toggle role status"))
+
+    new_status = "activated" if result.get("is_active") else "deactivated"
+
+    log_event(
+        action=AuditAction.ROLE_UPDATED,
+        category=AuditCategory.ROLE,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="Role",
+        target_id=record_id,
+        details=json.dumps({"name": role.get("name"), "action": new_status}),
+        ip_address=get_request_ip(request),
+    )
+
+    return JSONResponse({"ok": True, "is_active": result.get("is_active"), "message": f"Role '{role.get('name')}' {new_status}"})
+
+
+@router.delete("/roles/hard-delete/{record_id}")
+async def api_hard_delete_role(
+    request: Request,
+    record_id: str,
+    user: dict = Depends(require_permission("role_management.delete")),
+):
+    """Permanently delete a role and all its permissions. Cannot be undone."""
+    role = get_role(record_id)
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    role_name = role.get("name", "")
+    result = hard_delete_role(record_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Failed to permanently delete role"))
+
+    log_event(
+        action=AuditAction.ROLE_DELETED,
+        category=AuditCategory.ROLE,
+        actor_email=user.get("email", ""),
+        actor_name=user.get("name", ""),
+        target_type="Role",
+        target_id=record_id,
+        details=json.dumps({"name": role_name, "action": "permanently_deleted"}),
+        ip_address=get_request_ip(request),
+    )
+
+    return JSONResponse({"ok": True, "message": f"Role '{role_name}' permanently deleted"})
+
+
 # ==================== ROLE PERMISSIONS ====================
 
 @router.get("/roles/{record_id}/permissions")
@@ -243,17 +306,11 @@ async def api_list_permissions(
     request: Request,
     user: dict = Depends(require_permission("role_management.view")),
 ):
-    """List all available permissions grouped by module."""
+    """List all available permissions grouped by category (mirrors sidebar layout)."""
     return JSONResponse({
         "ok": True,
         "permissions": PERMISSIONS,
-        "groups": {
-            module: {
-                "label": MODULE_LABELS.get(module, module.replace("_", " ").title()),
-                "permissions": perms,
-            }
-            for module, perms in PERMISSION_GROUPS.items()
-        },
+        "groups": PERMISSION_CATEGORIES,
     })
 
 

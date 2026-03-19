@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  Download,
   RefreshCw,
   User,
   LogOut,
   ChevronDown,
   Search,
   Command,
+  Clock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -33,9 +33,10 @@ import { cn } from '@/lib/utils'
 interface HeaderProps {
   onDownloadAll: () => void
   onRefresh: () => void
+  lastAutomationTime?: string
 }
 
-export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
+export function Header({ onRefresh, lastAutomationTime }: HeaderProps) {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -120,29 +121,16 @@ export function Header({ onDownloadAll, onRefresh }: HeaderProps) {
             <TooltipContent>Refresh data</TooltipContent>
           </Tooltip>
 
-          {/* Download Button */}
-          <Button
-            size="sm"
-            onClick={onDownloadAll}
-            className="h-9 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm hidden sm:flex"
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Download Historical Data
-          </Button>
-
-          {/* Mobile Download */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                onClick={onDownloadAll}
-                className="h-9 w-9 bg-indigo-600 hover:bg-indigo-700 text-white sm:hidden"
-              >
-                <Download className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Download Historical Data</TooltipContent>
-          </Tooltip>
+          {/* Last Automation Badge */}
+          {lastAutomationTime && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-sm shadow-sm">
+              <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <Clock className="h-3.5 w-3.5 text-indigo-500 hidden sm:block" />
+              <span className="font-medium text-indigo-600 hidden sm:inline">Last Automation Ran:</span>
+              <span className="font-medium text-indigo-600 sm:hidden">Last Run:</span>
+              <span className="text-indigo-900 font-bold">{lastAutomationTime}</span>
+            </div>
+          )}
 
           {/* Divider */}
           <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block" />
