@@ -11,16 +11,24 @@ from services.system_settings_service import get_setting
 
 
 def normalize_date_format(val) -> str:
-    """Convert any date string to consistent 'MM/DD/YYYY HH:MM AM/PM' format.
+    """Convert any date string to ISO 8601 format for Dataverse datetime column.
 
     Handles:
-      - Slash format: 'MM/DD/YYYY HH:MM AM/PM' → parse directly
-      - Dash format:  'YYYY-DD-MM HH:MM:SS'    → day/month swapped by Excel locale
-      - Portal format: 'MM-DD-YYYY HH:MM'       → parse with MM-DD-YYYY
+      - Slash format: 'MM/DD/YYYY HH:MM AM/PM'
+      - Dash format:  'YYYY-DD-MM HH:MM:SS' (Excel locale swap)
+      - Portal format: 'MM-DD-YYYY HH:MM'
+      - ISO format: '2026-03-15T18:30:00Z' (pass through)
+
+    Returns ISO 8601 string: 'YYYY-MM-DDTHH:MM:SSZ'
     """
     if not val or str(val).strip() in ("", "-"):
         return ""
     val = str(val).strip()
+
+    # Already ISO format — pass through
+    if "T" in val and (val.endswith("Z") or "+" in val[10:]):
+        return val
+
     try:
         if "-" in val and "/" not in val:
             parts = val.split(" ", 1)
@@ -34,12 +42,12 @@ def normalize_date_format(val) -> str:
                 fixed = f"{y}-{m}-{d} {time_part}"
                 dt = pd.to_datetime(fixed)
             else:
-                # MM-DD-YYYY portal format (e.g. 12-10-2025 02:15)
+                # MM-DD-YYYY portal format
                 dt = pd.to_datetime(val)
         else:
-            # Slash format: MM/DD/YYYY HH:MM AM/PM → already correct
+            # Slash format: MM/DD/YYYY HH:MM AM/PM
             dt = pd.to_datetime(val)
-        return dt.strftime("%m/%d/%Y %I:%M %p")
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         return str(val).strip()
 
@@ -72,8 +80,8 @@ def get_current_run_id():
 
 # ---------------- Automation log ----------------
 def write_log_row(category, action, status, message="", rfp_id="", run_id=None, insert_to_dataverse=True):
-    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
-    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
+    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
     _auto_api = get_setting("AUTOMATION_LOG_TABLE_API", "cr673_bahra_automation_log1s")
     _auto_logical = get_setting("AUTOMATION_LOG_TABLE_LOGICAL", "cr673_bahra_automation_log1")
     header = ["RunID", "Timestamp", "Category", "Action", "automation_status", "Message", "RFP_ID"]
@@ -151,54 +159,75 @@ def log_event(category, action, status, message=None, rfp_id=None, run_id=None, 
     write_log_row(category, action, status, message or "", rfp_id or "", run_id or get_current_run_id(), insert_to_dataverse)
 # ---------------- RFP activity log ----------------
 
-def calculate_match_counts(matched_data):
-    """
-    Calculate material match statistics from matched data DataFrame.
+def _dataframe_to_categorized_json(df, rfp_id, rfp_end_date=None):
+    """Convert a matched materials DataFrame to the categorized JSON format."""
+    import json, math
 
-    Args:
-        matched_data: pandas DataFrame with matched materials
+    exact_matches = []
+    keyword_matches = []
+    not_matched = []
 
-    Returns:
-        dict: {'total_materials': int, 'keyword_matched': int, 'exact_matched': int}
-    """
-    if matched_data is None or (isinstance(matched_data, pd.DataFrame) and matched_data.empty):
-        return {
-            'total_materials': 0,
-            'keyword_matched': 0,
-            'exact_matched': 0
+    source_file = ""
+    if "SourceFile" in df.columns and not df["SourceFile"].dropna().empty:
+        source_file = str(df["SourceFile"].dropna().iloc[0])
+
+    for _, row in df.iterrows():
+        is_matched = bool(row.get("is_matched", False))
+        match_method = row.get("MatchMethod")
+        mat_code = str(row.get("ExtractedMaterial") or row.get("Material") or "").strip()
+
+        # Get description from master (handle NaN)
+        mat_desc_raw = row.get("Material Description", "")
+        mat_desc = "" if (isinstance(mat_desc_raw, float) and math.isnan(mat_desc_raw)) else str(mat_desc_raw or "")
+
+        excel_name_raw = row.get("ExcelName", "")
+        excel_name = "" if (isinstance(excel_name_raw, float) and math.isnan(excel_name_raw)) else str(excel_name_raw or "")
+
+        excel_desc_raw = row.get("ExcelDescription", "")
+        excel_desc = "" if (isinstance(excel_desc_raw, float) and math.isnan(excel_desc_raw)) else str(excel_desc_raw or "")
+
+        row_num = row.get("RowNumber", 0)
+        col_name = str(row.get("ColumnName", "") or "")
+
+        item = {
+            "material_code": mat_code,
+            "excel_name": excel_name,
+            "excel_description": excel_desc,
+            "row_number": int(row_num) if not (isinstance(row_num, float) and math.isnan(row_num)) else 0,
+            "column_name": col_name,
         }
 
-    if not isinstance(matched_data, pd.DataFrame):
-        return {
-            'total_materials': 0,
-            'keyword_matched': 0,
-            'exact_matched': 0
-        }
+        if is_matched and match_method and str(match_method).lower() == "keyword":
+            item["material_description"] = mat_desc
+            item["matched_keyword"] = ""  # Not captured in DataFrame flow
+            keyword_matches.append(item)
+        elif is_matched:
+            item["material_description"] = mat_desc
+            exact_matches.append(item)
+        else:
+            not_matched.append(item)
 
-    # Filter to only matched items (backward compat: missing column = all matched)
-    if 'is_matched' in matched_data.columns:
-        matched_only = matched_data[matched_data['is_matched'] == True]
-    else:
-        matched_only = matched_data
+    total = len(exact_matches) + len(keyword_matches) + len(not_matched)
+    matched_total = len(exact_matches) + len(keyword_matches)
+    match_pct = round((matched_total / total * 100) if total > 0 else 0, 1)
 
-    total = len(matched_only)
-
-    # Count by match method (handle backward compatibility)
-    if 'MatchMethod' in matched_only.columns:
-        # Handle NaN values and case variations
-        match_method = matched_only['MatchMethod'].fillna('exact').str.lower()
-        keyword_count = (match_method == 'keyword').sum()
-        exact_count = (match_method == 'exact').sum()
-    else:
-        # Backward compatibility: if no MatchMethod column, assume all exact
-        keyword_count = 0
-        exact_count = total
-
-    return {
-        'total_materials': total,
-        'keyword_matched': keyword_count,
-        'exact_matched': exact_count
+    categorized = {
+        "rfp_id": rfp_id or "",
+        "source_file": source_file,
+        "rfp_end_date": str(rfp_end_date or ""),
+        "total_items": total,
+        "summary": {
+            "exact_match_count": len(exact_matches),
+            "keyword_match_count": len(keyword_matches),
+            "not_matched_count": len(not_matched),
+            "match_percentage": match_pct,
+        },
+        "exact_matches": exact_matches,
+        "keyword_matches": keyword_matches,
+        "not_matched": not_matched,
     }
+    return json.dumps(categorized)
+
 
 def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                      Matched_Data=None, email_sent_at=None,
@@ -207,19 +236,14 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                      participated=None, link=None,
                      company_name=None,
                      run_id=None, insert_to_dataverse=True,
-                     no_of_matched_materials=None,
-                     no_of_matched_keywords=None,
-                     rfp_type=None,
-                     total_line_items=None,
-                     match_rate_pct=None,
-                     exact_match_count=None,
-                     keyword_match_count=None,
-                     file_size_bytes=None):
-    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
-    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
+                     rfp_type=None):
+    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
 
     if isinstance(Matched_Data, pd.DataFrame) and not Matched_Data.empty:
-        Matched_Data_str = Matched_Data.to_json(orient="records")
+        Matched_Data_str = _dataframe_to_categorized_json(Matched_Data, rfp_id, RFP_End_Date)
+    elif isinstance(Matched_Data, str) and Matched_Data.strip():
+        Matched_Data_str = Matched_Data
     else:
         Matched_Data_str = ""
 
@@ -250,42 +274,13 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
         row_data["participated"] = participated
     if owner_name is not None:
         row_data["owner_name"] = owner_name
-    if publish_time is not None:
-        row_data["publish_time"] = publish_time
     if link is not None and link.strip():
         row_data["Link"] = link.strip()
     if company_name is not None and company_name.strip():
         row_data["Company_Name"] = company_name.strip()
 
-    # Analytics columns — captured during portal scraping and file processing
     if rfp_type is not None and str(rfp_type).strip():
         row_data["rfp_type"] = str(rfp_type).strip()
-    if total_line_items is not None:
-        row_data["total_line_items"] = str(total_line_items)
-    if match_rate_pct is not None:
-        row_data["match_rate_pct"] = str(match_rate_pct)
-    if exact_match_count is not None:
-        row_data["exact_match_count"] = str(exact_match_count)
-    if keyword_match_count is not None:
-        row_data["keyword_match_count"] = str(keyword_match_count)
-    if file_size_bytes is not None:
-        row_data["file_size_bytes"] = str(file_size_bytes)
-
-    # Auto-calculate match counts from Matched_Data if not explicitly provided
-    if no_of_matched_materials is None and Matched_Data is not None:
-        counts = calculate_match_counts(Matched_Data)
-        no_of_matched_materials = counts['total_materials']
-        no_of_matched_keywords = counts['keyword_matched']
-
-    # Add count fields to row_data
-    if no_of_matched_materials is not None:
-        row_data["no_of_matched_materials"] = no_of_matched_materials
-        # Also set Material_Matched flag based on count
-        row_data["Material_Matched"] = "Yes" if int(no_of_matched_materials) > 0 else "No"
-    if no_of_matched_keywords is not None:
-        row_data["no_of_matched_keywords"] = no_of_matched_keywords
-        # Also set Keyword_Matched flag based on count
-        row_data["Keyword_Matched"] = "Yes" if int(no_of_matched_keywords) > 0 else "No"
 
     print("Row Data:", row_data)
     if insert_to_dataverse:
@@ -337,9 +332,8 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                         has_meaningful_updates = True
                         print(f"🔄 Email sent — updating Email_Sent_At for: {rfp_id}")
 
-                    # Check if analytics fields are being provided
-                    if any(v is not None for v in [rfp_type, total_line_items, match_rate_pct,
-                                                    exact_match_count, keyword_match_count, file_size_bytes]):
+                    # Check if rfp_type is being provided
+                    if rfp_type is not None and str(rfp_type).strip():
                         has_meaningful_updates = True
 
                     # Check if matched data is being added (and wasn't there before)
@@ -348,7 +342,21 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                         if not existing_matched_data or not existing_matched_data.strip():
                             has_meaningful_updates = True
                             print(f"🔄 Adding matched data for previously downloaded RFP: {rfp_id}")
-                    
+
+                    # Check if owner_name is being added where it was missing
+                    if owner_name is not None and str(owner_name).strip():
+                        existing_owner = existing_row.get("owner_name", "")
+                        if not existing_owner or not existing_owner.strip():
+                            has_meaningful_updates = True
+                            print(f"🔄 Adding missing owner_name for RFP: {rfp_id}")
+
+                    # Check if publish_time is being added where it was missing
+                    if publish_time is not None and str(publish_time).strip():
+                        existing_publish = existing_row.get("publish_time", "")
+                        if not existing_publish or not existing_publish.strip():
+                            has_meaningful_updates = True
+                            print(f"🔄 Adding missing publish_time for RFP: {rfp_id}")
+
                     # Only update if there are meaningful changes
                     if has_meaningful_updates:
                         record_id = existing_record_id
@@ -368,31 +376,25 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                             existing_matched = existing_row.get("Matched_Data", "")
                             if not existing_matched or not existing_matched.strip():
                                 update_data["Matched_Data"] = Matched_Data_str
-                                # Also update count fields and match flags when matched data is updated
-                                if no_of_matched_materials is not None:
-                                    update_data["no_of_matched_materials"] = no_of_matched_materials
-                                    update_data["Material_Matched"] = "Yes" if int(no_of_matched_materials) > 0 else "No"
-                                if no_of_matched_keywords is not None:
-                                    update_data["no_of_matched_keywords"] = no_of_matched_keywords
-                                    update_data["Keyword_Matched"] = "Yes" if int(no_of_matched_keywords) > 0 else "No"
                         if link is not None and link.strip():
                             existing_link = existing_row.get("Link", "")
                             if not existing_link or existing_link.strip() != link.strip():
                                 update_data["Link"] = link.strip()
 
-                        # Analytics columns — always update if provided
                         if rfp_type is not None and str(rfp_type).strip():
                             update_data["rfp_type"] = str(rfp_type).strip()
-                        if total_line_items is not None:
-                            update_data["total_line_items"] = str(total_line_items)
-                        if match_rate_pct is not None:
-                            update_data["match_rate_pct"] = str(match_rate_pct)
-                        if exact_match_count is not None:
-                            update_data["exact_match_count"] = str(exact_match_count)
-                        if keyword_match_count is not None:
-                            update_data["keyword_match_count"] = str(keyword_match_count)
-                        if file_size_bytes is not None:
-                            update_data["file_size_bytes"] = str(file_size_bytes)
+
+                        # Fill missing owner_name if now available
+                        if owner_name is not None and str(owner_name).strip():
+                            existing_owner = existing_row.get("owner_name", "")
+                            if not existing_owner or not existing_owner.strip():
+                                update_data["owner_name"] = str(owner_name).strip()
+
+                        # Fill missing publish_time if now available
+                        if publish_time is not None and str(publish_time).strip():
+                            existing_publish = existing_row.get("publish_time", "")
+                            if not existing_publish or not existing_publish.strip():
+                                update_data["publish_time"] = safe_date_field(publish_time) or str(publish_time).strip()
 
                         # Don't update Downloaded_At for re-downloads
                         # Only update other meaningful fields

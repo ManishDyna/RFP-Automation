@@ -100,23 +100,29 @@ class DataverseClient:
 
     def count_rows(self, table_api_name: str, filter_expr: str = None, table_logical_name: str = None, use_display_names: bool = True) -> int:
         """Get the total count of rows in a Dataverse table using $count."""
-        url = f"{self.api_url}{table_api_name}"
-        params = {"$count": "true", "$top": "0"}
-
         if filter_expr and use_display_names and table_logical_name:
             column_map = self.get_column_mapping(table_logical_name)
             for display_name, logical_name in column_map.items():
                 filter_expr = filter_expr.replace(display_name, logical_name)
 
         if filter_expr:
-            params["$filter"] = filter_expr
+            # Use $count=true with $top=1 and filter (Dataverse doesn't support $top=0)
+            url = f"{self.api_url}{table_api_name}"
+            params = {"$count": "true", "$top": "1", "$filter": filter_expr}
+            resp = self._request(requests.get, url, headers=self._headers(), params=params)
+            if resp.status_code != 200:
+                raise Exception(f"[ERROR] Count failed for '{table_api_name}': {resp.status_code}")
+            return resp.json().get("@odata.count", 0)
+        else:
+            # Use /$count endpoint for total count (fastest)
+            url = f"{self.api_url}{table_api_name}/$count"
+            resp = self._request(requests.get, url, headers=self._headers())
+            if resp.status_code != 200:
+                raise Exception(f"[ERROR] Count failed for '{table_api_name}': {resp.status_code}")
+            text = resp.text.strip().replace('\ufeff', '').replace('\xef\xbb\xbf', '')
+            return int(text)
 
-        resp = self._request(requests.get, url, headers=self._headers(), params=params)
-        if resp.status_code != 200:
-            raise Exception(f"[ERROR] Count failed for '{table_api_name}': {resp.status_code}")
-        return resp.json().get("@odata.count", 0)
-
-    def get_all_rows(self, table_api_name: str, select_columns: List[str] = None, table_logical_name: str = None, use_display_names: bool = True, page_size: int = 5000) -> List[dict]:
+    def get_all_rows(self, table_api_name: str, select_columns: List[str] = None, filter_expr: str = None, table_logical_name: str = None, use_display_names: bool = True, page_size: int = 5000) -> List[dict]:
         """Fetch ALL rows from a Dataverse table using @odata.nextLink pagination."""
         url = f"{self.api_url}{table_api_name}"
         params = {}  # No $top — let Dataverse paginate naturally via @odata.nextLink
@@ -125,13 +131,19 @@ class DataverseClient:
         if select_columns:
             select_expr = ",".join(select_columns)
 
-        if use_display_names and table_logical_name and select_expr:
+        if use_display_names and table_logical_name:
             column_map = self.get_column_mapping(table_logical_name)
-            select_fields = [column_map.get(f.strip(), f.strip()) for f in select_expr.split(",")]
-            select_expr = ",".join(select_fields)
+            if select_expr:
+                select_fields = [column_map.get(f.strip(), f.strip()) for f in select_expr.split(",")]
+                select_expr = ",".join(select_fields)
+            if filter_expr:
+                for display_name, logical_name in column_map.items():
+                    filter_expr = filter_expr.replace(display_name, logical_name)
 
         if select_expr:
             params["$select"] = select_expr
+        if filter_expr:
+            params["$filter"] = filter_expr
 
         all_rows = []
         page_num = 0

@@ -1340,8 +1340,8 @@ async def download_single_rfp_file(page, rfp_data, company_name, allrfps_base_fo
     import tempfile
     from helpers.core_helper import click_if_visible, clean_rfp_title, get_sharepoint_rfp_material_path
     from helpers.core_helper import DATAVERSE, sanitize_filter_value
-    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
-    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
+    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
     from rfp.download_rfp import extract_rfp_details_inner_text
 
     title = rfp_data.get('Title', '').strip()
@@ -1469,8 +1469,8 @@ def store_rfp_in_database(rfp_data, company_name, file_path=None, owner_name=Non
     """Store RFP data in RFP activity log table"""
     from helpers.core_helper import DATAVERSE
     from core.log_events import get_current_run_id
-    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
-    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
+    _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+    _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
 
     try:
         rfp_id = rfp_data.get('RFP_ID') or rfp_data.get('Title', '')

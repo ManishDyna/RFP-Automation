@@ -670,7 +670,26 @@ export default function DashboardPage() {
     return { allRfpIds: ids, rfpCompanyMap: companyMap }
   }, [companies, companiesRfps])
 
-  // Fetch match percentages from batch endpoint
+  // Extract match percentages from initial dashboard response (instant, no extra API call)
+  useEffect(() => {
+    if (!data?.companies_rfps) return
+    const fromResponse: Record<string, { match_percentage: number; total_materials: number; matched_count: number }> = {}
+    for (const company of Object.keys(data.companies_rfps)) {
+      const compRfps = data.companies_rfps[company] || {}
+      for (const status of ['open', 'submitted', 'saved_draft', 'declined']) {
+        for (const rfp of (compRfps[status] || [])) {
+          if (rfp.RFP_ID && rfp.match_percentage_data) {
+            fromResponse[rfp.RFP_ID] = rfp.match_percentage_data
+          }
+        }
+      }
+    }
+    if (Object.keys(fromResponse).length > 0) {
+      setMatchPercentages((prev) => ({ ...fromResponse, ...prev }))
+    }
+  }, [data])
+
+  // Batch fetch match percentages only for RFPs not already loaded from dashboard response
   useEffect(() => {
     if (allRfpIds.length === 0) return
 

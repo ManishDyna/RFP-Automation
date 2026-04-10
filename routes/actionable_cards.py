@@ -426,8 +426,8 @@ async def receive_card_response(request: Request):
 
     # Step 5a: Update response metrics on RFP activity log
     try:
-        RFP_ACTIVITY_LOG_TABLE_API = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "")
-        RFP_ACTIVITY_LOG_TABLE_LOGICAL = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "")
+        RFP_ACTIVITY_LOG_TABLE_API = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+        RFP_ACTIVITY_LOG_TABLE_LOGICAL = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
 
         # Calculate response timestamps
         _resp_timestamps = [
@@ -476,8 +476,8 @@ async def receive_card_response(request: Request):
         # All team members have responded - send consolidated email with attachments + Decline button
         try:
             from helpers.email_helper import send_consolidated_response_email
-            RFP_ACTIVITY_LOG_TABLE_API = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "")
-            RFP_ACTIVITY_LOG_TABLE_LOGICAL = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "")
+            RFP_ACTIVITY_LOG_TABLE_API = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+            RFP_ACTIVITY_LOG_TABLE_LOGICAL = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
 
             responses_for_email = []
             for r in all_responses:

@@ -4,7 +4,7 @@ Moved from Dashboard/backend/dashboard_backend.py
 """
 
 from core.common_imports import *
-from helpers.core_helper import DATAVERSE, get_rfp_activity_data_from_db
+from helpers.core_helper import DATAVERSE, get_rfp_activity_data_from_db, get_rfp_activity_data_lightweight, get_matched_data_for_rfps
 from fastapi import HTTPException
 from datetime import datetime, timedelta, timezone
 import time
@@ -13,6 +13,49 @@ from services.system_settings_service import get_setting
 # IST offset: UTC+5:30
 _IST_OFFSET = timedelta(hours=5, minutes=30)
 _IST_TZ = timezone(_IST_OFFSET)
+
+
+def _derive_match_flags(matched_data_str):
+    """Derive Material_Matched, Keyword_Matched, and match percentage from Matched_Data JSON."""
+    material_matched, keyword_matched = "No", "No"
+    match_pct_data = None
+    if matched_data_str and str(matched_data_str).strip():
+        try:
+            data = json.loads(str(matched_data_str))
+
+            # New categorized format (dict with summary)
+            if isinstance(data, dict) and "summary" in data:
+                s = data["summary"]
+                exact = s.get("exact_match_count", 0)
+                keyword = s.get("keyword_match_count", 0)
+                if exact + keyword > 0:
+                    material_matched = "Yes"
+                if keyword > 0:
+                    keyword_matched = "Yes"
+                match_pct_data = {
+                    "match_percentage": s.get("match_percentage", 0),
+                    "total_materials": data.get("total_items", 0),
+                    "matched_count": exact + keyword,
+                }
+
+            # Old flat format (list) — backward compatibility
+            elif isinstance(data, list):
+                for item in data:
+                    if item.get("is_matched"):
+                        material_matched = "Yes"
+                        if item.get("MatchMethod", "").lower() == "keyword":
+                            keyword_matched = "Yes"
+                if data and any("is_matched" in item for item in data):
+                    total = len(data)
+                    matched = sum(1 for item in data if bool(item.get("is_matched", True)))
+                    match_pct_data = {
+                        "match_percentage": round((matched / total * 100) if total > 0 else 0, 1),
+                        "total_materials": total,
+                        "matched_count": matched,
+                    }
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return material_matched, keyword_matched, match_pct_data
 
 
 def _ist_to_utc_iso(dt_val) -> str:
@@ -156,8 +199,66 @@ def get_dashboard_data():
 
         print(f"Automation data after filtering: {len(auto_df)} rows")
 
-        rfp_rows = get_rfp_activity_data_from_db()
-        print(f"RFP data fetched: {len(rfp_rows)} rows")
+        # --- Parallel server-side counts + future RFP fetch ---
+        _table_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+        _table_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
+        now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _count(label, filter_expr=None):
+            c = DATAVERSE.count_rows(_table_api, filter_expr=filter_expr, table_logical_name=_table_logical, use_display_names=True)
+            return label, c
+
+        def _fetch_future():
+            return DATAVERSE.get_all_rows(
+                table_api_name=_table_api,
+                select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link"],
+                filter_expr=f"RFP_End_Date ge {now_iso}",
+                table_logical_name=_table_logical,
+                use_display_names=True,
+            )
+
+        total_all_rfps = 0
+        total_submitted_rfps = 0
+        total_declined_rfps = 0
+        total_open_rfps = 0
+        total_not_participated_rfps = 0
+        rfp_rows = []
+
+        try:
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                futures = {
+                    executor.submit(_count, "total"): "total",
+                    executor.submit(_count, "submitted", "participated eq 'submitted' or participated eq 'yes'"): "submitted",
+                    executor.submit(_count, "declined", "participated eq 'declined'"): "declined",
+                    executor.submit(_count, "open", f"RFP_End_Date ge {now_iso} and (participated eq '' or participated eq 'no' or participated eq null)"): "open",
+                    executor.submit(_count, "not_participated", f"RFP_End_Date lt {now_iso} and (participated eq '' or participated eq 'no' or participated eq null)"): "not_participated",
+                    executor.submit(_fetch_future): "future_rows",
+                }
+                for future in as_completed(futures):
+                    key = futures[future]
+                    try:
+                        result = future.result()
+                        if key == "future_rows":
+                            rfp_rows = result
+                        else:
+                            label, count = result
+                            if label == "total": total_all_rfps = count
+                            elif label == "submitted": total_submitted_rfps = count
+                            elif label == "declined": total_declined_rfps = count
+                            elif label == "open": total_open_rfps = count
+                            elif label == "not_participated": total_not_participated_rfps = count
+                    except Exception as e:
+                        print(f"  Parallel task {key} failed: {e}")
+
+            print(f"Parallel fetch done: total={total_all_rfps}, submitted={total_submitted_rfps}, declined={total_declined_rfps}, open={total_open_rfps}, not_participated={total_not_participated_rfps}, future_rows={len(rfp_rows)}")
+        except Exception as e:
+            print(f"Parallel fetch failed, falling back to full fetch: {e}")
+            rfp_rows = get_rfp_activity_data_lightweight()
+            total_all_rfps = len(rfp_rows)
+
+        print(f"Future RFPs fetched: {len(rfp_rows)} rows")
 
         if not rfp_rows:
             rfp_df = pd.DataFrame()
@@ -172,12 +273,9 @@ def get_dashboard_data():
 
         companies_rfps = {}
         unique_companies = set()
-        total_submitted_rfps = 0
-        total_declined_rfps = 0
-        total_open_rfps = 0
-        total_not_participated_rfps = 0
 
         if not rfp_df.empty:
+            # Parse dates (now ISO format from Dataverse datetime column)
             if "RFP_End_Date" in rfp_df.columns:
                 try:
                     rfp_df["_RFP_End_Date_dt"] = pd.to_datetime(rfp_df["RFP_End_Date"], errors="coerce")
@@ -187,128 +285,82 @@ def get_dashboard_data():
                     print(f"Error parsing RFP_End_Date: {e}")
                     rfp_df["_RFP_End_Date_dt"] = pd.NaT
 
-                try:
-                    rfp_df = rfp_df.sort_values(["_RFP_End_Date_dt", "RFP_ID"], ascending=[True, True])
-                except Exception:
-                    pass
-
-                # Aggregate Material_Matched / Keyword_Matched at RFP level before dedup
-                # If ANY row for an RFP has "Yes", propagate "Yes" to all rows for that RFP
-                for col in ["Material_Matched", "Keyword_Matched"]:
-                    if col in rfp_df.columns:
-                        yes_rfps = set(rfp_df.loc[rfp_df[col].astype(str).str.strip().str.lower() == "yes", "RFP_ID"])
-                        rfp_df.loc[rfp_df["RFP_ID"].isin(yes_rfps), col] = "Yes"
-
-                # Deduplicate: Count each RFP_ID only once (keep first occurrence)
                 rfp_df = rfp_df.drop_duplicates(subset=["RFP_ID"], keep="first")
-                print(f"RFP data after deduplication: {len(rfp_df)} unique RFPs")
+                print(f"Future RFPs after dedup: {len(rfp_df)}")
 
-                # Vectorized: Normalize Company_Name in dataframe (fix empty/null values)
+                # Fallback: if server-side counts failed, compute from full data
+                if total_all_rfps == 0:
+                    all_rfp_rows = get_rfp_activity_data_lightweight()
+                    all_df = pd.DataFrame(all_rfp_rows).fillna("")
+                    all_df = all_df.drop_duplicates(subset=["RFP_ID"], keep="first")
+                    total_all_rfps = len(all_df)
+                    participated_lower = all_df["participated"].fillna("").str.strip().str.lower()
+                    total_submitted_rfps = int(((participated_lower == "submitted") | (participated_lower == "yes")).sum())
+                    total_declined_rfps = int((participated_lower == "declined").sum())
+                    all_df["_dt"] = pd.to_datetime(all_df["RFP_End_Date"], errors="coerce")
+                    now_dt = datetime.now()
+                    open_mask = participated_lower.isin(["", "no", "open", "not participated"])
+                    total_open_rfps = int((open_mask & (all_df["_dt"].notna() & (all_df["_dt"] >= now_dt))).sum())
+                    total_not_participated_rfps = int((open_mask & (all_df["_dt"].notna() & (all_df["_dt"] < now_dt))).sum())
+
+                # Fetch Matched_Data only for future RFPs
+                future_rfp_ids = rfp_df["RFP_ID"].tolist()
+                matched_data_map = get_matched_data_for_rfps(future_rfp_ids)
+
+                # Companies
                 rfp_df["Company_Name"] = rfp_df["Company_Name"].fillna("Saudi Electricity Company").replace("", "Saudi Electricity Company")
                 unique_companies = set(rfp_df["Company_Name"].unique())
-                for company_name in unique_companies:
-                    companies_rfps[company_name] = {
-                        "open": [],
-                        "submitted": [],
-                        "saved_draft": [],
-                        "declined": []
-                    }
-
-                # Vectorized: Count submitted and declined (faster than iterrows)
-                participated_lower = rfp_df["participated"].fillna("").str.strip().str.lower()
-                total_submitted_rfps = int(((participated_lower == "submitted") | (participated_lower == "yes")).sum())
-                total_declined_rfps = int((participated_lower == "declined").sum())
-
-                # Count open and not-participated using same logic as _normalize_participation() in api.py
-                # Uses dateutil parser for consistent date parsing with RFP Insights page
-                from dateutil import parser as du_parser
-                now_dt_calc = datetime.now()
-                for _, r in rfp_df.iterrows():
-                    p_val = (r.get("participated") or "").strip().lower()
-                    if p_val in ("", "no", "open", "not participated"):
-                        raw_date = str(r.get("RFP_End_Date", "") or "")
-                        end_dt_parsed = None
-                        if raw_date:
-                            try:
-                                end_dt_parsed = du_parser.parse(raw_date).replace(tzinfo=None)
-                            except Exception:
-                                pass
-                        if end_dt_parsed and end_dt_parsed < now_dt_calc:
-                            total_not_participated_rfps += 1
-                        else:
-                            total_open_rfps += 1
-
-                # Use to_dict('records') for remaining logic (faster than iterrows, safer than itertuples)
-                # Use current datetime to hide RFPs where deadline has passed
-                now_dt = datetime.now()
-                future_count = 0
-                past_count = 0
-                invalid_date_count = 0
+                for cn in unique_companies:
+                    companies_rfps[cn] = {"open": [], "submitted": [], "saved_draft": [], "declined": []}
 
                 for row in rfp_df.to_dict('records'):
                     end_dt = row.get("_RFP_End_Date_dt")
                     end_str = _ist_to_utc_iso(end_dt) if pd.notna(end_dt) else str(row.get("RFP_End_Date", ""))
 
-                    # Debug: Track date distribution
-                    if pd.isna(end_dt):
-                        invalid_date_count += 1
-                    elif end_dt >= now_dt:
-                        future_count += 1
-                    else:
-                        past_count += 1
+                    rfp_link = row.get("Link", "") or row.get("link", "")
+                    if not rfp_link:
+                        rfp_link = get_setting('URL', 'https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&dard=1#b0')
 
-                    # Show only RFPs where deadline has not passed (end date >= current time)
-                    if pd.notna(end_dt) and end_dt >= now_dt:
-                        rfp_link = row.get("Link", "") or row.get("link", "")
-                        if not rfp_link:
-                            rfp_link = get_setting('URL', 'https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&dard=1#b0')
+                    company_name = row.get("Company_Name", "") or "Saudi Electricity Company"
 
-                        company_name = row.get("Company_Name", "") or "Saudi Electricity Company"
+                    # Derive Material_Matched / Keyword_Matched / match percentage from Matched_Data
+                    md_str = matched_data_map.get(row.get("RFP_ID", ""), "")
+                    mat_flag, kw_flag, match_pct = _derive_match_flags(md_str)
 
-                        # Use Material_Matched / Keyword_Matched directly from Dataverse
-                        material_matched_raw = str(row.get("Material_Matched", "") or "").strip()
-                        keyword_matched_raw = str(row.get("Keyword_Matched", "") or "").strip()
+                    rfp_data = {
+                        "RFP_ID": row.get("RFP_ID", ""),
+                        "RFP_End_Date": end_str,
+                        "Company_Name": company_name,
+                        "Owner_Name": row.get("owner_name", ""),
+                        "Publish_Time": format_publish_time(row.get("publish_time", "")),
+                        "participated": row.get("participated", ""),
+                        "Link": rfp_link,
+                        "Material_Matched": mat_flag,
+                        "Keyword_Matched": kw_flag,
+                        "match_percentage_data": match_pct,
+                    }
 
-                        rfp_data = {
-                            "RFP_ID": row.get("RFP_ID", ""),
-                            "RFP_End_Date": end_str,
-                            "Company_Name": company_name,
-                            "Owner_Name": row.get("owner_name", ""),
-                            "Publish_Time": format_publish_time(row.get("publish_time", "")),
-                            "participated": row.get("participated", ""),
-                            "Link": rfp_link,
-                            "Material_Matched": material_matched_raw,
-                            "Keyword_Matched": keyword_matched_raw,
-                        }
+                    downloaded_rfp_list.append(rfp_data)
 
-                        downloaded_rfp_list.append(rfp_data)
+                    participation_status = (row.get("participated", "") or "").lower().strip()
+                    if participation_status == "no" or participation_status == "":
+                        rfp_data["status"] = "open"
+                        open_rfp_list.append(rfp_data)
+                        companies_rfps[company_name]["open"].append(rfp_data)
+                    elif participation_status == "submitted" or participation_status == "yes":
+                        rfp_data["status"] = "submitted"
+                        submitted_rfp_list.append(rfp_data)
+                        companies_rfps[company_name]["submitted"].append(rfp_data)
+                    elif participation_status == "declined":
+                        rfp_data["status"] = "declined"
+                        declined_rfp_list.append(rfp_data)
+                        companies_rfps[company_name]["declined"].append(rfp_data)
+                    elif participation_status == "saved_draft":
+                        rfp_data["status"] = "saved draft"
+                        saved_draft_rfp_list.append(rfp_data)
+                        companies_rfps[company_name]["saved_draft"].append(rfp_data)
 
-                        participation_status = (row.get("participated", "") or "").lower().strip()
-                        if participation_status == "no" or participation_status == "":
-                            rfp_data["status"] = "open"
-                            open_rfp_list.append(rfp_data)
-                            companies_rfps[company_name]["open"].append(rfp_data)
-                        elif participation_status == "submitted" or participation_status == "yes":
-                            rfp_data["status"] = "submitted"
-                            submitted_rfp_list.append(rfp_data)
-                            companies_rfps[company_name]["submitted"].append(rfp_data)
-                        elif participation_status == "declined":
-                            rfp_data["status"] = "declined"
-                            declined_rfp_list.append(rfp_data)
-                            companies_rfps[company_name]["declined"].append(rfp_data)
-                        elif participation_status == "saved_draft":
-                            rfp_data["status"] = "saved draft"
-                            saved_draft_rfp_list.append(rfp_data)
-                            companies_rfps[company_name]["saved_draft"].append(rfp_data)
-
-                # Debug: Print date distribution
-                print(f"DEBUG: RFP Date Distribution - Future: {future_count}, Past: {past_count}, Invalid: {invalid_date_count}")
-                print(f"DEBUG: Current datetime: {now_dt}")
-                if not rfp_df.empty and "_RFP_End_Date_dt" in rfp_df.columns:
-                    sample_dates = rfp_df["_RFP_End_Date_dt"].head(3).tolist()
-                    print(f"DEBUG: Sample end dates: {sample_dates}")
-
-        saved_rfps = int(len(rfp_df))
+        saved_rfps = total_all_rfps if total_all_rfps > 0 else int(len(rfp_df))
         prev_saved_rfps = 0
         downloaded_rfps = saved_rfps
         prev_downloaded_rfps = 0
@@ -370,13 +422,48 @@ def get_dashboard_data():
 
 
 def get_all_rfp_data():
-    """Get all RFP data from database without date filtering."""
+    """Get all RFP data from database without date filtering.
+    Runs two parallel queries:
+    1. Lightweight: all columns EXCEPT Matched_Data (fast, small payload)
+    2. Flags-only: RFP_ID + Matched_Data (parsed to derive flags, then discarded)
+    This avoids carrying the heavy Matched_Data JSON through the entire pipeline.
+    """
     try:
         print(f"Starting all RFP data fetch at {datetime.now()}")
         start_time = time.time()
 
-        rfp_rows = get_rfp_activity_data_from_db()
-        print(f"RFP data fetched: {len(rfp_rows)} rows")
+        from concurrent.futures import ThreadPoolExecutor
+
+        _table_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+        _table_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
+
+        def _fetch_lightweight():
+            return get_rfp_activity_data_lightweight()
+
+        def _fetch_match_flags():
+            """Fetch Matched_Data, parse to flags immediately, discard the heavy JSON."""
+            rows = DATAVERSE.get_all_rows(
+                table_api_name=_table_api,
+                select_columns=["RFP_ID", "Matched_Data"],
+                table_logical_name=_table_logical,
+                use_display_names=True,
+            )
+            flags_map = {}
+            for r in rows:
+                rfp_id = r.get("RFP_ID", "")
+                if rfp_id:
+                    mat_flag, kw_flag, match_pct = _derive_match_flags(r.get("Matched_Data", ""))
+                    flags_map[rfp_id] = (mat_flag, kw_flag)
+            return flags_map
+
+        # Run both queries in parallel
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_rows = executor.submit(_fetch_lightweight)
+            future_flags = executor.submit(_fetch_match_flags)
+            rfp_rows = future_rows.result()
+            flags_map = future_flags.result()
+
+        print(f"RFP data fetched: {len(rfp_rows)} rows (lightweight) + {len(flags_map)} flag entries")
 
         if not rfp_rows:
             rfp_df = pd.DataFrame()
@@ -384,16 +471,6 @@ def get_all_rfp_data():
             rfp_df = pd.DataFrame(rfp_rows).fillna("")
 
         # DEBUG: Check raw data right after fetch
-        if not rfp_df.empty and "Material_Matched" in rfp_df.columns:
-            raw_yes = rfp_df["Material_Matched"].astype(str).str.strip().str.lower().eq("yes").sum()
-            raw_unique_vals = rfp_df["Material_Matched"].astype(str).str.strip().unique().tolist()[:10]
-            raw_yes_rfps = rfp_df.loc[rfp_df["Material_Matched"].astype(str).str.strip().str.lower() == "yes", "RFP_ID"].unique().tolist()
-            print(f"DEBUG RAW: Material_Matched column exists. Rows with 'Yes': {raw_yes}")
-            print(f"DEBUG RAW: Unique Material_Matched values (first 10): {raw_unique_vals}")
-            print(f"DEBUG RAW: RFP_IDs with Material_Matched=Yes ({len(raw_yes_rfps)}): {raw_yes_rfps}")
-        else:
-            print(f"DEBUG RAW: Material_Matched column {'NOT FOUND' if not rfp_df.empty else 'empty df'}. Columns: {list(rfp_df.columns) if not rfp_df.empty else 'N/A'}")
-
         all_rfp_list = []
         total_submitted_rfps = 0
         total_declined_rfps = 0
@@ -413,12 +490,14 @@ def get_all_rfp_data():
                 except Exception:
                     pass
 
-                # Aggregate Material_Matched / Keyword_Matched at RFP level before dedup
-                # If ANY row for an RFP has "Yes", propagate "Yes" to all rows for that RFP
+                # Derive Material_Matched / Keyword_Matched from pre-parsed flags_map
+                rfp_df["Material_Matched"] = rfp_df["RFP_ID"].map(lambda rid: flags_map.get(rid, ("No", "No"))[0])
+                rfp_df["Keyword_Matched"] = rfp_df["RFP_ID"].map(lambda rid: flags_map.get(rid, ("No", "No"))[1])
+
+                # Aggregate at RFP level: if ANY row has "Yes", propagate to all rows for that RFP
                 for col in ["Material_Matched", "Keyword_Matched"]:
-                    if col in rfp_df.columns:
-                        yes_rfps = set(rfp_df.loc[rfp_df[col].astype(str).str.strip().str.lower() == "yes", "RFP_ID"])
-                        rfp_df.loc[rfp_df["RFP_ID"].isin(yes_rfps), col] = "Yes"
+                    yes_rfps = set(rfp_df.loc[rfp_df[col].astype(str).str.strip().str.lower() == "yes", "RFP_ID"])
+                    rfp_df.loc[rfp_df["RFP_ID"].isin(yes_rfps), col] = "Yes"
 
                 # Deduplicate: Count each RFP_ID only once (keep first occurrence)
                 rfp_df = rfp_df.drop_duplicates(subset=["RFP_ID"], keep="first")
@@ -441,7 +520,7 @@ def get_all_rfp_data():
                     if not rfp_link:
                         rfp_link = get_setting('URL', 'https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&dard=1#b0')
 
-                    # Use Material_Matched / Keyword_Matched directly from Dataverse
+                    # Material_Matched / Keyword_Matched derived from Matched_Data JSON above
                     material_matched_raw = str(row.get("Material_Matched", "") or "").strip()
                     keyword_matched_raw = str(row.get("Keyword_Matched", "") or "").strip()
 
@@ -458,19 +537,6 @@ def get_all_rfp_data():
                     }
 
                     all_rfp_list.append(rfp_data)
-
-        # Debug: Log Material_Matched / Keyword_Matched value distribution
-        mat_yes = sum(1 for r in all_rfp_list if r.get("Material_Matched", "").lower() == "yes")
-        mat_no = sum(1 for r in all_rfp_list if r.get("Material_Matched", "").lower() == "no")
-        mat_empty = sum(1 for r in all_rfp_list if r.get("Material_Matched", "").strip() == "")
-        kw_yes = sum(1 for r in all_rfp_list if r.get("Keyword_Matched", "").lower() == "yes")
-        kw_no = sum(1 for r in all_rfp_list if r.get("Keyword_Matched", "").lower() == "no")
-        kw_empty = sum(1 for r in all_rfp_list if r.get("Keyword_Matched", "").strip() == "")
-        print(f"DEBUG Material_Matched: Yes={mat_yes}, No={mat_no}, Empty={mat_empty}, Total={len(all_rfp_list)}")
-        print(f"DEBUG Keyword_Matched: Yes={kw_yes}, No={kw_no}, Empty={kw_empty}, Total={len(all_rfp_list)}")
-        # Print sample of first 3 Material_Matched values to check format
-        sample_vals = [(r.get("RFP_ID", ""), repr(r.get("Material_Matched", ""))) for r in all_rfp_list[:3]]
-        print(f"DEBUG Sample Material_Matched values: {sample_vals}")
 
         end_time = time.time()
         print(f"All RFP data processed in {end_time - start_time:.2f} seconds")
@@ -825,42 +891,77 @@ def get_material_insights_grouped_data():
                 continue
 
             try:
-                matched_items = _json.loads(matched_data_str)
+                parsed = _json.loads(matched_data_str)
             except (ValueError, TypeError):
                 continue
 
-            if not isinstance(matched_items, list):
+            # Build a unified list of matched items from either format
+            matched_items_for_insights = []
+
+            # New categorized format (dict with summary)
+            if isinstance(parsed, dict) and "summary" in parsed:
+                for item in parsed.get("exact_matches", []):
+                    matched_items_for_insights.append({
+                        "material_code": item.get("material_code", ""),
+                        "material_desc": item.get("material_description", ""),
+                        "match_method": "exact",
+                        "matched_keyword": "",
+                    })
+                for item in parsed.get("keyword_matches", []):
+                    matched_items_for_insights.append({
+                        "material_code": item.get("material_code", ""),
+                        "material_desc": item.get("material_description", ""),
+                        "match_method": "keyword",
+                        "matched_keyword": item.get("matched_keyword", ""),
+                    })
+
+            # Old flat format (list) — backward compatibility
+            elif isinstance(parsed, list):
+                for item in parsed:
+                    if item.get("is_matched") is False:
+                        continue
+                    matched_items_for_insights.append({
+                        "material_code": str(item.get("Material", "") or "").strip(),
+                        "material_desc": str(item.get("Material Description", "") or "").strip(),
+                        "match_method": str(item.get("MatchMethod", "exact") or "exact").lower(),
+                        "matched_keyword": "",
+                    })
+            else:
+                continue
+
+            if not matched_items_for_insights:
                 continue
 
             all_rfp_ids_with_matches.add(rfp_id)
 
-            for item in matched_items:
-                # Skip unmatched materials (new format has is_matched field)
-                if item.get("is_matched") is False:
-                    continue
-                material_code = str(item.get("Material", "") or "").strip()
-                material_desc = str(item.get("Material Description", "") or "").strip()
-                match_method = str(item.get("MatchMethod", "exact") or "exact").lower()
-                extracted = str(item.get("ExtractedMaterial", "") or "").strip()
+            for mi in matched_items_for_insights:
+                material_code = mi["material_code"]
+                material_desc = mi["material_desc"]
+                match_method = mi["match_method"]
 
                 # Material grouping
                 _add_to_material_group(
                     material_groups, material_code, material_desc,
-                    rfp_id, company, rfp_end_date, participated, match_method, extracted
+                    rfp_id, company, rfp_end_date, participated, match_method, material_code
                 )
 
-                # Keyword grouping via CSV cross-reference
+                # Keyword grouping
                 if match_method == "keyword":
-                    desc_upper = material_desc.upper()
-                    name_upper = str(item.get("ColumnName", "") or "").upper()
-                    search_text = desc_upper + " " + name_upper + " " + extracted.upper()
-
-                    for kw in keywords_list:
-                        if kw.upper() in search_text:
-                            _add_to_keyword_group(
-                                keyword_groups, kw, rfp_id, company, rfp_end_date,
-                                participated, material_code, material_desc
-                            )
+                    # New format stores matched_keyword directly
+                    if mi["matched_keyword"]:
+                        _add_to_keyword_group(
+                            keyword_groups, mi["matched_keyword"], rfp_id, company,
+                            rfp_end_date, participated, material_code, material_desc
+                        )
+                    else:
+                        # Old format: cross-reference with keywords list
+                        search_text = (material_desc + " " + material_code).upper()
+                        for kw in keywords_list:
+                            if kw.upper() in search_text:
+                                _add_to_keyword_group(
+                                    keyword_groups, kw, rfp_id, company, rfp_end_date,
+                                    participated, material_code, material_desc
+                                )
 
     # Convert sets to sorted lists for JSON serialization
     materials_list = sorted(material_groups.values(), key=lambda x: x["rfp_count"], reverse=True)

@@ -266,7 +266,7 @@ export const api = {
 
   // ==================== RFP Match Percentages ====================
   getBatchMatchPercentages: async (rfpIds: string[], companiesMap?: Record<string, string>) => {
-    const params = new URLSearchParams({ rfp_ids: rfpIds.join(',') })
+    const params = new URLSearchParams({ rfp_ids: rfpIds.join('|') })
     if (companiesMap && Object.keys(companiesMap).length > 0) {
       params.set('companies', JSON.stringify(companiesMap))
     }

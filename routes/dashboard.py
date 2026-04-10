@@ -42,7 +42,8 @@ from helpers.core_helper import (
     find_column_name,
     extract_materials_from_excel,
     extract_keywords_from_text,
-    _find_other_content_sheet_name
+    _find_other_content_sheet_name,
+    find_rfp_file_across_companies,
 )
 from helpers.sharepoint_helper import GraphClient
 import tempfile
@@ -729,22 +730,33 @@ def _parse_matched_data_json(matched_data_str: str):
     if not matched_data_str:
         return None
     try:
-        items = json.loads(matched_data_str)
+        data = json.loads(matched_data_str)
     except Exception:
         return None
-    if not isinstance(items, list) or not items:
-        return None
-    # Only use new format data (has is_matched field)
-    if not any("is_matched" in item for item in items):
-        return None
-    total_materials = len(items)
-    matched_count = sum(1 for item in items if bool(item.get("is_matched", True)))
-    match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
-    return {
-        "match_percentage": match_percentage,
-        "total_materials": total_materials,
-        "matched_count": matched_count,
-    }
+
+    # New categorized format (dict with summary)
+    if isinstance(data, dict) and "summary" in data:
+        s = data["summary"]
+        return {
+            "match_percentage": s.get("match_percentage", 0),
+            "total_materials": data.get("total_items", 0),
+            "matched_count": s.get("exact_match_count", 0) + s.get("keyword_match_count", 0),
+        }
+
+    # Old flat format (list of items) — backward compatibility
+    if isinstance(data, list) and data:
+        if not any("is_matched" in item for item in data):
+            return None
+        total_materials = len(data)
+        matched_count = sum(1 for item in data if bool(item.get("is_matched", True)))
+        match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
+        return {
+            "match_percentage": match_percentage,
+            "total_materials": total_materials,
+            "matched_count": matched_count,
+        }
+
+    return None
 
 
 def _batch_get_match_percentages_from_dataverse(rfp_ids: list):
@@ -765,11 +777,11 @@ def _batch_get_match_percentages_from_dataverse(rfp_ids: list):
         filter_expr = " or ".join(filter_parts)
         try:
             result = DATAVERSE.query_rows(
-                get_setting("RFP_ACTIVITY_LOG_TABLE_API", ""),
+                get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
                 filter_expr=filter_expr,
                 select="RFP_ID,Matched_Data",
                 top=chunk_size,
-                table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", ""),
+                table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
                 use_display_names=True
             )
             rows = result.get("value", []) if isinstance(result, dict) else []
@@ -792,11 +804,11 @@ def _get_match_percentage_from_dataverse(rfp_id: str):
     try:
         filter_val = rfp_id.replace("'", "''")
         result = DATAVERSE.query_rows(
-            get_setting("RFP_ACTIVITY_LOG_TABLE_API", ""),
+            get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
             filter_expr=f"RFP_ID eq '{filter_val}'",
             select="RFP_ID,Matched_Data",
             top=1,
-            table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", ""),
+            table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
             use_display_names=True
         )
         rows = result.get("value", []) if isinstance(result, dict) else []
@@ -2132,11 +2144,11 @@ def _try_materials_from_dataverse(rfp_id: str):
     try:
         filter_val = rfp_id.replace("'", "''")
         result = DATAVERSE.query_rows(
-            get_setting("RFP_ACTIVITY_LOG_TABLE_API", ""),
+            get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
             filter_expr=f"RFP_ID eq '{filter_val}'",
             select="RFP_ID,Matched_Data",
             top=1,
-            table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", ""),
+            table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
             use_display_names=True
         )
         rows = result.get("value", []) if isinstance(result, dict) else []
@@ -2147,79 +2159,109 @@ def _try_materials_from_dataverse(rfp_id: str):
         if not matched_data_str:
             return None
 
-        items = json.loads(matched_data_str)
-        if not isinstance(items, list) or not items:
-            return None
+        data = json.loads(matched_data_str)
 
-        # Check if data has new format (is_matched field present)
-        has_new_format = any("is_matched" in item for item in items)
-        if not has_new_format:
-            return None  # Old format — fall back to live matching
-
-        # Transform stored data to dialog format
         materials_list = []
-        for item in items:
-            is_matched = bool(item.get("is_matched", True))
-            raw_method = item.get("MatchMethod")
 
-            if not is_matched:
-                match_method = None
-            elif raw_method and str(raw_method).lower() == "keyword":
-                match_method = "keyword"
-            else:
-                match_method = "exact_code"
+        # New categorized format (dict with summary)
+        if isinstance(data, dict) and "summary" in data:
+            for item in data.get("exact_matches", []):
+                materials_list.append({
+                    "material_code": item.get("material_code", ""),
+                    "name": item.get("excel_name", ""),
+                    "description": item.get("excel_description", ""),
+                    "is_matched": True,
+                    "match_method": "exact_code",
+                    "master_description": item.get("material_description", ""),
+                    "master_data": {},
+                    "selected": False,
+                    "reason": "",
+                })
+            for item in data.get("keyword_matches", []):
+                materials_list.append({
+                    "material_code": item.get("material_code", ""),
+                    "name": item.get("excel_name", ""),
+                    "description": item.get("excel_description", ""),
+                    "is_matched": True,
+                    "match_method": "keyword",
+                    "matched_keyword": item.get("matched_keyword", ""),
+                    "master_description": item.get("material_description", ""),
+                    "master_data": {},
+                    "selected": False,
+                    "reason": "",
+                })
+            for item in data.get("not_matched", []):
+                materials_list.append({
+                    "material_code": item.get("material_code", ""),
+                    "name": item.get("excel_name", ""),
+                    "description": item.get("excel_description", ""),
+                    "is_matched": False,
+                    "match_method": None,
+                    "master_description": "",
+                    "master_data": {},
+                    "selected": False,
+                    "reason": "",
+                })
 
-            mat_code = str(item.get("ExtractedMaterial") or item.get("Material") or "").strip()
-            name = str(item.get("ExcelName") or item.get("ColumnName") or "").strip()
-            description = str(item.get("ExcelDescription") or "").strip()
-
-            master_description = ""
-            if is_matched:
-                master_description = str(item.get("Material Description") or "").strip()
-
-            # Build master_data dict (exclude internal tracking fields)
-            internal_keys = {
-                "SourceFile", "RFP_Title", "RFP_End_Date", "TDS_file_path",
-                "RowNumber", "ColumnName", "ExtractedMaterial", "MatchMethod",
-                "is_matched", "ExcelName", "ExcelDescription"
+            s = data["summary"]
+            return {
+                "ok": True,
+                "rfp_id": rfp_id,
+                "total_materials": data.get("total_items", len(materials_list)),
+                "matched_count": s.get("exact_match_count", 0) + s.get("keyword_match_count", 0),
+                "unmatched_count": s.get("not_matched_count", 0),
+                "exact_code_matches": s.get("exact_match_count", 0),
+                "keyword_matches": s.get("keyword_match_count", 0),
+                "match_percentage": s.get("match_percentage", 0),
+                "materials": materials_list,
             }
-            master_data = {}
-            if is_matched:
-                master_data = {
-                    k: (None if (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) else v)
-                    for k, v in item.items()
-                    if k not in internal_keys
-                }
 
-            materials_list.append({
-                "material_code": mat_code,
-                "name": name,
-                "description": description,
-                "is_matched": is_matched,
-                "match_method": match_method,
-                "master_description": master_description,
-                "master_data": master_data,
-                "selected": False,
-                "reason": "",
-            })
+        # Old flat format (list) — backward compatibility
+        if isinstance(data, list) and data:
+            if not any("is_matched" in item for item in data):
+                return None
 
-        total_materials = len(materials_list)
-        matched_count = sum(1 for m in materials_list if m["is_matched"])
-        exact_code_matches = sum(1 for m in materials_list if m.get("match_method") == "exact_code")
-        keyword_matches = sum(1 for m in materials_list if m.get("match_method") == "keyword")
-        match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
+            for item in data:
+                is_matched = bool(item.get("is_matched", True))
+                raw_method = item.get("MatchMethod")
+                if not is_matched:
+                    match_method = None
+                elif raw_method and str(raw_method).lower() == "keyword":
+                    match_method = "keyword"
+                else:
+                    match_method = "exact_code"
 
-        return {
-            "ok": True,
-            "rfp_id": rfp_id,
-            "total_materials": total_materials,
-            "matched_count": matched_count,
-            "unmatched_count": total_materials - matched_count,
-            "exact_code_matches": exact_code_matches,
-            "keyword_matches": keyword_matches,
-            "match_percentage": match_percentage,
-            "materials": materials_list,
-        }
+                materials_list.append({
+                    "material_code": str(item.get("ExtractedMaterial") or item.get("Material") or "").strip(),
+                    "name": str(item.get("ExcelName") or item.get("ColumnName") or "").strip(),
+                    "description": str(item.get("ExcelDescription") or "").strip(),
+                    "is_matched": is_matched,
+                    "match_method": match_method,
+                    "master_description": str(item.get("Material Description") or "").strip() if is_matched else "",
+                    "master_data": {},
+                    "selected": False,
+                    "reason": "",
+                })
+
+            total_materials = len(materials_list)
+            matched_count = sum(1 for m in materials_list if m["is_matched"])
+            exact_code_matches = sum(1 for m in materials_list if m.get("match_method") == "exact_code")
+            keyword_matches_count = sum(1 for m in materials_list if m.get("match_method") == "keyword")
+            match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
+
+            return {
+                "ok": True,
+                "rfp_id": rfp_id,
+                "total_materials": total_materials,
+                "matched_count": matched_count,
+                "unmatched_count": total_materials - matched_count,
+                "exact_code_matches": exact_code_matches,
+                "keyword_matches": keyword_matches_count,
+                "match_percentage": match_percentage,
+                "materials": materials_list,
+            }
+
+        return None
 
     except Exception as e:
         print(f"[MaterialDialog] Dataverse read failed for {rfp_id}, falling back to live matching: {e}")
@@ -2365,6 +2407,79 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
         # Calculate matching percentage
         match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
 
+        # Write back Matched_Data to Dataverse in categorized format
+        try:
+            wb_exact = []
+            wb_keyword = []
+            wb_not_matched = []
+            for m in materials_list:
+                item = {
+                    "material_code": m["material_code"],
+                    "excel_name": m.get("name", ""),
+                    "excel_description": m.get("description", ""),
+                    "row_number": 0,
+                    "column_name": "",
+                }
+                if m.get("match_method") == "exact_code":
+                    item["material_description"] = m.get("master_description", "")
+                    wb_exact.append(item)
+                elif m.get("match_method") == "keyword":
+                    item["material_description"] = m.get("master_description", "")
+                    item["matched_keyword"] = m.get("matched_keyword", "")
+                    wb_keyword.append(item)
+                else:
+                    wb_not_matched.append(item)
+
+            categorized = {
+                "rfp_id": rfp_id,
+                "source_file": os.path.basename(excel_path) if excel_path else "",
+                "rfp_end_date": "",
+                "total_items": total_materials,
+                "summary": {
+                    "exact_match_count": len(wb_exact),
+                    "keyword_match_count": len(wb_keyword),
+                    "not_matched_count": len(wb_not_matched),
+                    "match_percentage": match_percentage,
+                },
+                "exact_matches": wb_exact,
+                "keyword_matches": wb_keyword,
+                "not_matched": wb_not_matched,
+            }
+            matched_data_json = json.dumps(categorized)
+            filter_val = rfp_id.replace("'", "''")
+            existing = DATAVERSE.query_rows(
+                get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
+                filter_expr=f"RFP_ID eq '{filter_val}'",
+                select="RFP_ID,Matched_Data",
+                top=1,
+                table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
+                use_display_names=True
+            )
+            rows_found = existing.get("value", []) if isinstance(existing, dict) else []
+            if rows_found:
+                existing_md = (rows_found[0].get("Matched_Data") or "").strip()
+                if not existing_md:
+                    # Resolve primary key for update
+                    _logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
+                    try:
+                        _colmap = DATAVERSE.get_column_mapping(_logical)
+                        _logical_to_display = {v: k for k, v in _colmap.items()}
+                    except Exception:
+                        _logical_to_display = {}
+                    _pk_logical = f"{_logical}id"
+                    _pk_display = _logical_to_display.get(_pk_logical)
+                    record_id = (rows_found[0].get(_pk_display) if _pk_display else None) or rows_found[0].get(_pk_logical)
+                    if record_id:
+                        DATAVERSE.update_row(
+                            get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
+                            record_id,
+                            {"Matched_Data": matched_data_json},
+                            table_logical_name=_logical
+                        )
+                        print(f"[MaterialDialog] Wrote back Matched_Data for {rfp_id}")
+        except Exception as wb_err:
+            print(f"[MaterialDialog] Write-back failed for {rfp_id}: {wb_err}")
+
         return JSONResponse({
             "ok": True,
             "materials": materials_list,
@@ -2376,7 +2491,7 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
             "keyword_matches": keyword_matches,
             "match_percentage": match_percentage
         })
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -2449,7 +2564,7 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     try:
-        rfp_id_list = [r.strip() for r in rfp_ids.split(',') if r.strip()]
+        rfp_id_list = [r.strip() for r in rfp_ids.split('|') if r.strip()]
 
         # Parse company mapping
         company_map = {}
@@ -2466,28 +2581,6 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
             })
 
         # Initialize GraphClient once
-        graph_client = GraphClient(
-            get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
-            get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", "")
-        )
-        graph_client.auth()
-        graph_client.resolve_site_and_drive()
-
-        # Get cached master data (downloads only if needed)
-        _output_dir = get_setting("OUTPUT_DIR", "")
-        master_csv_local = os.path.join(_output_dir, "master_material.csv")
-        master = get_cached_master_data(graph_client, master_csv_local)
-        master_col = find_column_name(master.columns, "material")
-        if not master_col:
-            raise HTTPException(status_code=500, detail="No 'material' column found in master CSV")
-
-        # Get cached keywords (downloads only if needed)
-        keywords_csv_local = os.path.join(_output_dir, "unique_keywords.csv")
-        keywords_list = get_cached_keywords(graph_client, keywords_csv_local)
-
-        # Pre-index master codes for O(1) lookup
-        master_code_set = set(master[master_col].astype(str))
-
         results = {}
 
         # Phase A: Collect cache hits
@@ -2524,8 +2617,37 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
                     fallback_ids.append(rfp_id)
 
         # Phase C: Parallel Excel fallback for remaining RFPs
+        # Only init SharePoint + load master data when actually needed
         if fallback_ids:
             print(f"[BatchMatch] Excel fallback for {len(fallback_ids)} RFPs (parallel, max 5 workers)")
+
+            graph_client = GraphClient(
+                get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+                get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", "")
+            )
+            graph_client.auth()
+            graph_client.resolve_site_and_drive()
+
+            # Load materials from Dataverse first, fallback to SharePoint CSV
+            from services.master_data_service import get_all_materials_for_matching, get_all_keywords_for_matching
+            dv_materials = get_all_materials_for_matching()
+            if dv_materials:
+                master = pd.DataFrame({"material": dv_materials})
+                master_col = "material"
+            else:
+                _output_dir = get_setting("OUTPUT_DIR", "")
+                master = get_cached_master_data(graph_client, os.path.join(_output_dir, "master_material.csv"))
+                master_col = find_column_name(master.columns, "material")
+                if not master_col:
+                    raise HTTPException(status_code=500, detail="No 'material' column found in master CSV")
+
+            keywords_list = get_all_keywords_for_matching()
+            if not keywords_list:
+                _output_dir = get_setting("OUTPUT_DIR", "")
+                keywords_list = get_cached_keywords(graph_client, os.path.join(_output_dir, "unique_keywords.csv"))
+
+            master_code_set = set(master[master_col].astype(str))
+
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = {
                     executor.submit(

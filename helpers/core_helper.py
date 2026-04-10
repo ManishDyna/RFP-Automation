@@ -236,11 +236,59 @@ def get_rfp_activity_data_from_db(top: int = 5000, skip: int = 0):
         List of dicts with display names as keys
     """
     return DATAVERSE.get_all_rows(
-        table_api_name=get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals"),
-        select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link", "Material_Matched", "Keyword_Matched", "Matched_Data", "Material_Code", "Material_Description", "Matched_Keywords"],
-        table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal"),
+        table_api_name=get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
+        select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link", "Matched_Data"],
+        table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
         use_display_names=True
     )
+
+
+def get_rfp_activity_data_lightweight():
+    """
+    Get RFP activity data WITHOUT Matched_Data (lightweight for dashboard overview).
+    Matched_Data is the heaviest column — excluding it saves significant bandwidth.
+    """
+    return DATAVERSE.get_all_rows(
+        table_api_name=get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
+        select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link"],
+        table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
+        use_display_names=True
+    )
+
+
+def get_matched_data_for_rfps(rfp_ids: list):
+    """
+    Fetch Matched_Data only for specific RFP_IDs (for deriving match flags).
+    Used to avoid fetching Matched_Data for all 2689 rows.
+    """
+    if not rfp_ids:
+        return {}
+
+    result_map = {}
+    # Chunk into groups of 15 to avoid URL length limits
+    chunk_size = 15
+    for i in range(0, len(rfp_ids), chunk_size):
+        chunk = rfp_ids[i:i + chunk_size]
+        filter_parts = [f"RFP_ID eq '{rid.replace(chr(39), chr(39)*2)}'" for rid in chunk]
+        filter_expr = " or ".join(filter_parts)
+        try:
+            result = DATAVERSE.query_rows(
+                get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
+                filter_expr=filter_expr,
+                select="RFP_ID,Matched_Data",
+                top=chunk_size,
+                table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
+                use_display_names=True
+            )
+            rows = result.get("value", []) if isinstance(result, dict) else []
+            for row in rows:
+                rfp_id = row.get("RFP_ID", "")
+                if rfp_id:
+                    result_map[rfp_id] = row.get("Matched_Data", "")
+        except Exception as e:
+            print(f"[LightweightFetch] Batch Matched_Data query failed: {e}")
+
+    return result_map
 
 def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, category: str = "Status Change"):
     """
@@ -455,8 +503,8 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
     try:
         # Sanitize rfp_id to prevent injection
         safe_rfp_id = sanitize_filter_value(rfp_id)
-        _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
-        _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
+        _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+        _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
 
         # Check for existing record
         existing_result = DATAVERSE.query_rows(
@@ -560,8 +608,8 @@ def update_sync_timestamp(rfp_id: str, company_name: str = None) -> bool:
         # Sanitize values to prevent injection
         safe_rfp_id = sanitize_filter_value(rfp_id)
         filter_expr = f"RFP_ID eq '{safe_rfp_id}'"
-        _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_requestforproposals")
-        _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_requestforproposal")
+        _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+        _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
 
         if company_name:
             safe_company = sanitize_filter_value(company_name.strip())
@@ -652,42 +700,48 @@ def _find_other_content_sheet_name(excel_path: str):
     return None
 
 def extract_keywords_from_text(
-    text: str, 
-    delimiter: str = ',', 
+    text: str,
+    delimiter: str = ',',
     to_upper: bool = True,
     strip_whitespace: bool = True
 ) -> list:
     """
     Extract keywords from delimited text.
-    
+    Splits on the given delimiter AND semicolons, so both
+    "CABLE,ELEC,CU" and "CABLE; ELECTRICAL; LOW VOLTAGE" are handled.
+
     Args:
         text: Text containing delimited keywords
-        delimiter: Delimiter to split on (default: comma)
+        delimiter: Primary delimiter to split on (default: comma)
         to_upper: Convert keywords to uppercase (default: True)
         strip_whitespace: Remove leading/trailing whitespace (default: True)
-    
+
     Returns:
         List of extracted keywords
-    
+
     Examples:
         >>> extract_keywords_from_text("CABLE,ELEC,CU")
         ['CABLE', 'ELEC', 'CU']
-        
-        >>> extract_keywords_from_text("cable;elec;cu", delimiter=';')
-        ['CABLE', 'ELEC', 'CU']
+
+        >>> extract_keywords_from_text("CABLE; ELECTRICAL; LOW VOLTAGE")
+        ['CABLE', 'ELECTRICAL', 'LOW VOLTAGE']
     """
+    import re as _re
     import pandas as pd
     if not text or pd.isna(text):
         return []
-    
+
+    # Split on comma, semicolon, or the provided delimiter
+    parts = _re.split(r'[,;]' if delimiter == ',' else f'[{_re.escape(delimiter)};]', str(text))
+
     keywords = []
-    for part in str(text).split(delimiter):
+    for part in parts:
         kw = part.strip() if strip_whitespace else part
         if to_upper:
             kw = kw.upper()
-        if kw:  # Only add non-empty keywords
+        if kw:
             keywords.append(kw)
-    
+
     return keywords
 
 def extract_materials_from_excel(excel_path: str, include_details: bool = False, filter_by_intent: bool = True):
@@ -708,11 +762,36 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
     import pandas as pd
     import re
 
-    sheet = _find_other_content_sheet_name(excel_path) or "Other Content"
-    try:
-        df = pd.read_excel(excel_path, sheet_name=sheet)
-    except Exception as e:
-        print(f"[WARN] Could not read sheet '{sheet}' from {excel_path}: {e}")
+    sheet = _find_other_content_sheet_name(excel_path)
+    df = None
+
+    if sheet:
+        try:
+            df = pd.read_excel(excel_path, sheet_name=sheet)
+        except Exception as e:
+            print(f"[WARN] Could not read sheet '{sheet}' from {excel_path}: {e}")
+
+    # Fallback: find sheet containing expected columns (same logic as download_rfp.py)
+    if df is None:
+        EXPECTED_COLUMNS = ["intend to respond", "currency", "material number", "price", "quantity"]
+        try:
+            all_sheets = pd.ExcelFile(excel_path).sheet_names
+            for s in all_sheets:
+                try:
+                    sheet_df = pd.read_excel(excel_path, sheet_name=s)
+                    sheet_cols_lower = [str(c).lower().strip() for c in sheet_df.columns]
+                    matches = sum(1 for ec in EXPECTED_COLUMNS if any(ec in sc for sc in sheet_cols_lower))
+                    if matches >= 2:
+                        df = sheet_df
+                        print(f"[OK] Fallback sheet '{s}' matched ({matches} columns) in {excel_path}")
+                        break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"[WARN] Could not enumerate sheets in {excel_path}: {e}")
+
+    if df is None:
+        print(f"[WARN] No suitable sheet found in {excel_path}")
         return [] if include_details else set()
 
     name_col = find_column_name(df.columns, "name")

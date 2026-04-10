@@ -1,115 +1,204 @@
-# Backfill Match Data for Old RFPs
+# Plan: New `cr673_bahra_rfps_v2` Table + Backfill + Code Migration
 
 ## Context
 
-The `bahra_rfps` table (`cr673_requestforproposal`) currently has mixed data:
-- **Automation rows**: 1 row per RFP with `Matched_Data` JSON (old RFPs have it empty)
-- **Manual rows**: Multiple rows per RFP with individual `Material_Code`, `Material_Description`
+The current `bahra_rfps` table is messy (mixed manual multi-rows + automation single-rows, unused columns, columns that don't exist). We're creating a clean `cr673_bahra_rfps_v2` table with only needed columns (19 vs 30+), using `Matched_Data` JSON as the single source of truth for all material match data.
 
-We're standardizing on **Single Row Per RFP** — all material data in `Matched_Data` JSON + summary in direct columns.
+## New Table: `cr673_bahra_rfps_v2`
 
----
+### 19 Columns (only what the system actually reads):
 
-## Table Columns (from Dataverse)
+#
 
-### 6 Target Columns for Backfill:
+Display Name
 
-| Column | Schema Name | Current State | After Backfill |
-|--------|-------------|--------------|----------------|
-| `Matched_Data` | cr673_matchedd... | Empty for old RFPs | JSON array of ALL materials (matched + unmatched) |
-| `Material_Code` | cr6db_Material_C... | **Always empty** (never written by code) | Comma-separated matched codes: `"123456789,987654321"` |
-| `Material_Description` | cr6db_Material_... | **Always empty** (never written by code) | Comma-separated matched descriptions |
-| `Material_Matched` | cr6db_Material_... | Empty for old RFPs | `"Yes"` or `"No"` |
-| `Keyword_Matched` | cr6db_Keyword_... | Empty for old RFPs | `"Yes"` or `"No"` |
-| `Matched_Keywords` | cr6db_Matched_... | **Always empty** (never written by code) | Comma-separated keywords: `"CABLE,XLPE"` |
+Type
 
-### Columns NOT in the table (code writes silently fail):
-- `no_of_matched_materials` — does NOT exist in Dataverse
-- `no_of_matched_keywords` — does NOT exist in Dataverse
+Purpose
 
-### Columns that exist but are never read:
-- `match_rate_pct`, `exact_match_count`, `keyword_match_count`, `total_line_items` — written during download but no route/frontend reads them
+1
 
----
+RunID (Primary)
 
-## How Data Is Stored Currently (process_folder)
+String
 
-During RFP download, `rfp/download_rfp.py` → `process_folder()`:
-1. Extracts 9-digit material codes from RFP Excel
-2. Matches against master (exact code) + keywords (fallback)
-3. Builds DataFrame, converts to JSON
-4. `log_rfp_activity()` writes:
-   - `Matched_Data` = JSON of all materials
-   - `Material_Matched` / `Keyword_Matched` = "Yes"/"No"
-   - Does **NOT** write: `Material_Code`, `Material_Description`, `Matched_Keywords`
+Run identifier
 
-### Matched_Data JSON Format (per item):
+2
+
+RFP_ID
+
+String
+
+RFP unique ID
+
+3
+
+Company_Name
+
+String
+
+Company filter
+
+4
+
+RFP_End_Date
+
+String
+
+Deadline
+
+5
+
+owner_name
+
+String
+
+RFP owner
+
+6
+
+publish_time
+
+Date and time
+
+Publication time
+
+7
+
+participated
+
+String
+
+Status
+
+8
+
+Link
+
+String
+
+Portal link
+
+9
+
+**Matched_Data**
+
+**Memo**
+
+**JSON of ALL materials — single source of truth**
+
+10
+
+Email_Status
+
+String
+
+Email tracking
+
+11
+
+Email_To
+
+Email
+
+Recipient
+
+12
+
+Email_Sent_At
+
+String
+
+Send timestamp
+
+13
+
+Downloaded_At
+
+Date and time
+
+Download timestamp
+
+14
+
+Reminder_1Day_Sent
+
+String
+
+Reminder flag
+
+15
+
+Reminder_3Day_Sent
+
+String
+
+Reminder flag
+
+16
+
+response_count
+
+String
+
+Response tracking
+
+17
+
+first_response_at
+
+String
+
+Response tracking
+
+18
+
+all_responses_at
+
+String
+
+Response tracking
+
+19
+
+rfp_type
+
+String
+
+RFP type
+
+### Removed columns (11 columns eliminated):
+
+-   `Material_Matched` — derived from `Matched_Data` JSON at query time
+-   `Keyword_Matched` — derived from `Matched_Data` JSON at query time
+-   `Material_Code` — never written by code, derive from JSON
+-   `Material_Description` — never written by code, derive from JSON
+-   `Matched_Keywords` — never written by code, derive from JSON
+-   `match_rate_pct` — never read by any route/frontend
+-   `exact_match_count` — never read
+-   `keyword_match_count` — never read
+-   `total_line_items` — never read
+-   `file_size_bytes` — never read
+-   `no_of_matched_materials` / `no_of_matched_keywords` — don't exist in table
+
+## Matched_Data JSON Format (per item):
+
 ```json
-{
-  "Material": "123456789",
-  "Material Description": "Cable 3x150mm",
-  "SourceFile": "RFP_file.xls",
-  "RFP_Title": "DOC123456",
-  "RFP_End_Date": "3/15/2026",
-  "TDS_file_path": "https://...",
-  "RowNumber": 5,
-  "ColumnName": "Items",
-  "ExtractedMaterial": "123456789",
-  "MatchMethod": "exact" | "keyword" | null,
-  "is_matched": true | false,
-  "ExcelName": "Cable 3x150mm",
-  "ExcelDescription": "Power cable..."
-}
+{  "Material": "123456789",  "Material Description": "Cable 3x150mm",  "SourceFile": "RFP_file.xls",  "RFP_Title": "DOC123456",  "RFP_End_Date": "3/15/2026",  "RowNumber": 5,  "ColumnName": "Items",  "ExtractedMaterial": "123456789",  "MatchMethod": "exact" | "keyword" | null,  "is_matched": true | false,  "ExcelName": "Cable 3x150mm",  "ExcelDescription": "Power cable..."}
 ```
 
----
+## Derived Values (computed at query time, not stored):
 
-## How Data Will Be Stored After Backfill
+-   `Material_Matched` = "Yes" if any item has `is_matched: true`
+-   `Keyword_Matched` = "Yes" if any item has `MatchMethod: "keyword"` and `is_matched: true`
 
-Same JSON format in `Matched_Data`, PLUS 3 new columns populated:
+## Backfill Script Flow:
 
-| Column | Example Value | Derived From |
-|--------|--------------|-------------|
-| `Material_Code` | `"123456789,987654321"` | `ExtractedMaterial` where `is_matched=true` |
-| `Material_Description` | `"Power Cable,Conductor ACSR"` | `Material Description` where `is_matched=true` |
-| `Matched_Keywords` | `"CABLE,XLPE,CONDUCTOR"` | Keywords from master list that matched |
+1.  Copy existing data from old table (one row per unique RFP_ID)
+2.  For RFPs with empty `Matched_Data`: find Excel → match → populate JSON
+3.  Idempotent (skips existing RFP_IDs in new table)
 
----
+## Migration: Old table stays untouched until new table + code is verified.
 
-## Script: `Support-Files/backfill_match_data.py`
-
-1. Initialize DataverseClient + GraphClient
-2. Load master materials + keywords
-3. Query RFPs where `Matched_Data` is empty
-4. For each RFP:
-   - Find Excel via SharePoint
-   - Extract materials from Excel
-   - Match against master (exact + keyword)
-   - Update Dataverse: all 6 columns
-5. Log progress, skip errors, print summary
-
-**Idempotent**: only processes RFPs with empty `Matched_Data`.
-
----
-
-## Files Involved
-
-| File | Action |
-|------|--------|
-| `Support-Files/backfill_match_data.py` | **NEW** — backfill script |
-| `helpers/core_helper.py` | **MODIFY** — add `match_materials_against_master()` shared function |
-| `core/log_events.py` | **MODIFY** — add Material_Code/Description/Keywords params, remove non-existent column writes |
-| `rfp/download_rfp.py` (~line 630) | **MODIFY** — compute & pass new column values |
-| `routes/dashboard.py` (line 2302) | **REFACTOR** — use shared matching function |
-
----
-
-## Verification
-
-1. Run `python Support-Files/backfill_match_data.py`
-2. Check Dataverse: old RFPs now have all 6 columns populated
-3. Dashboard: progress bars work without live Excel fallback
-4. Dialog: shows correct matched/unmatched materials
-5. Material insights: uses direct columns (primary path)
-6. Re-run: skips already-filled RFPs
-7. New RFP download: all 6 columns populated automatically
+## Files: See plan file for complete list.

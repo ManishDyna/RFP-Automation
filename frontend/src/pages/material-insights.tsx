@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, Fragment } from 'react'
+import { useState, useRef, useMemo, Fragment } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -44,7 +44,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { api } from '@/lib/api'
@@ -161,23 +160,12 @@ export default function MaterialInsightsPage() {
   const hasActiveFilters = !!(filters.company || filters.participated || filters.search)
 
   // Scroll detection for lazy loading
-  useEffect(() => {
-    const scrollArea = scrollRef.current
-    if (!scrollArea) return
-
-    const viewport = scrollArea.querySelector('[data-radix-scroll-area-viewport]')
-    if (!viewport) return
-
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = viewport
-      if (scrollHeight - scrollTop - clientHeight < 200 && hasNextPage && !isFetchingNextPage) {
-        fetchNextPage()
-      }
+  const handleTableScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    if (scrollHeight - scrollTop - clientHeight < 200 && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
     }
-
-    viewport.addEventListener('scroll', handleScroll)
-    return () => viewport.removeEventListener('scroll', handleScroll)
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, activeTab])
+  }
 
   return (
     <PageWrapper
@@ -435,7 +423,18 @@ export default function MaterialInsightsPage() {
                 )}
               </p>
               {hasNextPage && (
-                <p className="text-sm text-indigo-600 font-medium">Scroll down to load more...</p>
+                <div className="flex items-center gap-3">
+                  <p className="text-sm text-indigo-600 font-medium">Scroll down to load more...</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchNextPage()}
+                    disabled={isFetchingNextPage}
+                    className="text-xs h-7 px-3 border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                  >
+                    {isFetchingNextPage ? 'Loading...' : 'Load More'}
+                  </Button>
+                </div>
               )}
             </div>
           </CardContent>
@@ -474,7 +473,7 @@ export default function MaterialInsightsPage() {
                   )}
                 </div>
               ) : (
-                <ScrollArea className="h-[560px]" ref={scrollRef}>
+                <div className="h-[560px] overflow-y-auto" onScroll={handleTableScroll} ref={scrollRef}>
                   <Table>
                     <TableHeader className="sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10">
                       <TableRow className="border-slate-200 hover:bg-slate-50/95">
@@ -578,7 +577,7 @@ export default function MaterialInsightsPage() {
                       )}
                     </TableBody>
                   </Table>
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -616,7 +615,7 @@ export default function MaterialInsightsPage() {
                   )}
                 </div>
               ) : (
-                <ScrollArea className="h-[560px]" ref={scrollRef}>
+                <div className="h-[560px] overflow-y-auto" onScroll={handleTableScroll} ref={scrollRef}>
                   <Table>
                     <TableHeader className="sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10">
                       <TableRow className="border-slate-200 hover:bg-slate-50/95">
@@ -723,7 +722,7 @@ export default function MaterialInsightsPage() {
                       )}
                     </TableBody>
                   </Table>
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>
