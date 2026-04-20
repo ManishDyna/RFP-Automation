@@ -108,6 +108,7 @@ def _build_refresh_card(
     total_count: int,
     callback_url: str,
     team_table: list = None,
+    user_is_readonly: bool = False,
 ) -> dict:
     """
     Build the Adaptive Card JSON for refresh/post-submit display.
@@ -237,7 +238,7 @@ def _build_refresh_card(
     status_text = f"Team responses: {responded_count}/{total_count} received."
 
     actions = [refresh_action]
-    if not user_has_submitted:
+    if not user_has_submitted and not user_is_readonly:
         submit_body = {
             "rfp_id": rfp_id,
             "products": products,
@@ -262,9 +263,12 @@ def _build_refresh_card(
         actions = [submit_action, refresh_action]
 
     products_text = ", ".join(f"**{p}**" for p in products)
-    instruction_text = ("Please fill in your Results and Remarks for each product below."
-                        if not user_has_submitted
-                        else "Your response has been submitted. You can refresh to see team status.")
+    if user_is_readonly:
+        instruction_text = "Below is the list of all products for your reference."
+    elif not user_has_submitted:
+        instruction_text = "Please fill in your Results and Remarks for each product below."
+    else:
+        instruction_text = "Your response has been submitted. You can refresh to see team status."
     body_items = [
         {"type": "TextBlock", "text": f"Dear {name},",
          "wrap": True, "size": "Small"},
@@ -639,6 +643,12 @@ async def refresh_card_status(request: Request):
     if not products:
         products = [m["product"] for m in rfp_team if m.get("email", "").lower() == user_email_key]
 
+    # Readonly: user has no real product assignment in the regular team table
+    user_is_readonly = not any(
+        m.get("email", "").lower() == user_email_key and m.get("product", "") not in ("", "All")
+        for m in rfp_team
+    )
+
     # Step 6: Build and return the updated card
     card = _build_refresh_card(
         rfp_id=rfp_id,
@@ -652,6 +662,7 @@ async def refresh_card_status(request: Request):
         total_count=len(team_emails),
         callback_url=get_setting("ACTIONABLE_CARD_CALLBACK_URL", ""),
         team_table=rfp_team,
+        user_is_readonly=user_is_readonly,
     )
 
     return JSONResponse(

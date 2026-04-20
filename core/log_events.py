@@ -11,17 +11,26 @@ from services.system_settings_service import get_setting
 
 
 def normalize_date_format(val) -> str:
-    """Convert any date string to consistent 'MM/DD/YYYY HH:MM AM/PM' format.
+    """Convert any date string to consistent 'MM/DD/YYYY HH:MM AM/PM' format in KSA time (UTC+3).
 
     Handles:
-      - Slash format: 'MM/DD/YYYY HH:MM AM/PM' → parse directly
-      - Dash format:  'YYYY-DD-MM HH:MM:SS'    → day/month swapped by Excel locale
-      - Portal format: 'MM-DD-YYYY HH:MM'       → parse with MM-DD-YYYY
+      - ISO 8601 UTC:  '2026-04-26T23:45:00Z'  → convert UTC→KSA then format
+      - Slash format:  'MM/DD/YYYY HH:MM AM/PM' → parse directly (assumed local/KSA)
+      - Dash format:   'YYYY-DD-MM HH:MM:SS'   → day/month swapped by Excel locale
+      - Portal format: 'MM-DD-YYYY HH:MM'      → parse with MM-DD-YYYY
     """
+    from datetime import timezone, timedelta
+    KSA_TZ = timezone(timedelta(hours=3))
+
     if not val or str(val).strip() in ("", "-"):
         return ""
     val = str(val).strip()
     try:
+        # ISO 8601 UTC format: contains 'T' (e.g. 2026-04-26T23:45:00Z)
+        if "T" in val:
+            dt = pd.to_datetime(val, utc=True).to_pydatetime().astimezone(KSA_TZ)
+            return dt.strftime("%m/%d/%Y %I:%M %p")
+
         if "-" in val and "/" not in val:
             parts = val.split(" ", 1)
             date_part = parts[0]
