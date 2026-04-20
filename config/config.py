@@ -136,8 +136,8 @@ VALID_RFP_STATUSES = ["no", "saved_draft", "submitted", "declined"]
 #   "dev"  -> every email goes to DEV_EMAIL only
 #   "prod" -> emails go to the production recipient lists below
 
-EMAIL_MODE = "prod"
-DEV_EMAIL = "KSAGov.tenders@bahra-cables.com;manish.soni@dynatechconsultancy.com"
+EMAIL_MODE = "dev"
+DEV_EMAIL = "KSAGov.tenders@bahra-cables.com"
 
 # Dev RFP team assignment
 _DEV_RFP_TEAM_TABLE = [
