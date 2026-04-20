@@ -561,6 +561,11 @@ async def receive_card_response(request: Request):
     if submitter_key not in response_lookup:
         response_lookup[submitter_key] = response_data
 
+    user_is_readonly = not any(
+        m.get("email", "").lower() == submitter_key and m.get("product", "") not in ("", "All")
+        for m in rfp_team
+    )
+
     refresh_card = _build_refresh_card(
         rfp_id=rfp_id,
         company_name=company_name,
@@ -573,6 +578,7 @@ async def receive_card_response(request: Request):
         total_count=len(team_emails),
         callback_url=get_setting("ACTIONABLE_CARD_CALLBACK_URL", ""),
         team_table=rfp_team,
+        user_is_readonly=user_is_readonly,
     )
 
     return JSONResponse(
