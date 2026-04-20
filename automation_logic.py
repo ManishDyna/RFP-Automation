@@ -453,7 +453,7 @@ async def download_rfp(page, open_rfps, graph_client, company_name: str):
 
     # ── CASE 1: New RFP(s) found — process materials then send 1 email per RFP ─
     matched_df, per_rfp_csv_map, not_mateched_files = process_folder(
-        graph_client, None, None, company_name=company_name, new_rfp_titles=new_rfp_titles
+        graph_client, None, None, company_name=company_name, new_rfp_titles=new_rfp_titles, rfp_end_dates=rfp_end_dates
     )
     print(f"✅ Matched materials processed: {len(per_rfp_csv_map)} RFPs with matches")
 

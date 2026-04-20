@@ -183,7 +183,7 @@ async def extract_rfp_details_inner_text(page):
         return {'owner': None, 'publish_time': None}
 
 
-def process_folder(graph_client, folder, master_csv, company_name: str = None, new_rfp_titles: list = None):
+def process_folder(graph_client, folder, master_csv, company_name: str = None, new_rfp_titles: list = None, rfp_end_dates: dict = None):
     """
     Process downloaded RFP Excel files, match materials with master CSV,
     and generate/upload a matched materials CSV.
@@ -429,6 +429,8 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
 
         # Helper: get RFP End Date from log
         def _get_rfp_end_date():
+            if rfp_end_dates and rfp_id in rfp_end_dates:
+                return rfp_end_dates[rfp_id]
             if not log_df.empty:
                 match_row = log_df.loc[
                     log_df["RFP_ID"].astype(str).str.strip() == str(rfp_id).strip(),
