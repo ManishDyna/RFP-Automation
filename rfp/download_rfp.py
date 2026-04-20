@@ -622,7 +622,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
     if not result_df.empty:
         # ✅ Generate per-RFP matched material CSVs
         for rfp_id_key in result_df["RFP_Title"].dropna().unique():
-            rfp_matches = result_df[result_df["RFP_Title"] == rfp_id_key]
+            rfp_matches = result_df[(result_df["RFP_Title"] == rfp_id_key) & (result_df["is_matched"] == True)]
             if rfp_matches.empty:
                 continue
             per_rfp_csv = os.path.join(OUTPUT_DIR, f"matched_materials_{rfp_id_key}_{timestamp}.csv")
