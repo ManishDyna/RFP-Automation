@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Upload, FileSpreadsheet, File, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, File, X, Check, ChevronsUpDown } from 'lucide-react'
 
 import {
   Dialog,
@@ -14,7 +14,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -23,6 +22,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 
 const submitRfpSchema = z.object({
@@ -50,15 +63,11 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [rfpValidation, setRfpValidation] = useState<RfpValidationState>({ status: 'idle' })
   const [companyOptions, setCompanyOptions] = useState<string[]>([])
-
-  useEffect(() => {
-    if (open) {
-      api.getCompanyOptions().then((res) => setCompanyOptions(res.options)).catch(() => {})
-    }
-  }, [open])
+  const [openRfps, setOpenRfps] = useState<Array<{ rfp_id: string; company: string }>>([])
+  const [loadingRfps, setLoadingRfps] = useState(false)
+  const [comboOpen, setComboOpen] = useState(false)
 
   const {
-    register,
     handleSubmit,
     reset,
     setValue,
@@ -71,46 +80,57 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
     },
   })
 
-  // Update form when initialRfpId changes
   useEffect(() => {
-    if (initialRfpId && open) {
-      setValue('rfp_id', initialRfpId)
-      validateRfpId(initialRfpId)
-    }
-  }, [initialRfpId, open, setValue])
-
-  const validateRfpId = useCallback(async (rfpId: string) => {
-    const trimmed = rfpId.trim()
-    if (!trimmed) {
-      setRfpValidation({ status: 'idle' })
-      return
-    }
-
-    setRfpValidation({ status: 'validating' })
-    try {
-      const result = await api.validateRfp(trimmed)
-      setRfpValidation({
-        status: 'valid',
-        company: result.company,
-        rfpStatus: result.status,
+    if (!open) return
+    api.getCompanyOptions().then((res) => setCompanyOptions(res.options)).catch(() => {})
+    setLoadingRfps(true)
+    api
+      .getDashboardData()
+      .then((res: any) => {
+        const byCompany = res?.companies_rfps ?? {}
+        const rows: Array<{ rfp_id: string; company: string }> = []
+        for (const company of Object.keys(byCompany)) {
+          const openList = byCompany[company]?.open ?? []
+          for (const r of openList) {
+            const rfp_id = String(r.RFP_ID ?? '')
+            const company_name = String(r.Company_Name ?? company ?? '')
+            if (rfp_id && company_name) rows.push({ rfp_id, company: company_name })
+          }
+        }
+        rows.sort(
+          (a, b) => a.company.localeCompare(b.company) || a.rfp_id.localeCompare(b.rfp_id),
+        )
+        setOpenRfps(rows)
       })
-      // Auto-set the company from database
-      if (result.company) {
-        setValue('company', result.company)
-      }
-    } catch (error: any) {
+      .catch(() => setOpenRfps([]))
+      .finally(() => setLoadingRfps(false))
+  }, [open])
+
+  const selectRfp = useCallback(
+    (rfp: { rfp_id: string; company: string }) => {
+      setValue('rfp_id', rfp.rfp_id)
+      setValue('company', rfp.company)
+      setRfpValidation({ status: 'valid', company: rfp.company, rfpStatus: 'open' })
+      setComboOpen(false)
+    },
+    [setValue],
+  )
+
+  useEffect(() => {
+    if (!initialRfpId || !open || openRfps.length === 0) return
+    const match = openRfps.find(
+      (r) => r.rfp_id.toLowerCase() === initialRfpId.toLowerCase(),
+    )
+    if (match) {
+      selectRfp(match)
+    } else {
+      setValue('rfp_id', initialRfpId)
       setRfpValidation({
         status: 'error',
-        message: error.message || 'RFP not found in database. Please download it first.',
+        message: 'This RFP is not in the Open list — it may be closed or already submitted.',
       })
-      // Clear company selection when RFP is invalid
-      setValue('company', '')
     }
-  }, [setValue])
-
-  const handleRfpIdBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    validateRfpId(e.target.value)
-  }
+  }, [initialRfpId, open, openRfps, selectRfp, setValue])
 
   const handleExcelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -184,7 +204,7 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
@@ -195,32 +215,65 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 min-w-0">
           <div className="space-y-2">
             <Label htmlFor="rfp_id">RFP ID *</Label>
-            <div className="relative">
-              <Input
-                id="rfp_id"
-                {...register('rfp_id')}
-                placeholder="Enter RFP ID (e.g., RFP-C001691810)"
-                onBlur={handleRfpIdBlur}
-              />
-              {rfpValidation.status === 'validating' && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                </div>
-              )}
-              {rfpValidation.status === 'valid' && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <CheckCircle2 className="h-4 w-4 text-green-500" />
-                </div>
-              )}
-              {rfpValidation.status === 'error' && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <AlertCircle className="h-4 w-4 text-destructive" />
-                </div>
-              )}
-            </div>
+            <Popover open={comboOpen} onOpenChange={setComboOpen} modal={true}>
+              <PopoverTrigger asChild>
+                <Button
+                  id="rfp_id"
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={comboOpen}
+                  className="w-full min-w-0 justify-between font-normal"
+                >
+                  <span className="flex-1 min-w-0 truncate text-left">
+                    {watch('rfp_id')
+                      ? rfpValidation.status === 'valid' && rfpValidation.company
+                        ? `${watch('rfp_id')} — ${rfpValidation.company}`
+                        : watch('rfp_id')
+                      : 'Select an Open RFP'}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="p-0 w-[var(--radix-popover-trigger-width)] max-w-[--radix-popover-trigger-width]"
+                align="start"
+              >
+                <Command>
+                  <CommandInput placeholder="Search RFP ID or Company..." />
+                  <CommandList>
+                    <CommandEmpty>
+                      {loadingRfps ? 'Loading open RFPs…' : 'No open RFP found.'}
+                    </CommandEmpty>
+                    <CommandGroup>
+                      {openRfps.map((rfp) => {
+                        const isSelected = watch('rfp_id') === rfp.rfp_id
+                        return (
+                          <CommandItem
+                            key={rfp.rfp_id}
+                            value={`${rfp.rfp_id} ${rfp.company}`}
+                            onSelect={() => selectRfp(rfp)}
+                          >
+                            <Check
+                              className={cn(
+                                'mr-2 h-4 w-4 shrink-0',
+                                isSelected ? 'opacity-100' : 'opacity-0',
+                              )}
+                            />
+                            <span className="flex-1 min-w-0 truncate">
+                              {rfp.rfp_id} — {rfp.company}
+                            </span>
+                          </CommandItem>
+                        )
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
             {rfpValidation.status === 'error' && (
               <p className="text-sm text-destructive">{rfpValidation.message}</p>
             )}
@@ -229,9 +282,14 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
                 RFP found — Company: {rfpValidation.company}
               </p>
             )}
-            {rfpValidation.status === 'idle' && (
+            {rfpValidation.status === 'idle' && !loadingRfps && openRfps.length === 0 && (
               <p className="text-xs text-muted-foreground">
-                Enter the exact ID of the RFP
+                No open RFPs available. Please download new RFPs first.
+              </p>
+            )}
+            {rfpValidation.status === 'idle' && (loadingRfps || openRfps.length > 0) && (
+              <p className="text-xs text-muted-foreground">
+                Choose one of the currently open RFPs.
               </p>
             )}
             {errors.rfp_id && (
@@ -287,11 +345,11 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
               />
               <label
                 htmlFor="excel_file"
-                className="cursor-pointer flex flex-col items-center gap-2"
+                className="cursor-pointer flex flex-col items-center gap-2 w-full min-w-0"
               >
                 <FileSpreadsheet className="h-8 w-8 text-muted-foreground" />
                 {excelFile ? (
-                  <span className="text-sm font-medium text-primary">
+                  <span className="text-sm font-medium text-primary truncate max-w-full">
                     {excelFile.name}
                   </span>
                 ) : (
@@ -329,13 +387,14 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
                 {pdfFiles.map((file, index) => (
                   <div
                     key={index}
-                    className="flex items-center justify-between bg-muted rounded-lg px-3 py-2"
+                    className="flex items-center justify-between gap-2 bg-muted rounded-lg px-3 py-2 min-w-0"
                   >
-                    <span className="text-sm truncate">{file.name}</span>
+                    <span className="text-sm truncate flex-1 min-w-0">{file.name}</span>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
+                      className="shrink-0"
                       onClick={() => removePdf(index)}
                     >
                       <X className="h-4 w-4" />

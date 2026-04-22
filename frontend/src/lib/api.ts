@@ -350,8 +350,8 @@ export const api = {
   },
 
   // ==================== Error Files ====================
-  getErrorFiles: async (rfpId?: string) => {
-    const params = rfpId ? `?rfp_id=${encodeURIComponent(rfpId)}` : ''
+  getErrorFiles: async (runId?: string) => {
+    const params = runId ? `?run_id=${encodeURIComponent(runId)}` : ''
     const response = await fetch(`${ENDPOINTS.ERROR_FILES.LIST}${params}`, {
       credentials: 'include',
     })

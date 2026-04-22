@@ -1104,8 +1104,13 @@ async def api_view_logs(request: Request, page: int = Query(1), page_size: int =
 # ==================== ERROR FILE ENDPOINTS ====================
 
 @router.get("/error-files/list")
-async def api_list_error_files(request: Request, rfp_id: str = Query(None)):
-    """List error log files from the LOGS directory, optionally filtered by RFP ID.
+async def api_list_error_files(
+    request: Request,
+    rfp_id: str = Query(None),
+    run_id: str = Query(None),
+):
+    """List error log files from the LOGS directory, optionally filtered by run_id or RFP ID.
+    run_id takes priority when both are provided.
     Scans both top-level files and subdirectories (which may contain screenshot.png)."""
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1114,11 +1119,13 @@ async def api_list_error_files(request: Request, rfp_id: str = Query(None)):
     if not os.path.isdir(failure_logs_dir):
         return JSONResponse({"files": []})
 
-    def _matches_rfp(name: str) -> bool:
-        if not rfp_id:
-            return True
-        safe_rfp = rfp_id.replace(" ", "_").replace("/", "_").replace("\\", "_")
-        return safe_rfp.lower() in name.lower() or rfp_id.lower() in name.lower()
+    def _matches(name: str) -> bool:
+        if run_id:
+            return f"run_{run_id}".lower() in name.lower()
+        if rfp_id:
+            safe_rfp = rfp_id.replace(" ", "_").replace("/", "_").replace("\\", "_")
+            return safe_rfp.lower() in name.lower() or rfp_id.lower() in name.lower()
+        return True
 
     files = []
 
@@ -1129,7 +1136,7 @@ async def api_list_error_files(request: Request, rfp_id: str = Query(None)):
             # Top-level files (json, txt, png)
             if not entry.endswith((".json", ".txt", ".png")):
                 continue
-            if not _matches_rfp(entry):
+            if not _matches(entry):
                 continue
             stat = os.stat(entry_path)
             files.append({
@@ -1142,7 +1149,7 @@ async def api_list_error_files(request: Request, rfp_id: str = Query(None)):
 
         elif os.path.isdir(entry_path):
             # Subdirectories (contain json, txt, screenshot.png)
-            if not _matches_rfp(entry):
+            if not _matches(entry):
                 continue
             for sub_file in os.listdir(entry_path):
                 sub_path = os.path.join(entry_path, sub_file)

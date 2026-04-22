@@ -302,11 +302,11 @@ function RunDetailModal({
 }) {
   const [activeTab, setActiveTab] = useState('timeline')
 
-  // Fetch error files for this RFP
+  // Fetch error files for this run
   const { data: errorFilesData, isLoading: loadingFiles } = useQuery({
-    queryKey: ['errorFiles', run?.rfp_id],
-    queryFn: () => api.getErrorFiles(run?.rfp_id),
-    enabled: open && !!run && run.rfp_id !== '-',
+    queryKey: ['errorFiles', run?.run_id],
+    queryFn: () => api.getErrorFiles(run?.run_id),
+    enabled: open && !!run && !!run.run_id,
   })
 
   const errorFiles = errorFilesData?.files || []
@@ -319,9 +319,9 @@ function RunDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[90vh] p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-4xl max-h-[90vh] p-0 gap-0 overflow-hidden flex flex-col">
         {/* Header */}
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white shrink-0">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
@@ -358,7 +358,7 @@ function RunDetailModal({
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0">
-          <div className="px-6 pt-3 border-b border-slate-100 bg-slate-50/50">
+          <div className="px-6 pt-3 border-b border-slate-100 bg-slate-50/50 shrink-0">
             <TabsList className="bg-transparent gap-1 p-0 h-auto">
               <TabsTrigger
                 value="timeline"
@@ -388,7 +388,7 @@ function RunDetailModal({
             </TabsList>
           </div>
 
-          <ScrollArea className="flex-1 max-h-[50vh]">
+          <ScrollArea className="flex-1 min-h-0 w-full" viewportClassName="[&>div]:!block">
             {/* Timeline Tab */}
             <TabsContent value="timeline" className="m-0 p-6">
               <div className="relative">

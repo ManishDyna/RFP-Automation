@@ -23,6 +23,21 @@ def _normalize_automation_label(name: Optional[str]) -> str:
     return safe or "automation"
 
 
+def _resolve_run_id(run_id: Optional[str]) -> str:
+    if run_id:
+        return str(run_id).strip()
+    try:
+        from core.log_events import get_current_run_id
+        return get_current_run_id() or ""
+    except Exception:
+        return ""
+
+
+def _run_prefix(run_id: Optional[str]) -> str:
+    rid = _resolve_run_id(run_id)
+    return f"run_{rid}_" if rid else ""
+
+
 def _create_error_folder(folder_name: str) -> str:
     """Create a unique error folder locally and return its path."""
     folder_path = os.path.join(get_setting("FAILURE_LOGS_DIR", os.path.join(os.getcwd(), "LOGS")), folder_name)
@@ -108,6 +123,7 @@ def record_failure_log(
     context: Optional[Dict[str, Any]] = None,
     graph_client: Any = None,
     screenshot_path: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Create a dedicated error folder with JSON log and optional screenshot,
@@ -127,7 +143,7 @@ def record_failure_log(
 
     automation_label = _normalize_automation_label(context.get("automation"))
     slug = _unique_slug()
-    folder_name = f"{automation_label}_error_{slug}"
+    folder_name = f"{_run_prefix(run_id)}{automation_label}_error_{slug}"
 
     # Create dedicated error folder
     error_folder = _create_error_folder(folder_name)
@@ -180,6 +196,7 @@ def create_rfp_error_log_file(
     context: Optional[Dict[str, Any]] = None,
     graph_client: Any = None,
     screenshot_path: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Create a dedicated error folder with enhanced error log (JSON + TXT) and optional screenshot
@@ -236,7 +253,7 @@ def create_rfp_error_log_file(
     # Create dedicated error folder
     safe_rfp_id = _normalize_automation_label(rfp_id)
     slug = _unique_slug()
-    folder_name = f"rfp_error_{safe_rfp_id}_{slug}"
+    folder_name = f"{_run_prefix(run_id)}rfp_error_{safe_rfp_id}_{slug}"
     error_folder = _create_error_folder(folder_name)
 
     # Write JSON log inside the folder
