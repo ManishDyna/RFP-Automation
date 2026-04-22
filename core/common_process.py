@@ -24,14 +24,11 @@ from core.log_events import log_rfp_activity
 
 async def login_and_select_company(page, company_name: str | None = None):
     target_company = (company_name or COMPANY_NAME).strip() or COMPANY_NAME
-    await page.goto(URL)
+    await page.goto(URL, timeout=60000)
     await page.fill('xpath=//*[@id="_boebpb"]/div[1]/input', USERNAME)
     await page.fill('#Password', PASSWORD)
-    await page.click('input[type="submit"]')
-    try:
-        await page.wait_for_load_state('networkidle', timeout=30000)
-    except:
-        pass
+    async with page.expect_navigation(wait_until="domcontentloaded", timeout=60000):
+        await page.click('input[type="submit"]')
     log_event("LOGIN", "Login", "Success", "Logged in")
 
     # Open the “More” menu
@@ -139,13 +136,13 @@ async def scrape_open_rfps(page, company=COMPANY_NAME, max_retries=3):
                 return open_rfps
             else:
                 log_event("RFP", "Scrape", "Retry", f"No RFPs found (attempt {attempt})")
-                await page.reload()
-                await page.wait_for_load_state("networkidle")
+                await page.reload(timeout=60000)
+                await page.wait_for_load_state("networkidle", timeout=60000)
 
         except Exception as e:
             log_event("RFP", "Scrape", "Fail", f"Error {e} (attempt {attempt})")
-            await page.reload()
-            await page.wait_for_load_state("networkidle")
+            await page.reload(timeout=60000)
+            await page.wait_for_load_state("networkidle", timeout=60000)
 
     log_event("RFP", "Scrape", "Fail", "No RFPs after retries")
     return []

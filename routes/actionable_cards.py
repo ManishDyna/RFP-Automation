@@ -237,7 +237,7 @@ def _build_refresh_card(
     status_text = f"Team responses: {responded_count}/{total_count} received."
 
     actions = [refresh_action]
-    if not user_has_submitted:
+    if not user_has_submitted and products:
         submit_body = {
             "rfp_id": rfp_id,
             "products": products,
@@ -262,9 +262,12 @@ def _build_refresh_card(
         actions = [submit_action, refresh_action]
 
     products_text = ", ".join(f"**{p}**" for p in products)
-    instruction_text = ("Please fill in your Results and Remarks for each product below."
-                        if not user_has_submitted
-                        else "Your response has been submitted. You can refresh to see team status.")
+    if not products:
+        instruction_text = "You can refresh to see the team's response status."
+    elif user_has_submitted:
+        instruction_text = "Your response has been submitted. You can refresh to see team status."
+    else:
+        instruction_text = "Please fill in your Results and Remarks for each product below."
     body_items = [
         {"type": "TextBlock", "text": f"Dear {name},",
          "wrap": True, "size": "Small"},

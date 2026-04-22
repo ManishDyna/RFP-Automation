@@ -654,6 +654,7 @@ async def run_automation_submit(rfp_id: str, company: str | None = None):
 
     async with async_playwright() as p:
         page = None
+        browser = None
         try:
             open_rfps, page, browser = await common_flow(
                 p,
@@ -700,16 +701,32 @@ async def run_automation_submit(rfp_id: str, company: str | None = None):
                     print(f"❌ {error_details}")
                     log_event("SUBMIT", "Result", "Fail", error_details)
 
+                # Collect any portal-level errors captured during submission
+                portal_errors = [
+                    r.get("submit_error", "") for r in (result or [])
+                    if isinstance(r, dict) and r.get("submit_error")
+                ]
+                portal_error_html = ""
+                if portal_errors:
+                    portal_error_items = "".join(f"<li>{e}</li>" for e in portal_errors)
+                    portal_error_html = f"<p><b>Portal Error:</b></p><ul>{portal_error_items}</ul>"
+                    log_event("SUBMIT", "Result", "Fail", f"Portal errors: {'; '.join(portal_errors)}")
+
                 # Create error log file and attach it to the email
+                # Prefer the screenshot taken from the RFP tab (new_page) over the main page
                 from helpers.failure_logger import create_rfp_error_log_file
-                submit_screenshot = await _take_error_screenshot(page, "submit_rfp")
+                rfp_tab_screenshots = [
+                    r.get("submit_screenshot") for r in (result or [])
+                    if isinstance(r, dict) and r.get("submit_screenshot")
+                ]
+                submit_screenshot = rfp_tab_screenshots[0] if rfp_tab_screenshots else await _take_error_screenshot(page, "submit_rfp")
                 error_log_info = create_rfp_error_log_file(
                     rfp_id=rfp_id,
                     context={
                         "automation": "submit_rfp",
                         "company": target_company,
                         "rfp_link": rfp_link,
-                        "error_details": error_details if rfp_not_found else "Submission failed for one or more RFPs",
+                        "error_details": error_details if rfp_not_found else ("; ".join(portal_errors) if portal_errors else "Submission failed for one or more RFPs"),
                     },
                     graph_client=graph_client,
                     screenshot_path=submit_screenshot,
@@ -721,6 +738,7 @@ async def run_automation_submit(rfp_id: str, company: str | None = None):
                 error_body = f"""
                 <p>Dear Team,</p>
                 <p>The RFP with ID <b>{rfp_id}</b> encountered an error during submission.</p>
+                {portal_error_html}
                 {path_html}
                 <p>Best Regards,<br>Automation System</p>
                 """
@@ -753,10 +771,11 @@ async def run_automation_submit(rfp_id: str, company: str | None = None):
             _notify_failure_via_email("Submit RFP", failure_info, graph_client)
             raise HTTPException(status_code=500, detail=f"Submit failed: {str(e)}")
         finally:
-            try:
-                await browser.close()
-            except Exception as close_err:
-                print(f"⚠️ Browser close warning (non-critical): {close_err}")
+            if browser is not None:
+                try:
+                    await browser.close()
+                except Exception as close_err:
+                    print(f"⚠️ Browser close warning (non-critical): {close_err}")
             log_event("SYSTEM", "EndRun", "Success", f"Submit {rfp_id} Finished")
 
 
