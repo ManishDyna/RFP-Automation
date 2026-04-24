@@ -129,11 +129,11 @@ ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/act
 
 URL = "https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&dard=1#b0"
 
-COMPANY_NAME = "Saudi Electricity Company"
+COMPANY_NAME = "Saudi Energy"
 
 # These Companies will Show All Place in system 
 COMPANY_OPTIONS = [
-    "Saudi Electricity Company",
+    "Saudi Energy",
     "Aramco e-Marketplace",
     # "SABIC - Saudi Basic Industries Corp.",
     # "HADEED - RAJHI STEEL",
