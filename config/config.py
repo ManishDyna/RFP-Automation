@@ -107,6 +107,17 @@ FORGOT_PASSWORD_FLOW_URL = (
     "&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0"
     "&sig=r3S5vKCYj3BQ0ymdc-qsBY2fPgzbsM67EDzfIiQcQFQ"
 )
+
+# Cloud flow whose Recurrence trigger we patch whenever an operator saves a
+# new cron schedule from the portal. Flow must be inside a Power Platform
+# Solution — flows under "My Flows" are not update-able via code.
+#
+# The backend looks the flow up by name against the Dataverse `workflow` table
+# and caches the resolved workflowid. If you'd rather hard-code the GUID
+# (e.g. two flows share the same name), set POWER_AUTOMATE_WORKFLOW_ID — it
+# takes precedence over the name-based lookup.
+POWER_AUTOMATE_FLOW_NAME = "Bahra-E-binding-cron-job"
+POWER_AUTOMATE_RECURRENCE_TRIGGER_NAME = "Recurrence"
 # 4f5d8362-8a49-420d-8506-6b1c0a616647
 # Actionable Messages (Adaptive Cards in Outlook) 8dc8a969-5abf-4c49-828f-fbced5ae7570
 ACTIONABLE_CARD_ORIGINATOR_ID = "8dc8a969-5abf-4c49-828f-fbced5ae7570"
@@ -118,11 +129,11 @@ ACTIONABLE_CARD_CALLBACK_URL = "https://0vv8220f-8000.inc1.devtunnels.ms/api/act
 
 URL = "https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&dard=1#b0"
 
-COMPANY_NAME = "Saudi Electricity Company"
+COMPANY_NAME = "Saudi Energy"
 
 # These Companies will Show All Place in system 
 COMPANY_OPTIONS = [
-    "Saudi Electricity Company",
+    "Saudi Energy",
     "Aramco e-Marketplace",
     # "SABIC - Saudi Basic Industries Corp.",
     # "HADEED - RAJHI STEEL",

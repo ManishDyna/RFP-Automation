@@ -46,6 +46,7 @@ from helpers.core_helper import (
     find_rfp_file_across_companies,
 )
 from helpers.sharepoint_helper import GraphClient
+from helpers.power_automate_helper import sync_schedule_to_power_automate
 import tempfile
 from io import BytesIO
 import pandas as pd
@@ -439,7 +440,21 @@ async def save_schedule(request: Request, payload: dict = Body(...), user: dict 
         )
         if not ok:
             raise RuntimeError("Insert failed")
-        return JSONResponse({"ok": True})
+
+        # Push the schedule into the Power Automate Recurrence trigger. If this
+        # fails we keep the Dataverse row and surface the failure to the UI as
+        # a warning toast — the operator can retry without losing the save.
+        try:
+            pa_ok, pa_msg = sync_schedule_to_power_automate(
+                interval=data["interval"],
+                frequency=freq_label,
+                timezone=payload.get("timezone"),
+                start_time=start_time,
+            )
+        except Exception as pa_err:
+            pa_ok, pa_msg = False, str(pa_err)
+
+        return JSONResponse({"ok": True, "pa_synced": pa_ok, "pa_message": pa_msg})
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "message": str(e)})
 
