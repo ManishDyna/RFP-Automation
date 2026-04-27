@@ -47,7 +47,7 @@ from helpers.dataverse_helper import DataverseClient
 
 TITLE_PREFIX_TO_COMPANY = {
     "aramco":  "Aramco e-Marketplace",
-    "sec":     "Saudi Electricity Company",
+    "sec":     "Saudi Energy",
     "sabic":   "SABIC - Saudi Basic Industries Corp.",
     "hadeed":  "HADEED - RAJHI STEEL",
 }
@@ -59,7 +59,7 @@ def detect_company_from_title(title: str) -> str:
 
     Examples:
         "Aramco_4203233143_CABLE..."  → "Aramco e-Marketplace"
-        "SEC RFP-C001718985"          → "Saudi Electricity Company"
+        "SEC RFP-C001718985"          → "Saudi Energy"
         "SABIC_12345_PRODUCT..."      → "SABIC - Saudi Basic Industries Corp."
         "HADEED_99999_STEEL..."       → "HADEED - RAJHI STEEL"
     """

@@ -17,7 +17,7 @@ def create_file_names_and_source_files(rfp_titles: list, company_name: str = Non
     from services.system_settings_service import get_setting
 
     # Use provided company_name or fallback to default
-    target_company = company_name or get_setting("COMPANY_NAME", "Saudi Electricity Company")
+    target_company = company_name or get_setting("COMPANY_NAME", "Saudi Energy")
 
     file_names = []
     source_files = []

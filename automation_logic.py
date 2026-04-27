@@ -46,7 +46,7 @@ def _resolve_company(company: str | None) -> str:
     """
     value = (company or "").strip()
     if not value:
-        return get_setting("COMPANY_NAME", "Saudi Electricity Company")
+        return get_setting("COMPANY_NAME", "Saudi Energy")
     # Use the mapping function to convert short names to full names
     return resolve_company_name(value)
 

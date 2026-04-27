@@ -308,7 +308,7 @@ def get_dashboard_data():
                 matched_data_map = get_matched_data_for_rfps(future_rfp_ids)
 
                 # Companies
-                rfp_df["Company_Name"] = rfp_df["Company_Name"].fillna("Saudi Electricity Company").replace("", "Saudi Electricity Company")
+                rfp_df["Company_Name"] = rfp_df["Company_Name"].fillna("Saudi Energy").replace("", "Saudi Energy")
                 unique_companies = set(rfp_df["Company_Name"].unique())
                 for cn in unique_companies:
                     companies_rfps[cn] = {"open": [], "submitted": [], "saved_draft": [], "declined": []}
@@ -321,7 +321,7 @@ def get_dashboard_data():
                     if not rfp_link:
                         rfp_link = get_setting('URL', 'https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&dard=1#b0')
 
-                    company_name = row.get("Company_Name", "") or "Saudi Electricity Company"
+                    company_name = row.get("Company_Name", "") or "Saudi Energy"
 
                     # Derive Material_Matched / Keyword_Matched / match percentage from Matched_Data
                     md_str = matched_data_map.get(row.get("RFP_ID", ""), "")
@@ -504,7 +504,7 @@ def get_all_rfp_data():
                 print(f"All RFP data after deduplication: {len(rfp_df)} unique RFPs")
 
                 # Normalize Company_Name in dataframe (fix empty/null values)
-                rfp_df["Company_Name"] = rfp_df["Company_Name"].fillna("Saudi Electricity Company").replace("", "Saudi Electricity Company")
+                rfp_df["Company_Name"] = rfp_df["Company_Name"].fillna("Saudi Energy").replace("", "Saudi Energy")
 
                 # Vectorized: Count submitted and declined (faster than iterrows)
                 participated_lower = rfp_df["participated"].fillna("").str.strip().str.lower()
@@ -527,7 +527,7 @@ def get_all_rfp_data():
                     rfp_data = {
                         "RFP_ID": row.get("RFP_ID", ""),
                         "RFP_End_Date": end_str,
-                        "Company_Name": row.get("Company_Name", "") or "Saudi Electricity Company",
+                        "Company_Name": row.get("Company_Name", "") or "Saudi Energy",
                         "Owner_Name": row.get("owner_name", ""),
                         "Publish_Time": format_publish_time(row.get("publish_time", "")),
                         "participated": row.get("participated", ""),
@@ -600,7 +600,7 @@ def get_material_insights_data():
 
     for row in downloaded_rfps:
         rfp_id = row.get("RFP_ID", "")
-        company = row.get("Company_Name", "") or "Saudi Electricity Company"
+        company = row.get("Company_Name", "") or "Saudi Energy"
         material_matched = (row.get("Material_Matched") or "No").strip()
         keyword_matched = (row.get("Keyword_Matched") or "No").strip()
         participated = (row.get("participated") or "").strip().lower()

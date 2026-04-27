@@ -13,7 +13,7 @@ from helpers.email_helper import send_actionable_rfp_emails
 
 # Test with a fake RFP ID
 rfp_id = "SEC RFP C001743167"
-company_name = "Saudi Electricity Company"
+company_name = "Saudi Energy"
 rfp_end_date = "02/26/2026 02:15 AM"
 
 print(f"Sending Adaptive Card emails for: {rfp_id}")

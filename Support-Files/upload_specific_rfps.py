@@ -102,8 +102,8 @@ class SharePointUploader:
 
 
 RFPS = [
-    ("Saudi Electricity Company", "SEC RFP - C001552728"),
-    ("Saudi Electricity Company", "SEC RFP- C001475098 - 6001475098"),
+    ("Saudi Energy", "SEC RFP - C001552728"),
+    ("Saudi Energy", "SEC RFP- C001475098 - 6001475098"),
     ("Aramco e-Marketplace", "Third Party Cybersecurity Self-Assessment # 2 (43)"),
 ]
 

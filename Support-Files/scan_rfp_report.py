@@ -7,7 +7,7 @@ Scans the SharePoint folder RFP-logs/ALLRFPs/ and builds a table showing:
 Usage:
     python scan_rfp_report.py                                        # Full scan
     python scan_rfp_report.py --csv rfp_report.csv                   # Save to CSV
-    python scan_rfp_report.py --company "Saudi Electricity Company"  # Single company
+    python scan_rfp_report.py --company "Saudi Energy"  # Single company
     python scan_rfp_report.py --verbose                              # Debug logging
 """
 

@@ -645,7 +645,7 @@ export default function RfpInsightsPage() {
                       </TableCell>
                       {visibleColumns.company && (
                         <TableCell className="text-slate-600">
-                          {rfp.Company_Name || 'Saudi Electricity Company'}
+                          {rfp.Company_Name || 'Saudi Energy'}
                         </TableCell>
                       )}
                       {visibleColumns.owner && (

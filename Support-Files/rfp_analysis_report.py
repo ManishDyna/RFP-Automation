@@ -61,10 +61,10 @@ EXCEL_EXTENSIONS = ('.xls', '.xlsx')
 
 # Company name mapping: portal file name -> local folder name / Dataverse name
 COMPANY_MAP = {
-    "Saudi Electricity Company": {
-        "local_folder": "Saudi Electricity Company",
-        "dataverse_name": "Saudi Electricity Company",
-        "sp_folder": "Saudi Electricity Company",
+    "Saudi Energy": {
+        "local_folder": "Saudi Energy",
+        "dataverse_name": "Saudi Energy",
+        "sp_folder": "Saudi Energy",
     },
     "Aramco E-Marketplace": {
         "local_folder": "Aramco e-Marketplace",
@@ -129,7 +129,7 @@ def extract_aramco_folder_id(rfp_id: str) -> str:
 
 def parse_sec_portal_file(filepath: str) -> list[dict]:
     """
-    Parse Saudi Electricity Company portal .xls file (HTML format).
+    Parse Saudi Energy portal .xls file (HTML format).
     Returns list of dicts with: company, title, id, end_time, event_type, participated, portal_status
     """
     logger.info(f"Parsing SEC portal file: {filepath}")
@@ -170,7 +170,7 @@ def parse_sec_portal_file(filepath: str) -> list[dict]:
             data_cells.append(cell['text'])
             if len(data_cells) == 5:
                 rfps.append({
-                    'company': 'Saudi Electricity Company',
+                    'company': 'Saudi Energy',
                     'title': data_cells[0],
                     'doc_id': data_cells[1],
                     'end_time': data_cells[2],

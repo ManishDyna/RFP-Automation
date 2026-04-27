@@ -131,7 +131,7 @@ URL = "https://service.ariba.com/Sourcing.aw/109582016/aw?awh=r&awssk=u9fNiSxN&d
 
 COMPANY_NAME = "Saudi Energy"
 
-# These Companies will Show All Place in system 
+# These Companies will Show All Place in system
 COMPANY_OPTIONS = [
     "Saudi Energy",
     "Aramco e-Marketplace",

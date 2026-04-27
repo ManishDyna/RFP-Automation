@@ -620,7 +620,7 @@ def build_section_1(doc):
 
     doc.add_paragraph().paragraph_format.space_after = Pt(8)
     add_para(doc, "Supported Companies:", bold=True)
-    add_bullet(doc, "Saudi Electricity Company")
+    add_bullet(doc, "Saudi Energy")
     add_bullet(doc, "Aramco e-Marketplace")
     add_bullet(doc, "SABIC \u2013 Saudi Basic Industries Corp.")
     add_bullet(doc, "HADEED \u2013 RAJHI STEEL")
@@ -745,7 +745,7 @@ def build_section_3(doc, image_paths):
     add_para(doc, "Below the metrics, you will find the main RFP Management area, organized in two levels of tabs:")
 
     add_para(doc, (
-        "Company Tabs (top row): Each tab represents a company (e.g., Saudi Electricity Company, "
+        "Company Tabs (top row): Each tab represents a company (e.g., Saudi Energy, "
         "Aramco e-Marketplace). A badge next to each company name shows the total number of active RFPs."
     ))
 
@@ -1280,7 +1280,7 @@ def build_section_11(doc):
     add_styled_table(doc,
         headers=["Company", "Portal"],
         rows=[
-            ["Saudi Electricity Company", "SEC procurement portal"],
+            ["Saudi Energy", "SEC procurement portal"],
             ["Aramco e-Marketplace", "Aramco procurement portal"],
             ["SABIC \u2013 Saudi Basic Industries Corp.", "SABIC procurement portal"],
             ["HADEED \u2013 RAJHI STEEL", "HADEED procurement portal"],
