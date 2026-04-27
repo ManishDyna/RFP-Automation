@@ -110,7 +110,7 @@ FORGOT_PASSWORD_FLOW_URL = (
 # 4f5d8362-8a49-420d-8506-6b1c0a616647
 # Actionable Messages (Adaptive Cards in Outlook) 8dc8a969-5abf-4c49-828f-fbced5ae7570
 ACTIONABLE_CARD_ORIGINATOR_ID = "8dc8a969-5abf-4c49-828f-fbced5ae7570"
-ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
+ACTIONABLE_CARD_CALLBACK_URL = "https://0vv8220f-8000.inc1.devtunnels.ms/api/actionable-card/response"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. ARIBA PORTAL & RFP SETTINGS
@@ -137,7 +137,7 @@ VALID_RFP_STATUSES = ["no", "saved_draft", "submitted", "declined"]
 #   "dev"  -> every email goes to DEV_EMAIL only
 #   "prod" -> emails go to the production recipient lists below
 
-EMAIL_MODE = "dev"
+EMAIL_MODE = "prod"
 DEV_EMAIL = "KSAGov.tenders@bahra-cables.com"
 
 # Dev RFP team assignment
