@@ -1759,175 +1759,177 @@ def extract_material_listing_fields(excel_path):
         else:  # .xlsx
             from openpyxl import load_workbook
             wb = load_workbook(excel_path, data_only=False)
-            
-            if sheet_name not in wb.sheetnames:
-                print(f"      [WARN] Sheet '{sheet_name}' not found, skipping material fields")
-                return []
-            
-            sheet = wb[sheet_name]
-            
-            # Find header row (search first 10 rows or all rows if less)
-            header_row_idx = 1
-            for row_idx in range(1, min(10, sheet.max_row + 1)):
-                row_text = " ".join([str(sheet.cell(row_idx, c).value or "") for c in range(1, sheet.max_column + 1)]).lower()
-                if any(kw in row_text for kw in ['price', 'quantity', 'manufacturer', 'material', 'code', 'name', 'description']):
-                    header_row_idx = row_idx
-                    break
-            
-            print(f"          Using row {header_row_idx} as header row")
-            
-            # Find Name column (use same logic as extract_materials_from_excel)
-            name_col_idx = None
-            for col_idx in range(1, sheet.max_column + 1):
-                header_val = str(sheet.cell(header_row_idx, col_idx).value or "").strip().lower()
-                if 'name' in header_val.replace(" ", "").replace("_", ""):
-                    name_col_idx = col_idx
-                    col_letter = sheet.cell(header_row_idx, col_idx).column_letter
-                    print(f"          Found Name column at: {col_letter}")
-                    break
-            
-            if name_col_idx is None:
-                print(f"          No 'Name' column found in sheet")
-                return []
-            
-            # Find first material row by searching Name column for 9-digit material codes (same as existing logic)
-            material_row_idx = None
-            for row_idx in range(header_row_idx + 1, sheet.max_row + 1):
-                name_value = str(sheet.cell(row_idx, name_col_idx).value or "")
-                # Extract 9-digit material codes using regex (same as extract_materials_from_excel)
-                material_codes = re.findall(r"\d{9}", name_value)
-                if material_codes:
-                    material_row_idx = row_idx
-                    print(f"          Found material row at: {row_idx} with material code(s): {material_codes}")
-                    break
-            
-            if not material_row_idx:
-                print(f"      [WARN] No material rows found in sheet")
-                return []
-            
-            print(f"          Checking row {material_row_idx} for yellow cells (using flexible detection)")
-            print(f"          Total columns to scan: {sheet.max_column}")
-            
-            # Scan ALL columns for yellow cells (use flexible detection for material listing)
-            for col_idx in range(1, sheet.max_column + 1):
-                cell = sheet.cell(material_row_idx, col_idx)
-                
-                # Get header for this column
-                header_cell = sheet.cell(header_row_idx, col_idx)
-                header_val = str(header_cell.value or "").strip()
-                
-                # Use the same function that works in other sheets, but with flexible detection
-                is_yellow, rgb_tuple = is_yellow_cell_xlsx(cell, debug=True, strict=False)
-                
-                # Check if this is a TDS/file field (always include even if not yellow)
-                # TDS files are required for all materials and must be included
-                is_file_field = False
-                if header_val:
-                    inferred_type = infer_field_type(header_val)
-                    is_file_field = (inferred_type == 'file')
-                    # Also check explicitly for common TDS field names
-                    if any(kw in header_val.lower() for kw in ['tds', 'technical data sheet']):
-                        is_file_field = True
-                
-                if is_yellow or is_file_field:
-                    cell_value = cell.value
-                    is_empty = (cell_value is None or str(cell_value).strip() == "")
-                    
-                    if not header_val:
-                        print(f"         [WARN]  {cell.column_letter}: Cell detected but NO HEADER - skipping")
-                        continue  # Skip columns with no header
-                    
-                    # Log why this field was included
-                    if is_file_field and not is_yellow:
-                        print(f"         [Attachment] {cell.column_letter}: '{header_val}' - INCLUDED (TDS/file field - REQUIRED for all materials, not yellow)")
-                    
-                    # Skip common read-only identifier columns
-                    skip_columns = ['number', 'name', 'alternative', 'bundle', 'tier', 'answer', 
-                                  'description', 'material code', 'item text', 'material po text', 
-                                  'comment', 'intend to respond', 'reason for not bidding']
-                    if header_val.lower() in skip_columns:
-                        print(f"           {cell.column_letter}: '{header_val}' - SKIPPED (identifier column)")
-                        continue  # Skip identifier/info columns
-                    
-                    label = header_val
-                    
-                    # Check if required (has * in header OR is a file field - files are always required)
-                    is_required = '*' in label or 'required' in label.lower()
-                    
-                    # Infer field type
-                    field_type = infer_field_type(label)
-                    
-                    # TDS/File fields are ALWAYS required for materials
-                    if field_type == 'file':
-                        is_required = True
-                        print(f"          {cell.column_letter}: TDS/File field marked as REQUIRED")
-                    
-                    # Check for dropdown options from Excel data validation
-                    dropdown_options = None
-                    if field_type == 'dropdown':
-                        dropdown_options = get_dropdown_options_xlsx(sheet, cell)
-                        if dropdown_options:
-                            print(f"          {cell.column_letter}: Dropdown options found from Excel: {dropdown_options}")
-                        else:
-                            # Fallback: provide common options based on field name
-                            label_check = label.lower()
-                            if 'country' in label_check or 'origin' in label_check:
-                                dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
-                                print(f"          {cell.column_letter}: Detected COUNTRY field - using country list")
-                            elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
-                                dropdown_options = ['Yes', 'No']
-                                print(f"          {cell.column_letter}: Detected FACTORY field - using Yes/No")
-                            elif 'vendor' in label_check or 'local' in label_check:
-                                dropdown_options = ['Yes', 'No']
-                                print(f"          {cell.column_letter}: Detected VENDOR field - using Yes/No")
+            try:
+                if sheet_name not in wb.sheetnames:
+                    print(f"      [WARN] Sheet '{sheet_name}' not found, skipping material fields")
+                    return []
+
+                sheet = wb[sheet_name]
+
+                # Find header row (search first 10 rows or all rows if less)
+                header_row_idx = 1
+                for row_idx in range(1, min(10, sheet.max_row + 1)):
+                    row_text = " ".join([str(sheet.cell(row_idx, c).value or "") for c in range(1, sheet.max_column + 1)]).lower()
+                    if any(kw in row_text for kw in ['price', 'quantity', 'manufacturer', 'material', 'code', 'name', 'description']):
+                        header_row_idx = row_idx
+                        break
+
+                print(f"          Using row {header_row_idx} as header row")
+
+                # Find Name column (use same logic as extract_materials_from_excel)
+                name_col_idx = None
+                for col_idx in range(1, sheet.max_column + 1):
+                    header_val = str(sheet.cell(header_row_idx, col_idx).value or "").strip().lower()
+                    if 'name' in header_val.replace(" ", "").replace("_", ""):
+                        name_col_idx = col_idx
+                        col_letter = sheet.cell(header_row_idx, col_idx).column_letter
+                        print(f"          Found Name column at: {col_letter}")
+                        break
+
+                if name_col_idx is None:
+                    print(f"          No 'Name' column found in sheet")
+                    return []
+
+                # Find first material row by searching Name column for 9-digit material codes (same as existing logic)
+                material_row_idx = None
+                for row_idx in range(header_row_idx + 1, sheet.max_row + 1):
+                    name_value = str(sheet.cell(row_idx, name_col_idx).value or "")
+                    # Extract 9-digit material codes using regex (same as extract_materials_from_excel)
+                    material_codes = re.findall(r"\d{9}", name_value)
+                    if material_codes:
+                        material_row_idx = row_idx
+                        print(f"          Found material row at: {row_idx} with material code(s): {material_codes}")
+                        break
+
+                if not material_row_idx:
+                    print(f"      [WARN] No material rows found in sheet")
+                    return []
+
+                print(f"          Checking row {material_row_idx} for yellow cells (using flexible detection)")
+                print(f"          Total columns to scan: {sheet.max_column}")
+
+                # Scan ALL columns for yellow cells (use flexible detection for material listing)
+                for col_idx in range(1, sheet.max_column + 1):
+                    cell = sheet.cell(material_row_idx, col_idx)
+
+                    # Get header for this column
+                    header_cell = sheet.cell(header_row_idx, col_idx)
+                    header_val = str(header_cell.value or "").strip()
+
+                    # Use the same function that works in other sheets, but with flexible detection
+                    is_yellow, rgb_tuple = is_yellow_cell_xlsx(cell, debug=True, strict=False)
+
+                    # Check if this is a TDS/file field (always include even if not yellow)
+                    # TDS files are required for all materials and must be included
+                    is_file_field = False
+                    if header_val:
+                        inferred_type = infer_field_type(header_val)
+                        is_file_field = (inferred_type == 'file')
+                        # Also check explicitly for common TDS field names
+                        if any(kw in header_val.lower() for kw in ['tds', 'technical data sheet']):
+                            is_file_field = True
+
+                    if is_yellow or is_file_field:
+                        cell_value = cell.value
+                        is_empty = (cell_value is None or str(cell_value).strip() == "")
+
+                        if not header_val:
+                            print(f"         [WARN]  {cell.column_letter}: Cell detected but NO HEADER - skipping")
+                            continue  # Skip columns with no header
+
+                        # Log why this field was included
+                        if is_file_field and not is_yellow:
+                            print(f"         [Attachment] {cell.column_letter}: '{header_val}' - INCLUDED (TDS/file field - REQUIRED for all materials, not yellow)")
+
+                        # Skip common read-only identifier columns
+                        skip_columns = ['number', 'name', 'alternative', 'bundle', 'tier', 'answer',
+                                      'description', 'material code', 'item text', 'material po text',
+                                      'comment', 'intend to respond', 'reason for not bidding']
+                        if header_val.lower() in skip_columns:
+                            print(f"           {cell.column_letter}: '{header_val}' - SKIPPED (identifier column)")
+                            continue  # Skip identifier/info columns
+
+                        label = header_val
+
+                        # Check if required (has * in header OR is a file field - files are always required)
+                        is_required = '*' in label or 'required' in label.lower()
+
+                        # Infer field type
+                        field_type = infer_field_type(label)
+
+                        # TDS/File fields are ALWAYS required for materials
+                        if field_type == 'file':
+                            is_required = True
+                            print(f"          {cell.column_letter}: TDS/File field marked as REQUIRED")
+
+                        # Check for dropdown options from Excel data validation
+                        dropdown_options = None
+                        if field_type == 'dropdown':
+                            dropdown_options = get_dropdown_options_xlsx(sheet, cell)
+                            if dropdown_options:
+                                print(f"          {cell.column_letter}: Dropdown options found from Excel: {dropdown_options}")
                             else:
-                                dropdown_options = ['Yes', 'No', 'N/A']
-                                print(f"          {cell.column_letter}: Generic dropdown - using Yes/No/N/A")
-                            
-                            print(f"          {cell.column_letter}: Fallback dropdown options: {dropdown_options}")
-                    
-                    print(f"          {cell.column_letter}: '{label}' - Type: {field_type} - Blank: {is_empty} - Required: {is_required}")
-                    
-                    field = {
-                        "id": f"material_field_{col_idx}",
-                        "label": label.replace('*', '').strip(),
-                        "type": field_type,
-                        "required": is_required,
-                        "col": col_idx,
-                        "col_letter": cell.column_letter,
-                        "default_value": "" if is_empty else str(cell_value)
-                    }
-                    
-                    # Add dropdown options if available
-                    if dropdown_options:
-                        field["options"] = dropdown_options
-                    
-                    material_fields.append(field)
-                    rgb_str = f"RGB{rgb_tuple}" if rgb_tuple else "N/A"
-                    print(f"         [OK] {cell.column_letter}: '{label}' - Type: {field_type} - Required: {is_required} - {rgb_str}")
-            
-            # Summary of fields found
-            print(f"       Material listing fields summary:")
-            print(f"         Total fields found: {len(material_fields)}")
-            
-            # File fields
-            file_fields = [f for f in material_fields if f['type'] == 'file']
-            if file_fields:
-                print(f"         [Attachment] TDS/File fields (REQUIRED for all materials): {len(file_fields)}")
-                for ff in file_fields:
-                    print(f"            - {ff['label']}")
-            else:
-                print(f"         [WARN]  No TDS/file fields found - materials will not have file upload option!")
-            
-            # Dropdown fields
-            dropdown_fields = [f for f in material_fields if f['type'] == 'dropdown']
-            if dropdown_fields:
-                print(f"          Dropdown fields: {len(dropdown_fields)}")
-                for df in dropdown_fields:
-                    options_preview = df.get('options', [])[:3]
-                    options_str = ', '.join(options_preview) + ('...' if len(df.get('options', [])) > 3 else '')
-                    print(f"            - {df['label']}: [{options_str}]")
-        
+                                # Fallback: provide common options based on field name
+                                label_check = label.lower()
+                                if 'country' in label_check or 'origin' in label_check:
+                                    dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
+                                    print(f"          {cell.column_letter}: Detected COUNTRY field - using country list")
+                                elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
+                                    dropdown_options = ['Yes', 'No']
+                                    print(f"          {cell.column_letter}: Detected FACTORY field - using Yes/No")
+                                elif 'vendor' in label_check or 'local' in label_check:
+                                    dropdown_options = ['Yes', 'No']
+                                    print(f"          {cell.column_letter}: Detected VENDOR field - using Yes/No")
+                                else:
+                                    dropdown_options = ['Yes', 'No', 'N/A']
+                                    print(f"          {cell.column_letter}: Generic dropdown - using Yes/No/N/A")
+
+                                print(f"          {cell.column_letter}: Fallback dropdown options: {dropdown_options}")
+
+                        print(f"          {cell.column_letter}: '{label}' - Type: {field_type} - Blank: {is_empty} - Required: {is_required}")
+
+                        field = {
+                            "id": f"material_field_{col_idx}",
+                            "label": label.replace('*', '').strip(),
+                            "type": field_type,
+                            "required": is_required,
+                            "col": col_idx,
+                            "col_letter": cell.column_letter,
+                            "default_value": "" if is_empty else str(cell_value)
+                        }
+
+                        # Add dropdown options if available
+                        if dropdown_options:
+                            field["options"] = dropdown_options
+
+                        material_fields.append(field)
+                        rgb_str = f"RGB{rgb_tuple}" if rgb_tuple else "N/A"
+                        print(f"         [OK] {cell.column_letter}: '{label}' - Type: {field_type} - Required: {is_required} - {rgb_str}")
+
+                # Summary of fields found
+                print(f"       Material listing fields summary:")
+                print(f"         Total fields found: {len(material_fields)}")
+
+                # File fields
+                file_fields = [f for f in material_fields if f['type'] == 'file']
+                if file_fields:
+                    print(f"         [Attachment] TDS/File fields (REQUIRED for all materials): {len(file_fields)}")
+                    for ff in file_fields:
+                        print(f"            - {ff['label']}")
+                else:
+                    print(f"         [WARN]  No TDS/file fields found - materials will not have file upload option!")
+
+                # Dropdown fields
+                dropdown_fields = [f for f in material_fields if f['type'] == 'dropdown']
+                if dropdown_fields:
+                    print(f"          Dropdown fields: {len(dropdown_fields)}")
+                    for df in dropdown_fields:
+                        options_preview = df.get('options', [])[:3]
+                        options_str = ', '.join(options_preview) + ('...' if len(df.get('options', [])) > 3 else '')
+                        print(f"            - {df['label']}: [{options_str}]")
+            finally:
+                wb.close()
+
         print(f"      [OK] Found {len(material_fields)} material listing fields from yellow cells")
         return material_fields
     
@@ -2058,92 +2060,94 @@ def parse_excel_for_dynamic_form(excel_path):
         else:
             # Parse .xlsx file with openpyxl
             from openpyxl import load_workbook
-            
+
             wb = load_workbook(excel_path, data_only=False)
-            
-            for sheet_idx, sheet_name in enumerate(wb.sheetnames):
-                # Skip certain sheets
-                if any(skip in sheet_name.lower() for skip in ['instruction', 'attachment', 'dv_sheet']):
-                    continue
-                
-                sheet = wb[sheet_name]
-                section = {
-                    "sheet_name": sheet_name,
-                    "sheet_index": sheet_idx,
-                    "fields": []
-                }
-                
-                # Find all BLANK yellow cells in this sheet (cells to fill)
-                print(f"       Scanning sheet '{sheet_name}' for blank yellow cells...")
-                yellow_count = 0
-                blank_yellow_count = 0
-                
-                for row in sheet.iter_rows():
-                    for cell in row:
-                        is_yellow, rgb_tuple = is_yellow_cell_xlsx(cell, debug=False)
-                        
-                        if is_yellow:
-                            yellow_count += 1
-                            # Check if cell is blank/empty
-                            cell_value = cell.value
-                            is_empty = (cell_value is None or cell_value == "" or 
-                                       (isinstance(cell_value, str) and cell_value.strip() == ""))
-                            
-                            # Debug output for all yellow cells
-                            rgb_str = f"RGB{rgb_tuple}" if rgb_tuple else "N/A"
-                            value_str = f"'{cell_value}'" if cell_value else "(empty)"
-                            print(f"          {cell.coordinate}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
-                            
-                            # Only include BLANK yellow cells (cells user needs to fill)
-                            if is_empty:
-                                blank_yellow_count += 1
-                                row_idx = cell.row - 1  # Convert to 0-indexed
-                                col_idx = cell.column - 1  # Convert to 0-indexed
-                                
-                                # Get label from adjacent cells
-                                label = get_cell_label(sheet, row_idx, col_idx, is_xlsx=True)
-                                field_type = infer_field_type(label)
-                                
-                                # Check for dropdown options from Excel data validation
-                                dropdown_options = None
-                                if field_type == 'dropdown':
-                                    dropdown_options = get_dropdown_options_xlsx(sheet, cell)
-                                    if not dropdown_options:
-                                        # Fallback: provide common options based on field name
-                                        label_check = label.lower()
-                                        if 'country' in label_check or 'origin' in label_check:
-                                            dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
-                                        elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
-                                            dropdown_options = ['Yes', 'No']
-                                        elif 'vendor' in label_check or 'local' in label_check:
-                                            dropdown_options = ['Yes', 'No']
-                                        else:
-                                            dropdown_options = ['Yes', 'No', 'N/A']
-                                
-                                field = {
-                                    "id": f"field_{sheet_idx}_{row_idx}_{col_idx}",
-                                    "label": label,
-                                    "type": field_type,
-                                    "required": True,
-                                    "row": row_idx,
-                                    "col": col_idx,
-                                    "sheet_index": sheet_idx,
-                                    "sheet_name": sheet_name
-                                }
-                                
-                                # Add dropdown options if available
-                                if dropdown_options:
-                                    field["options"] = dropdown_options
-                                
-                                section["fields"].append(field)
-                                form_structure["total_fields"] += 1
-                                print(f"            [OK] INCLUDED in form - Label: '{label}' - Type: {field_type}")
-                
-                print(f"       Sheet '{sheet_name}': {yellow_count} yellow cells, {blank_yellow_count} blank (included in form)")
-                
-                if section["fields"]:
-                    form_structure["sections"].append(section)
-    
+            try:
+                for sheet_idx, sheet_name in enumerate(wb.sheetnames):
+                    # Skip certain sheets
+                    if any(skip in sheet_name.lower() for skip in ['instruction', 'attachment', 'dv_sheet']):
+                        continue
+
+                    sheet = wb[sheet_name]
+                    section = {
+                        "sheet_name": sheet_name,
+                        "sheet_index": sheet_idx,
+                        "fields": []
+                    }
+
+                    # Find all BLANK yellow cells in this sheet (cells to fill)
+                    print(f"       Scanning sheet '{sheet_name}' for blank yellow cells...")
+                    yellow_count = 0
+                    blank_yellow_count = 0
+
+                    for row in sheet.iter_rows():
+                        for cell in row:
+                            is_yellow, rgb_tuple = is_yellow_cell_xlsx(cell, debug=False)
+
+                            if is_yellow:
+                                yellow_count += 1
+                                # Check if cell is blank/empty
+                                cell_value = cell.value
+                                is_empty = (cell_value is None or cell_value == "" or
+                                           (isinstance(cell_value, str) and cell_value.strip() == ""))
+
+                                # Debug output for all yellow cells
+                                rgb_str = f"RGB{rgb_tuple}" if rgb_tuple else "N/A"
+                                value_str = f"'{cell_value}'" if cell_value else "(empty)"
+                                print(f"          {cell.coordinate}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
+
+                                # Only include BLANK yellow cells (cells user needs to fill)
+                                if is_empty:
+                                    blank_yellow_count += 1
+                                    row_idx = cell.row - 1  # Convert to 0-indexed
+                                    col_idx = cell.column - 1  # Convert to 0-indexed
+
+                                    # Get label from adjacent cells
+                                    label = get_cell_label(sheet, row_idx, col_idx, is_xlsx=True)
+                                    field_type = infer_field_type(label)
+
+                                    # Check for dropdown options from Excel data validation
+                                    dropdown_options = None
+                                    if field_type == 'dropdown':
+                                        dropdown_options = get_dropdown_options_xlsx(sheet, cell)
+                                        if not dropdown_options:
+                                            # Fallback: provide common options based on field name
+                                            label_check = label.lower()
+                                            if 'country' in label_check or 'origin' in label_check:
+                                                dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
+                                            elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
+                                                dropdown_options = ['Yes', 'No']
+                                            elif 'vendor' in label_check or 'local' in label_check:
+                                                dropdown_options = ['Yes', 'No']
+                                            else:
+                                                dropdown_options = ['Yes', 'No', 'N/A']
+
+                                    field = {
+                                        "id": f"field_{sheet_idx}_{row_idx}_{col_idx}",
+                                        "label": label,
+                                        "type": field_type,
+                                        "required": True,
+                                        "row": row_idx,
+                                        "col": col_idx,
+                                        "sheet_index": sheet_idx,
+                                        "sheet_name": sheet_name
+                                    }
+
+                                    # Add dropdown options if available
+                                    if dropdown_options:
+                                        field["options"] = dropdown_options
+
+                                    section["fields"].append(field)
+                                    form_structure["total_fields"] += 1
+                                    print(f"            [OK] INCLUDED in form - Label: '{label}' - Type: {field_type}")
+
+                    print(f"       Sheet '{sheet_name}': {yellow_count} yellow cells, {blank_yellow_count} blank (included in form)")
+
+                    if section["fields"]:
+                        form_structure["sections"].append(section)
+            finally:
+                wb.close()
+
     except Exception as e:
         print(f"[ERROR] Error parsing Excel for dynamic form: {e}")
         import traceback
