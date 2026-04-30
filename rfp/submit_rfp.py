@@ -457,10 +457,47 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
     except Exception:
         pass
 
-    await safe_click(page, "#text__rkuw9c")
-    print("✅ Currency dropdown opened")
-    await safe_click(page, "#_rkuw9c89")
-    print("✅ Selected SAR currency")
+    currency_name = "Saudi Riyal"
+
+    # Primary: anchor by the visible "Select event bidding currency" label so
+    # dynamic IDs (_rkuw9c, text__rkuw9c, Items__rkuw9c) don't matter at all.
+    currency_selected = False
+    try:
+        currency_combo = page.locator(
+            "tr:has-text('Select event bidding currency') [role='combobox']"
+        ).first
+        await currency_combo.click(timeout=10000)
+        print("✅ Currency dropdown opened (label-anchored)")
+
+        currency_option = currency_combo.locator(
+            "[role='listbox'] div.w-dropdown-item[role='option']",
+            has_text=currency_name,
+        ).first
+        try:
+            await currency_option.click(timeout=10000)
+            print(f"✅ Selected {currency_name} currency")
+        except Exception:
+            await currency_option.click(force=True, timeout=10000)
+            print(f"✅ Force-selected {currency_name} currency")
+        currency_selected = True
+    except Exception as e:
+        print(f"⚠️ Label-anchored currency selection failed, falling back: {e}")
+
+    # Fallback: hardcoded #text__rkuw9c / #Items__rkuw9c IDs (still selecting by visible text).
+    if not currency_selected:
+        await safe_click(page, "#text__rkuw9c")
+        print("✅ Currency dropdown opened (id fallback)")
+
+        currency_option = page.locator(
+            "#Items__rkuw9c div.w-dropdown-item[role='option']",
+            has_text=currency_name,
+        ).first
+        try:
+            await currency_option.click(timeout=10000)
+            print(f"✅ Selected {currency_name} currency (id fallback)")
+        except Exception:
+            await currency_option.click(force=True, timeout=10000)
+            print(f"✅ Force-selected {currency_name} currency (id fallback)")
     try:
         log_event("RFP", "Submit", "Success", "Currency set to SAR", title)
     except Exception:
