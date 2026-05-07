@@ -2,7 +2,7 @@
 title: Bahra Electric RFP Automation — Documentation Hub
 version: 1.0
 last_updated: 2026-04-22
-owner: Samir Tak (samir.tak@dynatechconsultancy.com)
+owner: Bahra Electric
 status: In Progress (Phase 1 of 4)
 ---
 
