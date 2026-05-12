@@ -388,7 +388,7 @@ function RunDetailModal({
             </TabsList>
           </div>
 
-          <ScrollArea className="flex-1 min-h-0 w-full" viewportClassName="[&>div]:!block">
+          <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden">
             {/* Timeline Tab */}
             <TabsContent value="timeline" className="m-0 p-6">
               <div className="relative">
@@ -477,7 +477,7 @@ function RunDetailModal({
                 </div>
               )}
             </TabsContent>
-          </ScrollArea>
+          </div>
         </Tabs>
       </DialogContent>
     </Dialog>

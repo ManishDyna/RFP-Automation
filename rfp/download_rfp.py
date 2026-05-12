@@ -328,7 +328,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
         result = DATAVERSE.query_rows(
             RFP_ACTIVITY_LOG_TABLE_API,
             filter_expr=filter_expr,
-            select="RFP_ID,Email_Status,RFP_End_Date,owner_name,publish_time,Company_Name,participated,Link,Material_Matched,Keyword_Matched,Matched_Data",
+            select="RFP_ID,Email_Status,RFP_End_Date,owner_name,publish_time,Company_Name,participated,Link,Matched_Data",
             top=len(rfp_ids),
             table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
             use_display_names=True
