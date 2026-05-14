@@ -1,6 +1,7 @@
 from core.common_imports import *
 from helpers.dataverse_helper import DataverseClient
 import pandas as pd
+import pytz
 import os
 import uuid
 from datetime import datetime
@@ -50,6 +51,43 @@ def normalize_date_format(val) -> str:
         return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         return str(val).strip()
+
+
+def normalize_publish_time(val) -> str:
+    """Return 'M/D/YYYY H:MM AM/PM' in Asia/Riyadh — the locked DB standard
+    for the publish_time TEXT column (cr673_bahra_rfps_v2).
+
+    Handles:
+      * ISO 8601 with T-separator: '2019-08-27T16:00:00Z' (UTC -> KSA shift)
+      * Excel locale-swapped: 'YYYY-DD-MM HH:MM:SS'
+      * MDY slash format (round-trip): '10/6/2025 4:33 AM'
+      * Other pandas-parseable formats
+
+    Returns '' for blank/None input. Returns the raw stripped input on parse
+    failure so we never silently mangle a value we can't understand.
+    """
+    KSA_TZ = pytz.timezone("Asia/Riyadh")
+    if val is None or pd.isna(val) or str(val).strip() in ("", "-"):
+        return ""
+    val = str(val).strip()
+    try:
+        if "T" in val or val.endswith("Z"):
+            dt = pd.to_datetime(val)
+        elif "-" in val and "/" not in val:
+            parts = val.split(" ", 1)
+            date_part = parts[0]
+            time_part = parts[1] if len(parts) > 1 else "00:00:00"
+            y, d, m = date_part.split("-")
+            fixed = f"{y}-{m}-{d} {time_part}"
+            dt = pd.to_datetime(fixed)
+        else:
+            dt = pd.to_datetime(val)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(KSA_TZ)
+        return dt.strftime("%#m/%#d/%Y %#I:%M %p")
+    except Exception:
+        return str(val).strip()
+
 
 # ==== CONFIGURE DATAVERSE ====
 DATAVERSE = DataverseClient(
@@ -269,7 +307,7 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
     if safe_date_field(email_sent_at) is not None:
         row_data["Email_Sent_At"] = safe_date_field(email_sent_at)
     if safe_date_field(publish_time) is not None:
-        row_data["publish_time"] = safe_date_field(publish_time)
+        row_data["publish_time"] = normalize_publish_time(publish_time)
     if participated is not None:
         row_data["participated"] = participated
     if owner_name is not None:
@@ -384,17 +422,23 @@ def log_rfp_activity(rfp_id, Downloaded_At, RFP_End_Date=None,
                         if rfp_type is not None and str(rfp_type).strip():
                             update_data["rfp_type"] = str(rfp_type).strip()
 
-                        # Fill missing owner_name if now available
+                        # Fill missing owner_name / publish_time if now available.
+                        # Policy (Fix 5): treat "", None, and "-" as "unset" — a successful
+                        # rescrape may overwrite them. Real non-empty values are kept (this
+                        # protects manual corrections from being clobbered by a bad scrape).
+                        def _is_unset(v):
+                            if v is None:
+                                return True
+                            s = str(v).strip()
+                            return s == "" or s == "-"
+
                         if owner_name is not None and str(owner_name).strip():
-                            existing_owner = existing_row.get("owner_name", "")
-                            if not existing_owner or not existing_owner.strip():
+                            if _is_unset(existing_row.get("owner_name")):
                                 update_data["owner_name"] = str(owner_name).strip()
 
-                        # Fill missing publish_time if now available
                         if publish_time is not None and str(publish_time).strip():
-                            existing_publish = existing_row.get("publish_time", "")
-                            if not existing_publish or not existing_publish.strip():
-                                update_data["publish_time"] = safe_date_field(publish_time) or str(publish_time).strip()
+                            if _is_unset(existing_row.get("publish_time")):
+                                update_data["publish_time"] = normalize_publish_time(publish_time)
 
                         # Don't update Downloaded_At for re-downloads
                         # Only update other meaningful fields

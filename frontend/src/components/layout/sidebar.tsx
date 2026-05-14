@@ -19,6 +19,7 @@ import {
   Package,
   Database,
   SlidersHorizontal,
+  MailWarning,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -53,6 +54,7 @@ export function Sidebar({
   const canViewRfpInsights = useHasPermission('rfp.view')
   const canViewMaterialInsights = useHasPermission('material_insights.view')
   const canViewLogs = useHasPermission('logs.view')
+  const canViewOpenRfp = useHasPermission('rfp.open.view')
 
   // RFP operation permissions
   const canDownloadRfp = useHasPermission('rfp.download')
@@ -195,6 +197,15 @@ export function Sidebar({
                     icon={ScrollText}
                     label="Activity Logs"
                     active={location.pathname === '/dashboard/logs'}
+                    collapsed={collapsed}
+                  />
+                )}
+                {canViewOpenRfp && (
+                  <NavItem
+                    path="/dashboard/open-rfps"
+                    icon={MailWarning}
+                    label="Open RFP"
+                    active={location.pathname === '/dashboard/open-rfps'}
                     collapsed={collapsed}
                   />
                 )}

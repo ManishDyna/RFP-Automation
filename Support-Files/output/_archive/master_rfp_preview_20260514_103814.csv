@@ -1,0 +1,5 @@
+﻿timestamp,rfp_id,company_name,record_id,link,field,db_value,portal_value,status,user_approve,notes
+2026-05-14 10:39:13,SEC RFP-C001597754,Saudi Energy,3d51a631-de28-f111-88b4-6045bd13d56f,https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPGzAyl0i&awcharset=UTF-8,owner_name,,Ayman A Al-Ahmadi,MISSING,,
+2026-05-14 10:39:13,SEC RFP-C001597754,Saudi Energy,3d51a631-de28-f111-88b4-6045bd13d56f,https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPGzAyl0i&awcharset=UTF-8,publish_time,,3/1/2025 10:48 PM,MISSING,,
+2026-05-14 10:39:13,SEC RFP-C001597754,Saudi Energy,3d51a631-de28-f111-88b4-6045bd13d56f,https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPGzAyl0i&awcharset=UTF-8,RFP_End_Date,2025-03-13T02:15:00Z,,OK,,portal blank; kept DB value
+2026-05-14 10:39:13,SEC RFP-C001597754,Saudi Energy,3d51a631-de28-f111-88b4-6045bd13d56f,https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPGzAyl0i&awcharset=UTF-8,rfp_type,,RFP,MISSING,,

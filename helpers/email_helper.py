@@ -455,11 +455,20 @@ def send_actionable_rfp_emails(
     rfp_end_date: str = "-",
     matched_csv_path: str = None,
     graph_client=None,
+    recipients_override: list = None,
+    subject_prefix: str = "",
 ):
     """
     Send one personalized Adaptive Card email PER team member via Graph API MIME endpoint.
     Uses raw MIME format to preserve the <script type="application/adaptivecard+json"> tag
     (both Power Automate and Graph API JSON sendMail strip <script> tags).
+
+    recipients_override : when provided, restrict the send to this exact list of
+                          {product, name, email, readonly?} dicts (used by the
+                          Open RFP reminder flow). When None, the live RFP team
+                          table from Dataverse is used.
+    subject_prefix      : optional text prepended to the email subject (e.g.
+                          "Reminder: ") so a re-send is visually distinct.
     """
     import base64
     from email.mime.multipart import MIMEMultipart
@@ -478,23 +487,35 @@ def send_actionable_rfp_emails(
     if _email_mode != "prod" and _email_to_new_rfp:
         _email_to_new_rfp = _dev_email
     from services.master_data_service import get_all_rfp_team_for_emails
-    RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
+    if recipients_override is not None:
+        RFP_TEAM_TABLE = list(recipients_override)
+        # Build "all team products" from the FULL live team so the card still
+        # shows every product context, even when this send targets a subset.
+        try:
+            _full_team = get_all_rfp_team_for_emails()
+        except Exception:
+            _full_team = RFP_TEAM_TABLE
+        all_team_products = list(dict.fromkeys(
+            m["product"] for m in _full_team if m.get("product")
+        ))
+    else:
+        RFP_TEAM_TABLE = get_all_rfp_team_for_emails()
 
-    # Collect all unique product names from the RFP team (for read-only "All" recipients)
-    all_team_products = list(dict.fromkeys(
-        m["product"] for m in RFP_TEAM_TABLE if m.get("product")
-    ))
+        # Collect all unique product names from the RFP team (for read-only "All" recipients)
+        all_team_products = list(dict.fromkeys(
+            m["product"] for m in RFP_TEAM_TABLE if m.get("product")
+        ))
 
-    # Include EMAIL_TO_NEW_RFP config recipients if not already in team table (as read-only)
-    team_emails_lower = {m.get("email", "").lower() for m in RFP_TEAM_TABLE if m.get("email")}
-    if _email_to_new_rfp:
-        for _single_email in _email_to_new_rfp.split(";"):
-            _single_email = _single_email.strip()
-            if _single_email and _single_email.lower() not in team_emails_lower:
-                RFP_TEAM_TABLE = RFP_TEAM_TABLE + [
-                    {"product": "All", "name": _single_email.split("@")[0].replace(".", " ").title(), "email": _single_email, "readonly": True}
-                ]
-                team_emails_lower.add(_single_email.lower())
+        # Include EMAIL_TO_NEW_RFP config recipients if not already in team table (as read-only)
+        team_emails_lower = {m.get("email", "").lower() for m in RFP_TEAM_TABLE if m.get("email")}
+        if _email_to_new_rfp:
+            for _single_email in _email_to_new_rfp.split(";"):
+                _single_email = _single_email.strip()
+                if _single_email and _single_email.lower() not in team_emails_lower:
+                    RFP_TEAM_TABLE = RFP_TEAM_TABLE + [
+                        {"product": "All", "name": _single_email.split("@")[0].replace(".", " ").title(), "email": _single_email, "readonly": True}
+                    ]
+                    team_emails_lower.add(_single_email.lower())
     from core.log_events import log_rfp_activity
 
     # Get Graph API token for sending mail
@@ -595,7 +616,7 @@ def send_actionable_rfp_emails(
         msg = MIMEMultipart("mixed")
         msg["From"] = sender_email
         msg["To"] = person_email
-        msg["Subject"] = rfp_id
+        msg["Subject"] = f"{subject_prefix}{rfp_id}" if subject_prefix else rfp_id
 
         # HTML body with adaptive card
         html_part = MIMEText(body_html, "html", "utf-8")
@@ -630,15 +651,17 @@ def send_actionable_rfp_emails(
         except Exception as e:
             print(f"[ERROR] Failed to send email to {person_name}: {e}")
 
-    # Log activity once per RFP
-    log_rfp_activity(
-        rfp_id=rfp_id,
-        Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        email_sent_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        email_to=";".join(m.get("email", "") for m in RFP_TEAM_TABLE if m.get("email")),
-        email_status="Sent (Actionable)",
-        company_name=company_name,
-    )
+    # Log activity once per RFP (skipped for reminder re-sends — the original
+    # send already recorded the email status on the RFP master row).
+    if recipients_override is None:
+        log_rfp_activity(
+            rfp_id=rfp_id,
+            Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            email_sent_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            email_to=";".join(m.get("email", "") for m in RFP_TEAM_TABLE if m.get("email")),
+            email_status="Sent (Actionable)",
+            company_name=company_name,
+        )
 
     return rfp_id
 

@@ -349,6 +349,84 @@ export const api = {
     return handleResponse<any>(response)
   },
 
+  // ==================== Open RFP ====================
+  listOpenRfps: async () => {
+    const response = await fetch(ENDPOINTS.OPEN_RFP.LIST, { credentials: 'include' })
+    return handleResponse<{
+      ok: boolean
+      total: number
+      rfps: Array<{
+        rfp_id: string
+        company_name: string
+        rfp_end_date: string
+        owner_name: string
+        email_sent_at: string
+        email_status: string
+        participated: string
+        link: string
+        total_recipients: number
+        responded_count: number
+        pending_count: number
+      }>
+    }>(response)
+  },
+
+  getOpenRfpStatus: async (rfpId: string) => {
+    const response = await fetch(ENDPOINTS.OPEN_RFP.STATUS(rfpId), { credentials: 'include' })
+    return handleResponse<{
+      ok: boolean
+      rfp: {
+        rfp_id: string
+        company_name: string
+        rfp_end_date: string
+        owner_name: string
+        email_sent_at: string
+        email_status: string
+        participated: string
+        link: string
+      }
+      rows: Array<{
+        email: string
+        name: string
+        product: string
+        readonly: boolean
+        status: 'responded' | 'pending'
+        results: string
+        remarks: string
+        responded_at: string
+        reminder_count: number
+        last_reminder_at: string
+        former: boolean
+      }>
+      reminders: Array<{
+        rfp_id: string
+        company_name: string
+        product: string
+        recipient_email: string
+        recipient_name: string
+        sent_at: string
+        sent_by_email: string
+        sent_by_name: string
+        status: string
+        error_message: string
+      }>
+    }>(response)
+  },
+
+  remindOpenRfp: async (rfpId: string, emails: string[]) => {
+    const response = await fetch(ENDPOINTS.OPEN_RFP.REMIND(rfpId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails }),
+      credentials: 'include',
+    })
+    return handleResponse<{
+      ok: boolean
+      reminded_count: number
+      results: Array<{ email: string; name?: string; status: string; error?: string }>
+    }>(response)
+  },
+
   // ==================== Error Files ====================
   getErrorFiles: async (runId?: string) => {
     const params = runId ? `?run_id=${encodeURIComponent(runId)}` : ''

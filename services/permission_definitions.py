@@ -32,6 +32,8 @@ PERMISSIONS = {
     "rfp.download": "Download RFPs from portal",
     "rfp.submit": "Submit RFPs",
     "rfp.decline": "Decline RFPs",
+    "rfp.open.view": "View Open RFP reminder tracker page",
+    "rfp.open.remind": "Send reminder emails to RFP team members who haven't responded",
 
     # Dashboard
     "dashboard.view": "View main dashboard",
@@ -110,6 +112,7 @@ PERMISSION_CATEGORIES = {
             "rfp.view":                 "RFP Insights",
             "material_insights.view":   "Material Insights",
             "logs.view":                "Activity Logs",
+            "rfp.open.view":            "Open RFP",
             "analytics.view":           "Analytics",
             "sap_password.view":        "SAP Logs",
             "system_settings.view":     "View System Settings",
@@ -120,9 +123,10 @@ PERMISSION_CATEGORIES = {
     "rfp_operations": {
         "label": "RFP Operations",
         "permissions": {
-            "rfp.download": "Download RFP",
-            "rfp.submit":   "Submit RFP",
-            "rfp.decline":  "Decline RFP",
+            "rfp.download":    "Download RFP",
+            "rfp.submit":      "Submit RFP",
+            "rfp.decline":     "Decline RFP",
+            "rfp.open.remind": "Send RFP Reminder",
         },
     },
     "user_management": {
@@ -193,6 +197,7 @@ DEFAULT_ROLES = {
             "rfp.download",
             "rfp.submit",
             "rfp.decline",
+            "rfp.open.view",
             "dashboard.view",
             "logs.view",
             "material_insights.view",

@@ -34,6 +34,7 @@ from routes.role_routes import router as role_router
 from routes.actionable_cards import router as actionable_cards_router
 from routes.master_data_routes import router as master_data_router
 from routes.system_settings_routes import router as system_settings_router
+from routes.open_rfp import router as open_rfp_router
 from config.config import SESSION_TIMEOUT_SECONDS
 import os
 import uuid
@@ -97,6 +98,9 @@ app.include_router(master_data_router)
 
 # System Settings API router (Dynamic Configuration)
 app.include_router(system_settings_router)
+
+# Open RFP API router (reminder tracker for non-responders)
+app.include_router(open_rfp_router)
 
 
 # ==================== GLOBAL ERROR HANDLER ====================

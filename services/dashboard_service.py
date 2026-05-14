@@ -360,6 +360,15 @@ def get_dashboard_data():
                         saved_draft_rfp_list.append(rfp_data)
                         companies_rfps[company_name]["saved_draft"].append(rfp_data)
 
+        # Always include every configured company on the dashboard, even when
+        # no open RFP exists for it yet — empty buckets let the frontend render
+        # a zero-count card instead of hiding the company entirely.
+        configured_companies = get_setting("COMPANY_OPTIONS", []) or []
+        for cn in configured_companies:
+            if cn and cn not in companies_rfps:
+                companies_rfps[cn] = {"open": [], "submitted": [], "saved_draft": [], "declined": []}
+                unique_companies.add(cn)
+
         saved_rfps = total_all_rfps if total_all_rfps > 0 else int(len(rfp_df))
         prev_saved_rfps = 0
         downloaded_rfps = saved_rfps

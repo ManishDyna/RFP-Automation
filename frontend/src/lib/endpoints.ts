@@ -142,6 +142,13 @@ export const ENDPOINTS = {
     LIST: `${API_PREFIX}/audit-logs`,
   },
 
+  // ==================== OPEN RFP (routes/open_rfp.py) ====================
+  OPEN_RFP: {
+    LIST:   `${API_PREFIX}/open-rfp/list`,
+    STATUS: (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/status`,
+    REMIND: (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/remind`,
+  },
+
   // ==================== MASTER DATA (routes/master_data_routes.py) ====================
   MASTER_DATA: {
     MATERIALS: {

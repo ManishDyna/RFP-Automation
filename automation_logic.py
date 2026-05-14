@@ -1411,7 +1411,7 @@ async def download_single_rfp_file(page, rfp_data, company_name, allrfps_base_fo
 
         # Extract RFP details (owner_name and publish_time) before clicking download buttons
         try:
-            rfp_details = await extract_rfp_details_inner_text(new_page)
+            rfp_details = await extract_rfp_details_inner_text(new_page, company_name=company_name)
             owner_name = rfp_details.get('owner')
             publish_time = rfp_details.get('publish_time')
 
@@ -1521,12 +1521,13 @@ def store_rfp_in_database(rfp_data, company_name, file_path=None, owner_name=Non
             from core.log_events import normalize_date_format
             row_data["RFP_End_Date"] = normalize_date_format(end_date)
         
-        # Add owner_name if provided
-        if owner_name:
-            row_data["owner_name"] = owner_name
+        # Add owner_name / publish_time if provided and non-blank (Fix 5).
+        # Reject pure-whitespace strings so we don't insert garbage; bare None
+        # is omitted entirely so Dataverse keeps any pre-existing value on UPDATE.
+        if owner_name is not None and str(owner_name).strip():
+            row_data["owner_name"] = str(owner_name).strip()
 
-        # Add publish_time if provided
-        if publish_time:
+        if publish_time is not None and str(publish_time).strip():
             row_data["publish_time"] = publish_time
         
         # Note: File_Path doesn't exist in the table, so we can't store it
@@ -2016,16 +2017,25 @@ async def sync_db_to_sharepoint(page, missing_in_sp: list, graph_client, company
     return result
 
 
-def sync_sp_to_database(missing_in_db: list) -> dict:
+async def sync_sp_to_database(missing_in_db: list, page=None, open_rfps_by_id: dict = None) -> dict:
     """
     Case: SharePoint has file but no DB entry.
     Store the RFP information into Dataverse.
+
+    When `page` (a Playwright page) and `open_rfps_by_id` (rfp_id -> portal link)
+    are provided, the function attempts to scrape owner_name / publish_time from
+    the portal before inserting. Falls back to creating a stub row with empty
+    metadata when the RFP isn't currently open on the portal (historical files).
     """
     from helpers.core_helper import DATAVERSE
     from core.log_events import get_current_run_id
+    from rfp.download_rfp import extract_rfp_details_inner_text
+    from helpers.core_helper import click_if_visible
+    import asyncio
 
     result = {'stored': 0, 'failed': 0, 'details': []}
     total = len(missing_in_db)
+    open_rfps_by_id = open_rfps_by_id or {}
     log_event("SP_DV_SYNC", "SyncToDB", "Start", f"Storing {total} SharePoint RFPs into Dataverse")
 
     for idx, record in enumerate(missing_in_db, 1):
@@ -2037,6 +2047,40 @@ def sync_sp_to_database(missing_in_db: list) -> dict:
         try:
             log_event("SP_DV_SYNC", "SyncToDB", "Step", f"[{idx}/{total}] Storing {rfp_id} in DB")
 
+            owner_name = None
+            publish_time = None
+            link = open_rfps_by_id.get(rfp_id) or open_rfps_by_id.get(str(rfp_id))
+
+            if page is not None and link:
+                detail_page = await page.context.new_page()
+                try:
+                    await detail_page.goto(link, wait_until="domcontentloaded", timeout=60000)
+                    try:
+                        await click_if_visible(detail_page, "#_c8_tuc", timeout=3000)
+                        await asyncio.sleep(10)
+                    except Exception:
+                        pass
+                    rfp_details = await extract_rfp_details_inner_text(detail_page, company_name=comp_name)
+                    owner_name = rfp_details.get('owner')
+                    publish_time = rfp_details.get('publish_time')
+                    log_event("SP_DV_SYNC", "ExtractDetails", "Success",
+                              f"Scraped owner={owner_name}, publish_time={publish_time} for {rfp_id}")
+                except Exception as e:
+                    log_event("SP_DV_SYNC", "ExtractDetails", "Warning",
+                              f"Failed to scrape {rfp_id}: {e}")
+                finally:
+                    try:
+                        await detail_page.close()
+                    except Exception:
+                        pass
+            else:
+                if page is None:
+                    log_event("SP_DV_SYNC", "ExtractDetails", "Warning",
+                              f"No browser session — creating stub row for {rfp_id} (no owner/publish)")
+                else:
+                    log_event("SP_DV_SYNC", "ExtractDetails", "Warning",
+                              f"RFP {rfp_id} not in current open list — creating stub row (no owner/publish)")
+
             # Prepare data for insertion
             rfp_data = {
                 'RFP_ID': rfp_id,
@@ -2047,8 +2091,8 @@ def sync_sp_to_database(missing_in_db: list) -> dict:
                 rfp_data=rfp_data,
                 company_name=comp_name,
                 file_path=None,
-                owner_name=None,
-                publish_time=None
+                owner_name=owner_name,
+                publish_time=publish_time,
             )
 
             detail['status'] = 'success'
@@ -2099,17 +2143,12 @@ async def run_sync_sharepoint_dataverse(company: str = None):
     missing_in_sp = verify_result.get('missing_in_sp', [])
     missing_in_db = verify_result.get('missing_in_db', [])
 
-    # Step 2: Handle SP files without DB entries (no browser needed)
+    # Steps 2 + 3: Both sync directions share a single browser session so that
+    # SP→DB can scrape owner_name / publish_time from the portal (Fix 2).
     sp_to_db_result = {'stored': 0, 'failed': 0, 'details': []}
-    if missing_in_db:
-        log_event("SP_DV_SYNC", "SyncToDB", "Start", f"Storing {len(missing_in_db)} SP orphan files in DB")
-        sp_to_db_result = sync_sp_to_database(missing_in_db)
-
-    # Step 3: Handle DB entries without SP files (needs browser to download)
     db_to_sp_result = {'synced': 0, 'failed': 0, 'details': []}
-    if missing_in_sp:
-        log_event("SP_DV_SYNC", "SyncToSP", "Start", f"Downloading {len(missing_in_sp)} missing files to SharePoint")
 
+    if missing_in_db or missing_in_sp:
         async with async_playwright() as p:
             browser = None
             page = None
@@ -2118,7 +2157,21 @@ async def run_sync_sharepoint_dataverse(company: str = None):
                 open_rfps, page, browser = await common_flow(p, graph_client, profile_label="sync-sp-dv", company=target_company)
                 log_event("SP_DV_SYNC", "Login", "Success", f"Logged in and selected company {target_company}")
 
-                db_to_sp_result = await sync_db_to_sharepoint(page, missing_in_sp, graph_client, target_company)
+                open_rfps_by_id = {
+                    r.get("Title", ""): r.get("Link", "")
+                    for r in (open_rfps or [])
+                    if r.get("Title")
+                }
+
+                if missing_in_db:
+                    log_event("SP_DV_SYNC", "SyncToDB", "Start", f"Storing {len(missing_in_db)} SP orphan files in DB")
+                    sp_to_db_result = await sync_sp_to_database(
+                        missing_in_db, page=page, open_rfps_by_id=open_rfps_by_id
+                    )
+
+                if missing_in_sp:
+                    log_event("SP_DV_SYNC", "SyncToSP", "Start", f"Downloading {len(missing_in_sp)} missing files to SharePoint")
+                    db_to_sp_result = await sync_db_to_sharepoint(page, missing_in_sp, graph_client, target_company)
 
             except HTTPException:
                 raise

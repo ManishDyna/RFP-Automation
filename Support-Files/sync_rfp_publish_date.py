@@ -59,13 +59,22 @@ def normalize_key(val: str) -> str:
 
 
 def normalize_date(val) -> str:
-    """Parse any date format and return consistent 'M/D/YYYY H:MM AM/PM' string in KSA time."""
+    """Parse any date format and return consistent 'M/D/YYYY H:MM AM/PM' string in KSA time.
+
+    Handles:
+      * ISO 8601 with T-separator: '2019-08-27T16:00:00Z' (UTC -> KSA shift)
+      * Excel locale-swapped: 'YYYY-DD-MM HH:MM:SS'
+      * MDY slash format (round-trip): '10/6/2025 4:33 AM'
+      * Other pandas-parseable formats
+    """
     KSA_TZ = pytz.timezone("Asia/Riyadh")
     if pd.isna(val) or str(val).strip() == "":
         return ""
     val = str(val).strip()
     try:
-        if "-" in val and "/" not in val:
+        if "T" in val or val.endswith("Z"):
+            dt = pd.to_datetime(val)
+        elif "-" in val and "/" not in val:
             parts = val.split(" ", 1)
             date_part = parts[0]
             time_part = parts[1] if len(parts) > 1 else "00:00:00"

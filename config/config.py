@@ -76,6 +76,12 @@ RFP_TEAM_COLUMNS_TABLE_API = "cr673_bahra_rfp_team_columnses"
 RFP_RESPONSE_TABLE_LOGICAL = "cr6db_cr673_bahra_rfp_response"
 RFP_RESPONSE_TABLE_API = "cr6db_cr673_bahra_rfp_responses"
 
+# Open RFP reminder log — one row per reminder email sent to a non-responder.
+# EntitySetName is plural-by-Dataverse-rule; the setup script prints the
+# resolved value when it creates the table — paste it into BAHRA_RFP_REMINDER_API.
+BAHRA_RFP_REMINDER_LOGICAL = "cr673_bahra_rfp_reminder_for_info"
+BAHRA_RFP_REMINDER_API = "cr673_bahra_rfp_reminder_for_infos"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. SHAREPOINT / GRAPH API
 # ─────────────────────────────────────────────────────────────────────────────
@@ -135,9 +141,28 @@ COMPANY_NAME = "Saudi Energy"
 COMPANY_OPTIONS = [
     "Saudi Energy",
     "Aramco e-Marketplace",
-    # "SABIC - Saudi Basic Industries Corp.",
-    # "HADEED - RAJHI STEEL",
+    "HADEED - RAJHI STEEL",
+    "Saudi Aramco Mobil Refinery Company Limited"
 ]
+
+# Per-company preferred CSS selectors for RFP-detail-page extraction (Fix 4).
+# Tried BEFORE the generic fallback list in extract_rfp_details_inner_text.
+# Replace these with company-specific selectors discovered via DevTools when
+# a company's portal DOM differs from the generic Ariba shape.
+_DEFAULT_RFP_DETAIL_SELECTORS = [
+    'div.wideLabels table td',
+    'table.wideLabels td',
+    'table td',
+    'div.wideLabels td',
+    '.w-tbl-cell',
+    'div[class*="label"] table td',
+]
+COMPANY_RFP_SELECTORS = {
+    "Saudi Energy": {"preferred_selectors": list(_DEFAULT_RFP_DETAIL_SELECTORS)},
+    "Aramco e-Marketplace": {"preferred_selectors": list(_DEFAULT_RFP_DETAIL_SELECTORS)},
+    "HADEED - RAJHI STEEL": {"preferred_selectors": list(_DEFAULT_RFP_DETAIL_SELECTORS)},
+    "Saudi Aramco Mobil Refinery Company Limited": {"preferred_selectors": list(_DEFAULT_RFP_DETAIL_SELECTORS)},
+}
 
 VALID_RFP_STATUSES = ["no", "saved_draft", "submitted", "declined"]
 
@@ -148,7 +173,7 @@ VALID_RFP_STATUSES = ["no", "saved_draft", "submitted", "declined"]
 #   "dev"  -> every email goes to DEV_EMAIL only
 #   "prod" -> emails go to the production recipient lists below
 
-EMAIL_MODE = "dev"
+EMAIL_MODE = "prod"
 DEV_EMAIL = "KSAGov.tenders@bahra-cables.com"
 
 # Dev RFP team assignment

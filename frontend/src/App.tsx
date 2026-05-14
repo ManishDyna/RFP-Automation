@@ -18,6 +18,7 @@ const LoginPage = lazy(() => import('@/pages/login'))
 const DashboardPage = lazy(() => import('@/pages/dashboard'))
 const RfpInsightsPage = lazy(() => import('@/pages/rfp-insights'))
 const LogsPage = lazy(() => import('@/pages/logs'))
+const OpenRfpsPage = lazy(() => import('@/pages/open-rfps'))
 const ProfilePage = lazy(() => import('@/pages/profile'))
 const AnalyticsPage = lazy(() => import('@/pages/analytics'))
 const UserManagementPage = lazy(() => import('@/pages/admin/users'))
@@ -154,6 +155,11 @@ function ProtectedLayout() {
               <Route path="/dashboard/logs" element={
                 <PermissionGuard permission="logs.view" fallback={<AccessDenied />}>
                   <LogsPage />
+                </PermissionGuard>
+              } />
+              <Route path="/dashboard/open-rfps" element={
+                <PermissionGuard permission="rfp.open.view" fallback={<AccessDenied />}>
+                  <OpenRfpsPage />
                 </PermissionGuard>
               } />
               <Route path="/dashboard/profile" element={<ProfilePage />} />

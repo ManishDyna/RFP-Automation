@@ -5,23 +5,83 @@ import re
 import tempfile
 import shutil
 
-async def extract_rfp_details_inner_text(page):
-    """Use inner_text() which is closer to what you see in browser"""
+async def extract_rfp_details_inner_text(page, company_name=None):
+    """
+    Public entry: wait for the page to settle, try extracting owner/publish_time,
+    and retry once if either field is missing (Fix 3 — softens transient
+    extraction failures caused by selector races or slow renders).
+
+    `company_name` is used by `_do_extract_rfp_details_once` to look up
+    per-company preferred selectors from COMPANY_RFP_SELECTORS (Fix 4).
+    """
+    try:
+        await page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        pass
+
+    result = await _do_extract_rfp_details_once(page, company_name=company_name)
+    if result.get('owner') and result.get('publish_time'):
+        return result
+
+    print(f"  🔁 DEBUG: First attempt missing fields (owner={result.get('owner')}, "
+          f"publish_time={result.get('publish_time')}) — retrying after short wait")
+    try:
+        await asyncio.sleep(2)
+        await page.wait_for_selector("body", timeout=5000)
+    except Exception:
+        pass
+
+    retry = await _do_extract_rfp_details_once(page, company_name=company_name)
+    return {
+        'owner': result.get('owner') or retry.get('owner'),
+        'publish_time': result.get('publish_time') or retry.get('publish_time'),
+    }
+
+
+def _build_selector_list(company_name=None):
+    """Return preferred-then-generic selector list for a given company (Fix 4)."""
+    generic_selectors = [
+        'div.wideLabels table td',
+        'table.wideLabels td',
+        'table td',
+        'div.wideLabels td',
+        '.w-tbl-cell',
+        'div[class*="label"] table td',
+    ]
+    if not company_name:
+        return generic_selectors
+    try:
+        from services.system_settings_service import get_setting
+        company_map = get_setting("COMPANY_RFP_SELECTORS", {}) or {}
+    except Exception:
+        company_map = {}
+    if not company_map:
+        try:
+            from config.config import COMPANY_RFP_SELECTORS as _cfg
+            company_map = _cfg
+        except Exception:
+            company_map = {}
+    preferred = (company_map.get(company_name) or {}).get("preferred_selectors") or []
+    # Preserve order, drop duplicates so generic selectors don't double-run.
+    seen = set()
+    merged = []
+    for sel in list(preferred) + generic_selectors:
+        if sel not in seen:
+            merged.append(sel)
+            seen.add(sel)
+    return merged
+
+
+async def _do_extract_rfp_details_once(page, company_name=None):
+    """Single-pass extraction. Returns {'owner': str|None, 'publish_time': str|None}."""
     owner_name = None
     publish_time = None
-    
+
     try:
-        print("  🔍 DEBUG: Starting extract_rfp_details_inner_text function")
-        
-        # Try multiple selectors to find the table
-        selectors_to_try = [
-            'div.wideLabels table td',
-            'table.wideLabels td',
-            'table td',
-            'div.wideLabels td',
-            '.w-tbl-cell',
-            'div[class*="label"] table td'
-        ]
+        print(f"  🔍 DEBUG: Starting _do_extract_rfp_details_once (company={company_name})")
+
+        # Try multiple selectors to find the table (per-company preferred first; Fix 4)
+        selectors_to_try = _build_selector_list(company_name)
         
         all_cells = None
         cell_count = 0
@@ -739,10 +799,44 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                 _file_size = os.path.getsize(local_file_path)
             except Exception:
                 pass
+
+            # Scrape owner_name / publish_time from the detail page so the new
+            # DB row isn't created with empty metadata. Mirrors the same flow
+            # used by the normal-download branch below.
+            local_owner_name = None
+            local_publish_time = None
+            detail_page = await page.context.new_page()
+            try:
+                await detail_page.goto(link, wait_until="domcontentloaded", timeout=60000)
+                try:
+                    await click_if_visible(detail_page, "#_c8_tuc", timeout=3000)
+                    await asyncio.sleep(10)
+                except Exception:
+                    pass
+                rfp_details = await extract_rfp_details_inner_text(detail_page, company_name=company_name)
+                local_owner_name = rfp_details.get('owner')
+                local_publish_time = rfp_details.get('publish_time')
+                if local_owner_name or local_publish_time:
+                    log_event("RFP", "Extract Details", "Success",
+                              f"Local-file branch: owner={local_owner_name}, publish_time={local_publish_time}", title)
+                else:
+                    log_event("RFP", "Extract Details", "Warning",
+                              "Local-file branch: extractor returned no owner/publish_time", title)
+            except Exception as e:
+                log_event("RFP", "Extract Details", "Warning",
+                          f"Local-file branch: detail-page scrape failed: {e}", title)
+            finally:
+                try:
+                    await detail_page.close()
+                except Exception:
+                    pass
+
             log_rfp_activity(
                 rfp_id=title,
                 Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 RFP_End_Date=RFP_End_Date,
+                owner_name=local_owner_name,
+                publish_time=local_publish_time,
                 participated=participated,
                 link=link,
                 company_name=company_name,
@@ -805,7 +899,7 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
         # Extract RFP details (owner_name and publish_time) before clicking
         try:
             print(f"🔍 Extracting RFP details for: {title}")
-            rfp_details = await extract_rfp_details_inner_text(new_page)
+            rfp_details = await extract_rfp_details_inner_text(new_page, company_name=company_name)
             print(f"📋 Extracted details - Owner: {rfp_details['owner']}, Publish Time: {rfp_details['publish_time']}")
             if rfp_details.get('owner') or rfp_details.get('publish_time'):
                 log_event("RFP", "Extract Details", "Success", f"Extracted owner: {rfp_details.get('owner')}, publish_time: {rfp_details.get('publish_time')}", title)
