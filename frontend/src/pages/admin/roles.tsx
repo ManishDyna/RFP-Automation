@@ -76,7 +76,6 @@ export default function RoleManagementPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingRole, setEditingRole] = useState<any>(null)
-  const [deleteRole, setDeleteRole] = useState<any>(null)
   const [hardDeleteRole, setHardDeleteRole] = useState<any>(null)
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([])
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
@@ -127,16 +126,6 @@ export default function RoleManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['roles'] })
     },
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.deleteRole(id),
-    onSuccess: () => {
-      toast.success('Role deactivated successfully')
-      queryClient.invalidateQueries({ queryKey: ['roles'] })
-      setDeleteRole(null)
-    },
-    onError: (err: any) => toast.error(err.message || 'Failed to deactivate role'),
   })
 
   const toggleStatusMutation = useMutation({

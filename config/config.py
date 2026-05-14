@@ -129,6 +129,15 @@ POWER_AUTOMATE_RECURRENCE_TRIGGER_NAME = "Recurrence"
 ACTIONABLE_CARD_ORIGINATOR_ID = "8dc8a969-5abf-4c49-828f-fbced5ae7570"
 ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
 
+# Per-RFP file-upload page (TIR + Pricing) reached from the Adaptive Card "Upload" button.
+# UPLOAD_BASE_URL is the public origin of this FastAPI server; emails embed
+# <UPLOAD_BASE_URL>/upload?token=<JWT>. Change to the production server IP or
+# domain (e.g. "http://10.20.30.40:8000/" or "https://rfp.example.com/") before
+# deploying so recipients outside the server host can open the upload links.
+UPLOAD_BASE_URL = "http://localhost:8000/"
+# HS256 secret signing the upload-link JWT. Rotate to invalidate all in-flight links.
+UPLOAD_TOKEN_SECRET = "change-me-upload-secret-set-via-system-settings"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. ARIBA PORTAL & RFP SETTINGS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -173,7 +182,7 @@ VALID_RFP_STATUSES = ["no", "saved_draft", "submitted", "declined"]
 #   "dev"  -> every email goes to DEV_EMAIL only
 #   "prod" -> emails go to the production recipient lists below
 
-EMAIL_MODE = "prod"
+EMAIL_MODE = "dev"
 DEV_EMAIL = "KSAGov.tenders@bahra-cables.com"
 
 # Dev RFP team assignment

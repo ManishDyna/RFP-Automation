@@ -219,15 +219,43 @@ def get_dashboard_data():
                 use_display_names=True,
             )
 
+        def _fetch_first_rfp_date():
+            """Return the earliest row's `createdon` (Dataverse system DateTime).
+            We use `createdon` instead of `publish_time` because publish_time is
+            a TEXT column and OData $orderby on text sorts lexicographically."""
+            rows = DATAVERSE.get_rows_from_dataverse(
+                table_api_name=_table_api,
+                select_columns=["createdon"],
+                order_by="createdon asc",
+                top=1,
+                table_logical_name=_table_logical,
+                use_display_names=True,
+            )
+            return rows[0].get("createdon") if rows else None
+
+        def _fetch_last_rfp_date():
+            """Return the latest row's `createdon`."""
+            rows = DATAVERSE.get_rows_from_dataverse(
+                table_api_name=_table_api,
+                select_columns=["createdon"],
+                order_by="createdon desc",
+                top=1,
+                table_logical_name=_table_logical,
+                use_display_names=True,
+            )
+            return rows[0].get("createdon") if rows else None
+
         total_all_rfps = 0
         total_submitted_rfps = 0
         total_declined_rfps = 0
         total_open_rfps = 0
         total_not_participated_rfps = 0
         rfp_rows = []
+        first_created_on = None
+        last_created_on = None
 
         try:
-            with ThreadPoolExecutor(max_workers=6) as executor:
+            with ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {
                     executor.submit(_count, "total"): "total",
                     executor.submit(_count, "submitted", "participated eq 'submitted' or participated eq 'yes'"): "submitted",
@@ -235,6 +263,8 @@ def get_dashboard_data():
                     executor.submit(_count, "open", f"RFP_End_Date ge {now_iso} and (participated eq '' or participated eq 'no' or participated eq null)"): "open",
                     executor.submit(_count, "not_participated", f"RFP_End_Date lt {now_iso} and (participated eq '' or participated eq 'no' or participated eq null)"): "not_participated",
                     executor.submit(_fetch_future): "future_rows",
+                    executor.submit(_fetch_first_rfp_date): "first_rfp_date",
+                    executor.submit(_fetch_last_rfp_date): "last_rfp_date",
                 }
                 for future in as_completed(futures):
                     key = futures[future]
@@ -242,6 +272,10 @@ def get_dashboard_data():
                         result = future.result()
                         if key == "future_rows":
                             rfp_rows = result
+                        elif key == "first_rfp_date":
+                            first_created_on = result
+                        elif key == "last_rfp_date":
+                            last_created_on = result
                         else:
                             label, count = result
                             if label == "total": total_all_rfps = count
@@ -402,6 +436,15 @@ def get_dashboard_data():
 
         unique_companies_list = sorted(list(unique_companies))
 
+        # Data timeline sourced from Dataverse's `createdon` system column
+        # (proper DateTime) — two single-row queries already ran in parallel
+        # above, so this is just unwrapping the results.
+        data_timeline = {
+            "first_rfp_date": first_created_on or "-",
+            "last_rfp_date": last_created_on or "-",
+        }
+        print(f"Timeline (createdon): first={data_timeline['first_rfp_date']}, last={data_timeline['last_rfp_date']}")
+
         data = {
             "rfp": rfp_stats,
             "automation": automation_stats,
@@ -415,7 +458,8 @@ def get_dashboard_data():
             "total_open_rfps": total_open_rfps,
             "total_not_participated_rfps": total_not_participated_rfps,
             "companies_rfps": companies_rfps,
-            "unique_companies": unique_companies_list
+            "unique_companies": unique_companies_list,
+            "data_timeline": data_timeline,
         }
 
         end_time = time.time()

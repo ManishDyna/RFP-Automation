@@ -117,6 +117,9 @@ REMOVED_KEYS = [
     # ── Moved to config.py only (Admin > Email) ──
     "EMAIL_MODE", "DEV_EMAIL",
 
+    # ── Managed via config.py only (Admin > Upload) ──
+    "UPLOAD_BASE_URL",
+
     # ── Moved to config.py only (Admin > Security & Access) ──
     "SESSION_TIMEOUT_SECONDS", "RBAC_CACHE_TTL_SECONDS",
     "ACCOUNT_LOCKOUT_THRESHOLD", "ACCOUNT_LOCKOUT_DURATION_MINUTES",

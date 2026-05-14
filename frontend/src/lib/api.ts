@@ -158,7 +158,22 @@ export const api = {
     const response = await fetch(ENDPOINTS.AUTOMATION.STATUS, {
       credentials: 'include',
     })
-    return handleResponse<{ status: string; progress: number }>(response)
+    return handleResponse<{
+      status: string
+      progress: number
+      message?: string
+      download_running?: boolean
+      submit_running?: boolean
+      decline_running?: boolean
+      sync_running?: boolean
+      submitting_rfps?: string[]
+      progress_details?: {
+        download: { current: number; total: number; percentage: number; current_item: string; message: string } | null
+        submit:   { current: number; total: number; percentage: number; current_item: string; message: string } | null
+        decline:  { current: number; total: number; percentage: number; current_item: string; message: string } | null
+        sync:     { current: number; total: number; percentage: number; current_item: string; message: string } | null
+      }
+    }>(response)
   },
 
   downloadRfps: async (company?: string) => {

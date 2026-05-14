@@ -77,11 +77,63 @@ def _build_input_widget(col_def: dict) -> dict:
         }
 
 
-def _build_dynamic_html_table(columns: list, team_table: list, response_data: list = None) -> str:
+def _resolve_button_url(template: str, item: dict, rfp_id: str = "") -> str:
+    """Replace {placeholders} in a button URL template with per-row values.
+
+    Special placeholder {upload_url} resolves to the full signed /upload?token=<JWT>
+    URL pointing at the TIR + Pricing upload page (resolved BEFORE other tokens
+    so its reserved chars are not URL-encoded by the per-token quote()).
+    """
+    if not template:
+        return ""
+    from urllib.parse import quote, urlencode
+    from config.config import UPLOAD_BASE_URL
+
+    result = template
+
+    if "{upload_url}" in result:
+        upload_base = (UPLOAD_BASE_URL or "").rstrip("/")
+        if upload_base:
+            from helpers.upload_token import sign_upload_token
+            token = sign_upload_token(
+                rfp_id=str(rfp_id or item.get("rfp_id", "")),
+                email=str(item.get("email", "")),
+                product=str(item.get("product", "")),
+                company_name=str(item.get("company_name", "")),
+            )
+            full_url = f"{upload_base}/upload?{urlencode({'token': token})}"
+            result = result.replace("{upload_url}", full_url)
+        else:
+            result = result.replace("{upload_url}", "#")
+
+    return (
+        result
+        .replace("{rfp_id}", quote(str(rfp_id or item.get("rfp_id", "")), safe=""))
+        .replace("{rfp_title}", quote(str(rfp_id or item.get("rfp_id", "")), safe=""))
+        .replace("{company_name}", quote(str(item.get("company_name", "")), safe=""))
+        .replace("{product}", quote(str(item.get("product", "")), safe=""))
+        .replace("{name}", quote(str(item.get("name", "")), safe=""))
+        .replace("{email}", quote(str(item.get("email", "")), safe=""))
+    )
+
+
+def _render_button_cell_html(col: dict, item: dict, rfp_id: str = "") -> str:
+    """Render a button-type column cell as a styled <a> hyperlink for HTML emails."""
+    label = col.get("column_label", col["column_key"])
+    url = _resolve_button_url(col.get("dropdown_options", "") or "", item, rfp_id) or "#"
+    return (
+        f"<a href=\"{url}\" target=\"_blank\" "
+        f"style=\"display:inline-block;padding:4px 12px;background:#0078d4;color:#fff;"
+        f"border-radius:3px;text-decoration:none;font-size:12px;font-weight:600;\">"
+        f"{label}</a>"
+    )
+
+
+def _build_dynamic_html_table(columns: list, team_table: list, response_data: list = None, rfp_id: str = "") -> str:
     """
     Build an HTML <table> dynamically from column definitions.
     If response_data is provided, fills input columns with response values.
-    Otherwise, input columns are left empty.
+    Otherwise, input columns are left empty. Button columns render as hyperlink buttons.
     """
     # Header row
     headers = "".join(
@@ -96,7 +148,9 @@ def _build_dynamic_html_table(columns: list, team_table: list, response_data: li
         cells = ""
         for col in columns:
             key = col["column_key"]
-            if response_data:
+            if col.get("column_type") == "button":
+                value = _render_button_cell_html(col, item, rfp_id)
+            elif response_data:
                 # Showing filled responses
                 value = item.get(key, "") or ""
             elif col.get("column_category") == "display":
@@ -132,8 +186,9 @@ def _build_rfp_notification_html(rfp_titles: list, rfp_end_dates: dict = None) -
     else:
         subject = f"New {len(rfp_titles)} RFP(s) Received ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
 
-    # Dynamic HTML table
-    table_html = _build_dynamic_html_table(columns, RFP_TEAM_TABLE)
+    # Dynamic HTML table — pass first RFP title as rfp_id for button URL placeholder substitution
+    _btn_rfp_id = rfp_titles[0] if rfp_titles else ""
+    table_html = _build_dynamic_html_table(columns, RFP_TEAM_TABLE, rfp_id=_btn_rfp_id)
 
     # Due-date notes (one per RFP)
     due_date_lines = ""
@@ -245,8 +300,18 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
     for member_row in all_member_rows:
         row_product = member_row["product"]
         row_email = member_row["email"]
+        row_name = member_row.get("name", "")
         # This row is editable if the product belongs to the current person AND their email matches
         is_own = row_product in own_products and row_email.lower() == email.lower()
+
+        # Per-row context for button URL placeholder substitution
+        row_ctx = {
+            "rfp_id": rfp_id,
+            "company_name": company_name,
+            "product": row_product,
+            "name": row_name,
+            "email": row_email,
+        }
 
         row_columns = []
         for col in columns:
@@ -254,7 +319,17 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
             if key == "name":
                 continue  # Skip name column — email is shown instead
             col_width = 2 if key == "email" else 1
-            if col.get("column_category") == "input":
+            if col.get("column_type") == "button":
+                btn_url = _resolve_button_url(col.get("dropdown_options", "") or "", row_ctx, rfp_id) or "https://example.com"
+                item = {
+                    "type": "ActionSet",
+                    "actions": [{
+                        "type": "Action.OpenUrl",
+                        "title": col.get("column_label", key),
+                        "url": btn_url,
+                    }],
+                }
+            elif col.get("column_category") == "input":
                 if is_own and not readonly:
                     # Editable widget with indexed ID (results_0, results_1, etc.)
                     item = _build_input_widget_indexed(col, editable_idx)
@@ -778,9 +853,31 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     data_rows = []
     for resp in responses:
         row_cols = []
+        row_ctx = {
+            "rfp_id": rfp_id,
+            "company_name": company_name,
+            "product": resp.get("product", ""),
+            "name": resp.get("name", ""),
+            "email": resp.get("email", ""),
+        }
         for col in columns:
             key = col["column_key"]
             col_width = 2 if key == "email" else 1
+            if col.get("column_type") == "button":
+                btn_url = _resolve_button_url(col.get("dropdown_options", "") or "", row_ctx, rfp_id) or "https://example.com"
+                item = {
+                    "type": "ActionSet",
+                    "actions": [{
+                        "type": "Action.OpenUrl",
+                        "title": col.get("column_label", key),
+                        "url": btn_url,
+                    }],
+                }
+                row_cols.append({
+                    "type": "Column", "width": col_width, "padding": "None",
+                    "items": [item],
+                })
+                continue
             value = resp.get(key, "") or ""
             if not value and col.get("column_category") == "input":
                 value = "-"
@@ -979,7 +1076,7 @@ def send_per_rfp_email(
     # === Build dynamic team table ===
     from services.rfp_team_columns_service import get_all_columns as _get_cols_fallback
     _cols_fb = _get_cols_fallback()
-    table_html = _build_dynamic_html_table(_cols_fb, RFP_TEAM_TABLE)
+    table_html = _build_dynamic_html_table(_cols_fb, RFP_TEAM_TABLE, rfp_id=rfp_id)
 
     # === Combined note section (due date + matched materials) ===
     if matched_csv_path and os.path.exists(matched_csv_path):

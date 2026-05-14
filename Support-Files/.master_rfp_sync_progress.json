@@ -1,30 +1,21 @@
 {
-  "started_at": "2026-05-14T10:51:50.617749",
-  "completed": [],
-  "errored": {
-    "SEC RFP-C001597754": {
-      "attempts": 1,
-      "last_error": "Page.goto: Timeout 60000ms exceeded.\nCall log:\n  - navigating to \"https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPGzAyl0i&awcharset=UTF-8\", waiting until \"domcontentloaded\"\n"
-    },
-    "SEC RFP-C001601536 - 6001601536": {
-      "attempts": 1,
-      "last_error": "Page.goto: Timeout 60000ms exceeded.\nCall log:\n  - navigating to \"https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPG0f9mfM&awcharset=UTF-8\", waiting until \"domcontentloaded\"\n"
-    },
-    "SEC RFP C001483729": {
-      "attempts": 1,
-      "last_error": "Page.goto: Timeout 60000ms exceeded.\nCall log:\n  - navigating to \"https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPFi0P9Bj&awcharset=UTF-8\", waiting until \"domcontentloaded\"\n"
-    },
-    "SEC RFP C001485690": {
-      "attempts": 1,
-      "last_error": "Page.goto: Timeout 60000ms exceeded.\nCall log:\n  - navigating to \"https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPFjOOrXZ&awcharset=UTF-8\", waiting until \"domcontentloaded\"\n"
-    },
-    "SEC RFP-C001483415 - 6001483415": {
-      "attempts": 1,
-      "last_error": "Page.goto: Timeout 60000ms exceeded.\nCall log:\n  - navigating to \"https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPFha0JZV&awcharset=UTF-8\", waiting until \"domcontentloaded\"\n"
-    },
-    "SEC RFP-C001482614": {
-      "attempts": 1,
-      "last_error": "Page.goto: Timeout 60000ms exceeded.\nCall log:\n  - navigating to \"https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPFhpJ4nL&awcharset=UTF-8\", waiting until \"domcontentloaded\"\n"
-    }
-  }
+  "started_at": "2026-05-14T16:10:20.044584",
+  "completed": [
+    "Aramco_4203233226_CABLE; ELECTRICAL; LOW VOLTAGE; POWER OR",
+    "SEC RFP - C001456667",
+    "SEC RFP C001479785",
+    "SEC RFP C001483729",
+    "SEC RFP C001485690",
+    "SEC RFP- C001479786 - 6001479786",
+    "SEC RFP-C001480508",
+    "SEC RFP-C001481260",
+    "SEC RFP-C001481688",
+    "SEC RFP-C001482614",
+    "SEC RFP-C001482827",
+    "SEC RFP-C001483415 - 6001483415",
+    "SEC RFP-C001597754",
+    "SEC RFP-C001601536 - 6001601536",
+    "SEC RFPC001442256"
+  ],
+  "errored": {}
 }

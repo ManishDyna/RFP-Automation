@@ -17,7 +17,8 @@ from config.config import (
 from services.system_settings_service import get_setting
 from services.master_data_service import get_all_rfp_team_for_emails
 from services.rfp_team_columns_service import get_all_columns, get_input_columns
-from helpers.email_helper import _build_input_widget_indexed
+from helpers.email_helper import _build_input_widget_indexed, _resolve_button_url
+
 
 router = APIRouter(prefix="/api/actionable-card", tags=["Actionable Cards"])
 
@@ -183,12 +184,31 @@ def _build_refresh_card(
                 elif other_resp.get("results") or other_resp.get("remarks"):
                     product_response = other_resp
 
+        # Per-row context for button URL placeholder substitution
+        row_ctx = {
+            "rfp_id": rfp_id,
+            "company_name": company_name,
+            "product": row_product,
+            "name": row_name or (name if is_own else ""),
+            "email": row_email,
+        }
+
         row_columns = []
         for col in columns:
             key = col["column_key"]
             if key == "email":
                 continue
-            if col.get("column_category") == "input":
+            if col.get("column_type") == "button":
+                btn_url = _resolve_button_url(col.get("dropdown_options", "") or "", row_ctx, rfp_id) or "https://example.com"
+                item = {
+                    "type": "ActionSet",
+                    "actions": [{
+                        "type": "Action.OpenUrl",
+                        "title": col.get("column_label", key),
+                        "url": btn_url,
+                    }],
+                }
+            elif col.get("column_category") == "input":
                 if is_own and not user_has_submitted:
                     # Editable for own unsubmitted products
                     item = _build_input_widget_indexed(col, editable_idx)

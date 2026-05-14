@@ -44,6 +44,18 @@ import { useHasPermission } from '@/hooks/use-auth'
 // Threshold for enabling virtualization (only virtualize when > this many rows)
 const VIRTUALIZATION_THRESHOLD = 50
 
+// Format ISO date string as "25 April 2021" — returns null when unparseable.
+function formatLongDate(value: string | null | undefined): string | null {
+  if (!value || value === '-') return null
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return null
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ]
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
+}
+
 // Metric Card Component
 interface MetricCardProps {
   title: string
@@ -581,7 +593,7 @@ export default function DashboardPage() {
 
       return { previousData }
     },
-    onError: (err: any, variables, context) => {
+    onError: (err: any, _variables, context) => {
       // Rollback on error
       if (context?.previousData) {
         queryClient.setQueryData(['dashboardData'], context.previousData)
@@ -733,6 +745,43 @@ export default function DashboardPage() {
         </Link>
       }
     >
+      {/* Data Timeline — shown right under the page description */}
+      {(() => {
+        // Prefer backend-computed timeline (spans ALL rows). Fall back to
+        // min/max of publish times in the loaded downloaded_rfps so the
+        // string still renders if the cached payload predates the field.
+        let firstRaw: string | null = data?.data_timeline?.first_rfp_date || null
+        let lastRaw: string | null = data?.data_timeline?.last_rfp_date || null
+        if (!firstRaw || firstRaw === '-' || !lastRaw || lastRaw === '-') {
+          const rfps: any[] = data?.downloaded_rfps || []
+          let minTs = Number.POSITIVE_INFINITY
+          let maxTs = Number.NEGATIVE_INFINITY
+          let minIso: string | null = null
+          let maxIso: string | null = null
+          for (const r of rfps) {
+            const pt = r?.Publish_Time
+            if (!pt || pt === '-') continue
+            const t = new Date(pt).getTime()
+            if (isNaN(t)) continue
+            if (t < minTs) { minTs = t; minIso = pt }
+            if (t > maxTs) { maxTs = t; maxIso = pt }
+          }
+          if (!firstRaw || firstRaw === '-') firstRaw = minIso
+          if (!lastRaw || lastRaw === '-') lastRaw = maxIso
+        }
+        const first = formatLongDate(firstRaw)
+        const last = formatLongDate(lastRaw)
+        if (!first && !last) return null
+        return (
+          <p className="-mt-6 mb-6 text-sm text-slate-700">
+            <span className="font-bold">Data-Timeline :-</span>{' '}
+            <span className="font-semibold text-slate-900">
+              {first ?? '—'} To {last ?? '—'}
+            </span>
+          </p>
+        )
+      })()}
+
       {/* Metrics Grid */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 mb-8">
         {isLoading ? (

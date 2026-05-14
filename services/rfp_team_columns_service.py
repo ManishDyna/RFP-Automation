@@ -155,8 +155,11 @@ def get_display_columns() -> List[Dict]:
 
 
 def get_input_columns() -> List[Dict]:
-    """Return only category=input columns, sorted by sort_order."""
-    return [c for c in get_all_columns() if c.get("column_category") == "input"]
+    """Return only category=input columns (excluding buttons), sorted by sort_order."""
+    return [
+        c for c in get_all_columns()
+        if c.get("column_category") == "input" and c.get("column_type") != "button"
+    ]
 
 
 def get_team_field_columns() -> List[Dict]:

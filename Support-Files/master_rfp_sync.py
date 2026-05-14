@@ -345,9 +345,34 @@ async def phase_a_scan(args) -> None:
         rows = [r for r in rows if (r.get("Company_Name") or "").strip() == args.company]
         print(f"[FILTER] --company={args.company!r}: {len(rows)} rows.")
 
-    # Default: only process RFPs where owner_name OR publish_time is blank in DB.
-    # Both fields are critical and must be filled. Use --all-rfps to scan everything.
-    if not args.all_rfps:
+    # --rfp-ids-file: targeted run, processes only the listed RFP_IDs.
+    # When provided, bypasses the default missing-owner-or-publish filter so
+    # the user can re-scrape specific RFPs even if their owner_name and
+    # publish_time are already filled.
+    if args.rfp_ids_file:
+        ids_path = Path(args.rfp_ids_file)
+        if not ids_path.exists():
+            print(f"[ERROR] --rfp-ids-file not found: {args.rfp_ids_file}")
+            sys.exit(1)
+        wanted = set()
+        with open(ids_path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                wanted.add(re.sub(r"\s+", " ", stripped).lower())
+        print(f"[FILTER] --rfp-ids-file: read {len(wanted)} unique RFP_IDs from {ids_path}")
+        before = len(rows)
+        rows = [
+            r for r in rows
+            if re.sub(r"\s+", " ", str(r.get("RFP_ID") or "").strip().lower()) in wanted
+        ]
+        print(f"[FILTER] matched in Dataverse: {len(rows)} rows "
+              f"(dropped {before - len(rows)} rows; "
+              f"{len(wanted) - len(rows)} RFP_IDs from file had no DB match).")
+    elif not args.all_rfps:
+        # Default: only process RFPs where owner_name OR publish_time is blank in DB.
+        # Both fields are critical and must be filled. Use --all-rfps to scan everything.
         before = len(rows)
         rows = [
             r for r in rows
@@ -749,6 +774,14 @@ def parse_args() -> argparse.Namespace:
         "--all-rfps", action="store_true", default=False,
         help="Scan every RFP in Dataverse. Default behavior is to scan ONLY "
              "RFPs where owner_name OR publish_time is blank in the DB.",
+    )
+    parser.add_argument(
+        "--rfp-ids-file", default=None,
+        help="Targeted run. Path to a text file with RFP_IDs to process, one "
+             "per line (blank lines and lines starting with '#' are ignored). "
+             "When provided, BYPASSES the default missing-owner-or-publish "
+             "filter and the --all-rfps flag, processing only the listed IDs. "
+             "Still respects --company (intersection) and --limit.",
     )
     parser.add_argument(
         "--links-file", default=None,
