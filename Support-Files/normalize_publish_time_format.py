@@ -1,5 +1,19 @@
 """
-Normalize publish_time format in Dataverse
+DEPRECATED — DO NOT RUN
+=======================
+This script normalised the publish_time TEXT column to 'M/D/YYYY H:MM AM/PM'.
+That column no longer exists as TEXT — it is now a DateTime column on
+cr673_bahra_rfps_v2 (see Support-Files/migrate_publish_time_to_datetime.py).
+
+The migration script has already populated every row with proper DateTime
+values, so this normaliser has nothing to do. Running it would only confuse
+the DateTime values.
+
+Kept in the repo as a historical reference for the text-era backfill logic.
+The original docstring follows.
+
+---
+Normalize publish_time format in Dataverse  (HISTORICAL — TEXT-ERA SCRIPT)
 ==========================================
 One-time backfill that scans the cr673_bahra_rfps_v2 table and converts any
 publish_time value that is NOT already in the locked DB standard
@@ -32,6 +46,27 @@ Out of scope
   * Owner_name, RFP_End_Date, rfp_type, Link, participated — untouched.
   * Portal access — none. Pure DB normalisation.
 """
+
+import sys as _sys
+
+_DEPRECATION_MESSAGE = (
+    "\n" + "=" * 72 + "\n"
+    "  DEPRECATED — normalize_publish_time_format.py will not run.\n"
+    "  Reason: publish_time is now a DateTime column on cr673_bahra_rfps_v2.\n"
+    "  See Support-Files/migrate_publish_time_to_datetime.py for the migration\n"
+    "  that converted it from TEXT to DateTime. Existing rows are already\n"
+    "  populated correctly — there is nothing for this script to do.\n"
+    + "=" * 72 + "\n"
+)
+
+if __name__ == "__main__":
+    print(_DEPRECATION_MESSAGE)
+    _sys.exit(0)
+
+# Anything below this point is preserved for historical reference and is not
+# executed when the file is run directly (the __main__ guard above exits first).
+# The original module-level code is left intact in case it's referenced by
+# documentation; importing this module is a no-op past this point.
 
 import argparse
 import csv

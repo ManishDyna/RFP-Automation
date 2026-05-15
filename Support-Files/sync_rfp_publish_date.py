@@ -59,15 +59,18 @@ def normalize_key(val: str) -> str:
 
 
 def normalize_date(val) -> str:
-    """Parse any date format and return consistent 'M/D/YYYY H:MM AM/PM' string in KSA time.
+    """Parse any date format and return ISO 8601 ('YYYY-MM-DDTHH:MM:SSZ').
+
+    The publish_time column is now a DateTime field with TimeZoneIndependent
+    behavior; Dataverse stores the wall-clock value literally so what we
+    send is what users see in Power Apps (formatted as M/D/YYYY h:MM AM/PM).
 
     Handles:
-      * ISO 8601 with T-separator: '2019-08-27T16:00:00Z' (UTC -> KSA shift)
+      * ISO 8601 with T-separator: '2019-08-27T16:00:00Z'
       * Excel locale-swapped: 'YYYY-DD-MM HH:MM:SS'
-      * MDY slash format (round-trip): '10/6/2025 4:33 AM'
+      * MDY slash format: '10/6/2025 4:33 AM'
       * Other pandas-parseable formats
     """
-    KSA_TZ = pytz.timezone("Asia/Riyadh")
     if pd.isna(val) or str(val).strip() == "":
         return ""
     val = str(val).strip()
@@ -83,10 +86,11 @@ def normalize_date(val) -> str:
             dt = pd.to_datetime(fixed)
         else:
             dt = pd.to_datetime(val)
-        # If timezone-aware, convert to KSA; if naive, assume already KSA
-        if dt.tzinfo is not None:
-            dt = dt.astimezone(KSA_TZ)
-        return dt.strftime("%#m/%#d/%Y %#I:%M %p")
+        # Strip any tz so wall-clock numbers go out verbatim. The column's
+        # TimeZoneIndependent behavior stores the value as-is (no UTC shift).
+        if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
+            dt = dt.tz_localize(None) if hasattr(dt, "tz_localize") else dt.replace(tzinfo=None)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         return str(val).strip()
 
@@ -235,13 +239,28 @@ def sync_rfp_data(file_path: str, dry_run: bool = False):
         record_id = db_entry["record_id"]
         update_data = {}
 
-        # Check publish_time
+        # Check publish_time. Both new_date and old_date are ISO 8601 now (DB
+        # column is DateTime). Compare via parsed datetimes to avoid spurious
+        # diffs from sub-second precision or differing 'Z' notations.
         if has_publish_col:
             file_publish = row.get(SRC_COL_PUBLISH_DATE, "")
             new_date = normalize_date(file_publish)
             old_date = db_entry[DB_FIELD_PUBLISH]
-            if new_date and new_date != old_date:
-                update_data[DB_FIELD_PUBLISH] = new_date
+            if new_date:
+                try:
+                    new_dt = pd.to_datetime(new_date, errors="coerce")
+                    old_dt = pd.to_datetime(old_date, errors="coerce") if old_date else None
+                    # Compare wall-clock only (drop tz on both sides)
+                    if new_dt is not None and hasattr(new_dt, "tzinfo") and new_dt.tzinfo is not None:
+                        new_dt = new_dt.tz_localize(None)
+                    if old_dt is not None and hasattr(old_dt, "tzinfo") and old_dt.tzinfo is not None:
+                        old_dt = old_dt.tz_localize(None)
+                    if old_dt is None or pd.isna(old_dt) or new_dt != old_dt:
+                        update_data[DB_FIELD_PUBLISH] = new_date
+                except Exception:
+                    # Fallback to string compare if parsing somehow fails
+                    if new_date != old_date:
+                        update_data[DB_FIELD_PUBLISH] = new_date
 
         # Check owner_name
         if has_owner_col:

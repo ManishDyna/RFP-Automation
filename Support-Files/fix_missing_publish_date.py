@@ -43,7 +43,12 @@ KSA_TZ = pytz.timezone("Asia/Riyadh")
 # ---------------------------------------------------------------------------
 
 def normalize_date(val) -> str:
-    """Parse any date format and return consistent 'M/D/YYYY H:MM AM/PM' string in KSA time."""
+    """Parse any date format and return ISO 8601 ('YYYY-MM-DDTHH:MM:SSZ').
+
+    publish_time is now a DateTime column with TimeZoneIndependent behavior;
+    the wire format we send is what Dataverse stores literally. Power Apps
+    still shows users 'M/D/YYYY h:MM AM/PM' because the display layer
+    formats the DateTime back to MDY automatically."""
     if pd.isna(val) or str(val).strip() == "":
         return ""
     val = str(val).strip()
@@ -57,9 +62,10 @@ def normalize_date(val) -> str:
             dt = pd.to_datetime(fixed)
         else:
             dt = pd.to_datetime(val)
-        if dt.tzinfo is not None:
-            dt = dt.astimezone(KSA_TZ)
-        return dt.strftime("%#m/%#d/%Y %#I:%M %p")
+        # Strip tz so wall-clock numbers go out verbatim.
+        if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
+            dt = dt.tz_localize(None) if hasattr(dt, "tz_localize") else dt.replace(tzinfo=None)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         return str(val).strip()
 

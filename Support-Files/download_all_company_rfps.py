@@ -81,6 +81,7 @@ try:
         start_new_run,
         get_current_run_id,
         normalize_date_format,
+        normalize_publish_time,
     )
     from helpers.core_helper import DATAVERSE, sanitize_filter_value  # noqa: E402
 except Exception as _exc:  # pragma: no cover — env-dependent
@@ -99,6 +100,9 @@ except Exception as _exc:  # pragma: no cover — env-dependent
 
     def get_current_run_id():  # type: ignore
         return None
+
+    def normalize_publish_time(val):  # type: ignore
+        return str(val).strip() if val else ""
 
     def normalize_date_format(val):  # type: ignore
         return str(val).strip() if val else ""
@@ -257,7 +261,10 @@ def store_rfp_in_database(rfp_data: dict, company_name: str,
         if owner_name:
             row["owner_name"] = owner_name
         if publish_time:
-            row["publish_time"] = publish_time
+            # publish_time column is DateTime — must send ISO 8601 on the wire.
+            # normalize_publish_time handles raw portal strings and returns
+            # 'YYYY-MM-DDTHH:MM:SSZ'. Power Apps still displays MDY to users.
+            row["publish_time"] = normalize_publish_time(publish_time)
 
         if existing and existing.get("value"):
             existing_row = existing["value"][0]
