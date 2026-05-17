@@ -616,27 +616,16 @@ async def receive_card_response(request: Request):
             **row_data_entry,
         })
 
-    # Step 5: Read-merge-write of cr673_response_data.
-    # The form posts every visible row each time (including blanks for the rows
-    # the user didn't touch in this submission). A naive replace would wipe any
-    # answer the user submitted earlier for a different product, plus any
-    # uploaded_files entries written by /upload. Mirror the pattern used in
-    # rfp_upload._append_upload_records: load existing JSON, merge per-product
-    # entries by responsibility_id (or product name as fallback), preserve
-    # uploaded_files, then upsert.
+    # Step 5: Per-product upsert.
+    # Logical unique key = (cr673_rfp_id, cr673_email, cr673_product).
+    # The shared inbox (e.g. ksagov.tenders) submits answers for several
+    # products across many clicks; each product gets its OWN row, so a later
+    # submit can never wipe an earlier one. Blank rows in the form are
+    # silently ignored — only products the user actually answered are written.
+    # Uploaded files travel with their product row inside cr673_response_data.
     resp_email = expected_email or submitter_email
     table_api = get_setting("RFP_RESPONSE_TABLE_API", "")
     table_logical = get_setting("RFP_RESPONSE_TABLE_LOGICAL", "")
-
-    existing_products_by_key: dict = {}
-    existing_uploaded_files: list = []
-    existing_record_id = None
-
-    def _merge_key(entry: dict) -> str:
-        rid = (entry.get("responsibility_id") or "").strip()
-        if rid:
-            return f"rid:{rid}"
-        return f"product:{(entry.get('product') or '').strip().lower()}"
 
     def _has_any_input(entry: dict) -> bool:
         for col in input_cols:
@@ -647,117 +636,112 @@ async def receive_card_response(request: Request):
                 return True
         return False
 
+    # Resolve PK column once for any updates we have to do below.
     try:
-        existing = _DATAVERSE.query_rows(
-            table_api,
-            filter_expr=f"cr673_rfp_id eq '{rfp_id}' and cr673_email eq '{resp_email}'",
-            top=1,
-            table_logical_name=table_logical,
-            use_display_names=True,
-        )
-        if existing and existing.get("value"):
-            existing_row = existing["value"][0]
-            pk_logical = f"{table_logical}id"
-            try:
-                colmap = _DATAVERSE.get_column_mapping(table_logical)
-                logical_to_display = {v: k for k, v in colmap.items()}
-            except Exception:
-                logical_to_display = {}
-            pk_display = logical_to_display.get(pk_logical)
-            existing_record_id = (
-                (existing_row.get(pk_display) if pk_display else None)
-                or existing_row.get(pk_logical)
-            )
-            raw_existing = existing_row.get("cr673_response_data") or ""
-            if raw_existing:
-                try:
-                    parsed = json.loads(raw_existing)
-                    if isinstance(parsed, dict):
-                        for entry in parsed.get("products", []) or []:
-                            if isinstance(entry, dict):
-                                existing_products_by_key[_merge_key(entry)] = entry
-                        files = parsed.get("uploaded_files", []) or []
-                        if isinstance(files, list):
-                            existing_uploaded_files = files
-                except (json.JSONDecodeError, TypeError):
-                    pass
-    except Exception as e:
-        print(f"[/response] Could not read existing response_data for {rfp_id}/{resp_email}: {e}")
+        colmap = _DATAVERSE.get_column_mapping(table_logical)
+        logical_to_display = {v: k for k, v in colmap.items()}
+    except Exception:
+        logical_to_display = {}
+    pk_logical = f"{table_logical}id"
+    pk_display = logical_to_display.get(pk_logical)
 
-    # Filter: only let entries the user actually filled in this submission
-    # overwrite existing values. Blank rows are silently ignored.
-    existing_count_before = len(existing_products_by_key)
-    new_filtered_count = 0
+    saved_count = 0
+    skipped_blank = 0
+    submitted_at_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     for entry in per_product_responses:
         if not _has_any_input(entry):
+            skipped_blank += 1
             continue
-        existing_products_by_key[_merge_key(entry)] = entry
-        new_filtered_count += 1
 
-    merged_products = list(existing_products_by_key.values())
-    response_data = {
-        "products": merged_products,
-        "uploaded_files": existing_uploaded_files,
-    }
+        product_str = (entry.get("product") or "").strip()
+        if not product_str:
+            skipped_blank += 1
+            continue
 
-    # Diagnostic: shows exactly what the merge did. If "merged" never grows
-    # across multiple submits, the existing-row lookup or JSON parse failed.
+        # Look up existing row for THIS product, preserving any uploaded_files
+        # already attached to it. We escape single quotes in product to keep the
+        # OData filter syntactically valid (e.g. "TBS and BED" is safe; future
+        # product names might contain ').
+        product_for_filter = product_str.replace("'", "''")
+        existing_record_id = None
+        existing_uploaded_files: list = []
+        try:
+            existing = _DATAVERSE.query_rows(
+                table_api,
+                filter_expr=(
+                    f"cr673_rfp_id eq '{rfp_id}' "
+                    f"and cr673_email eq '{resp_email}' "
+                    f"and cr673_product eq '{product_for_filter}'"
+                ),
+                top=1,
+                table_logical_name=table_logical,
+                use_display_names=True,
+            )
+            if existing and existing.get("value"):
+                existing_row = existing["value"][0]
+                existing_record_id = (
+                    (existing_row.get(pk_display) if pk_display else None)
+                    or existing_row.get(pk_logical)
+                )
+                raw = existing_row.get("cr673_response_data") or ""
+                if raw:
+                    try:
+                        parsed = json.loads(raw)
+                        if isinstance(parsed, dict):
+                            files = parsed.get("uploaded_files", []) or []
+                            if isinstance(files, list):
+                                existing_uploaded_files = files
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+        except Exception as e:
+            print(f"[/response] Lookup failed for {rfp_id}/{resp_email}/{product_str}: {e}")
+
+        # JSON travels alongside the flat columns for forward compatibility:
+        # readers that already parse cr673_response_data (the chain logic,
+        # _first_response_per_row's preferred path) keep working unchanged.
+        per_product_json = {
+            "products": [entry],
+            "uploaded_files": existing_uploaded_files,
+        }
+
+        row_data = {
+            "cr673_rfp_id": rfp_id,
+            "cr673_product": product_str,
+            "cr673_name": name,
+            "cr673_email": resp_email,
+            "cr673_results": entry.get("results", "") or "",
+            "cr673_remarks": entry.get("remarks", "") or "",
+            "cr673_response_data": json.dumps(per_product_json),
+            "cr673_submitted_at": submitted_at_str,
+            "cr673_company_name": company_name,
+        }
+
+        try:
+            if existing_record_id:
+                _DATAVERSE.update_row(
+                    table_api,
+                    existing_record_id,
+                    row_data,
+                    table_logical_name=table_logical,
+                    use_display_names=True,
+                )
+            else:
+                _DATAVERSE.insert_row(
+                    table_api,
+                    row_data,
+                    table_logical_name=table_logical,
+                    use_display_names=True,
+                )
+            saved_count += 1
+        except Exception as e:
+            print(f"❌ Failed to save response for product '{product_str}': {e}")
+            raise HTTPException(status_code=500, detail="Failed to save response")
+
     print(
-        f"[/response] MERGE rfp={rfp_id} email={resp_email} "
-        f"existing_record_id={'<found>' if existing_record_id else '<none>'} "
-        f"existing_products={existing_count_before} "
-        f"new_filtered={new_filtered_count} "
-        f"merged={len(merged_products)} "
-        f"uploaded_files={len(existing_uploaded_files)} "
-        f"merged_keys={list(existing_products_by_key.keys())}"
+        f"[/response] SAVED rfp={rfp_id} email={resp_email} "
+        f"saved={saved_count} skipped_blank={skipped_blank}"
     )
-
-    # Derive the legacy single-product columns from the MERGED set so they
-    # reflect the full picture, not just this submission.
-    first_answered = next(
-        (p for p in merged_products if _has_any_input(p)),
-        merged_products[0] if merged_products else {},
-    )
-    first_results = first_answered.get("results", "") if isinstance(first_answered, dict) else ""
-    first_remarks = first_answered.get("remarks", "") if isinstance(first_answered, dict) else ""
-    merged_product_names = [
-        (p.get("product") or "").strip()
-        for p in merged_products
-        if isinstance(p, dict) and (p.get("product") or "").strip()
-    ]
-    combined_products_str = ", ".join(merged_product_names) if merged_product_names else ", ".join(products)
-
-    row_data = {
-        "cr673_rfp_id": rfp_id,
-        "cr673_product": combined_products_str,
-        "cr673_name": name,
-        "cr673_email": resp_email,
-        "cr673_results": first_results,
-        "cr673_remarks": first_remarks,
-        "cr673_response_data": json.dumps(response_data),
-        "cr673_submitted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "cr673_company_name": company_name,
-    }
-
-    try:
-        if existing_record_id:
-            _DATAVERSE.update_row(
-                table_api,
-                existing_record_id,
-                row_data,
-                table_logical_name=table_logical,
-                use_display_names=True,
-            )
-        else:
-            _DATAVERSE.insert_row(
-                table_api,
-                row_data,
-                table_logical_name=table_logical,
-                use_display_names=True,
-            )
-    except Exception as e:
-        print(f"❌ Failed to save response to Dataverse: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save response")
 
     # Step 5: Check completion — every team-table ROW (responsibility) has at least
     # one response from one of its alternates. RFP-scoped via _get_all_responses_for_rfp.

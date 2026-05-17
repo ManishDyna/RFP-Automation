@@ -84,13 +84,25 @@ def _make_graph_client() -> GraphClient:
 
 
 def _append_upload_records(rfp_id: str, email: str, product: str, company_name: str, new_entries: list):
-    """Read the RFP response row, append new uploads to response_data.uploaded_files, upsert."""
+    """Append uploaded-file entries onto the per-product response row.
+
+    Logical key matches /response: (cr673_rfp_id, cr673_email, cr673_product).
+    Each product has its own row, so files for "Cables" never touch the
+    "Cable Accessories" row. If the user uploads before submitting any
+    answer for this product, we insert a row with empty results/remarks
+    that still carries the uploaded_files; a later answer-submit will
+    find it (same key) and update it in place."""
     table_api = get_setting("RFP_RESPONSE_TABLE_API", "")
     table_logical = get_setting("RFP_RESPONSE_TABLE_LOGICAL", "")
 
+    product_for_filter = (product or "").replace("'", "''")
     existing = _DATAVERSE.query_rows(
         table_api,
-        filter_expr=f"cr673_rfp_id eq '{rfp_id}' and cr673_email eq '{email}'",
+        filter_expr=(
+            f"cr673_rfp_id eq '{rfp_id}' "
+            f"and cr673_email eq '{email}' "
+            f"and cr673_product eq '{product_for_filter}'"
+        ),
         top=1,
         table_logical_name=table_logical,
         use_display_names=True,
@@ -98,16 +110,20 @@ def _append_upload_records(rfp_id: str, email: str, product: str, company_name: 
 
     response_data = {"products": [], "uploaded_files": []}
     record_id = None
+    existing_results = ""
+    existing_remarks = ""
 
     if existing and "value" in existing and len(existing["value"]) > 0:
         row = existing["value"][0]
+        existing_results = row.get("cr673_results") or ""
+        existing_remarks = row.get("cr673_remarks") or ""
         raw = row.get("cr673_response_data") or row.get("Response Data") or ""
         if raw:
             try:
                 parsed = json.loads(raw)
                 if isinstance(parsed, dict):
-                    response_data["products"] = parsed.get("products", [])
-                    response_data["uploaded_files"] = parsed.get("uploaded_files", [])
+                    response_data["products"] = parsed.get("products", []) or []
+                    response_data["uploaded_files"] = parsed.get("uploaded_files", []) or []
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -127,6 +143,8 @@ def _append_upload_records(rfp_id: str, email: str, product: str, company_name: 
         "cr673_email": email,
         "cr673_product": product,
         "cr673_company_name": company_name,
+        "cr673_results": existing_results,
+        "cr673_remarks": existing_remarks,
         "cr673_response_data": json.dumps(response_data),
         "cr673_submitted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
