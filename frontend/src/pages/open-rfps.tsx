@@ -495,8 +495,11 @@ function OpenRfpDetailModal({
                       rows.map((r, idx) => {
                         const isPending = r.status === 'pending'
                         const isDelegatedAway = !!r.delegated_to_email
+                        const extraAlternates = (r.alternates || []).filter(
+                          (e) => e.toLowerCase() !== (r.email || '').toLowerCase()
+                        )
                         return (
-                          <TableRow key={`${r.email}-${r.product}-${idx}`}>
+                          <TableRow key={`${r.product}-${r.email}-${idx}`}>
                             <TableCell className="font-medium">{r.product || '-'}</TableCell>
                             <TableCell>
                               {isDelegatedAway ? (
@@ -517,6 +520,9 @@ function OpenRfpDetailModal({
                               ) : (
                                 <div>
                                   <div>{r.email}</div>
+                                  {extraAlternates.map((e) => (
+                                    <div key={e} className="text-xs text-slate-400">{e}</div>
+                                  ))}
                                   {r.name && (
                                     <div className="text-xs text-slate-500">{r.name}</div>
                                   )}

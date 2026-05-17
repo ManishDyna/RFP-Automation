@@ -348,12 +348,12 @@ async def build_materials_dict_from_excel_reuse(excel_local_path: str, graph_cli
     print(f"📂 Listing TDS files in: {tds_folder}")
 
     try:
-        tds_files = graph_client.list_files_in_directory(tds_folder, ['.pdf'])
+        tds_files = graph_client.list_files_in_directory(tds_folder)
     except Exception as e:
         print(f"⚠ Could not list TDS folder: {e}")
         tds_files = []
 
-    print(f"📎 Found {len(tds_files)} PDF(s) in TDS folder: {[f['name'] for f in tds_files]}")
+    print(f"📎 Found {len(tds_files)} file(s) in TDS folder: {[f['name'] for f in tds_files]}")
 
     # Restrict to user-selected files when caller provided an allow-list
     if allowed_tds_filenames:

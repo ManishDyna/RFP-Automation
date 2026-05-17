@@ -416,6 +416,7 @@ export const api = {
       }
       rows: Array<{
         email: string
+        alternates?: string[]
         name: string
         product: string
         readonly: boolean

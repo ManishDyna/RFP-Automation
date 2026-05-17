@@ -51,23 +51,56 @@ def _parse_mdy(s: str) -> datetime:
 # Team grouping (mirrors helpers/email_helper.py lines ~547-558)
 # --------------------------------------------------------------------------
 
+def _parse_emails(email_field: str) -> List[str]:
+    """Split a (possibly comma/semicolon-separated) email field into a
+    deduped, lowercased list. Mirrors routes/actionable_cards._parse_emails
+    so the modal honours the same first-response-wins alternates semantics
+    the actionable card already uses."""
+    if not email_field:
+        return []
+    out: List[str] = []
+    seen: set = set()
+    for part in str(email_field).replace(";", ",").split(","):
+        e = part.strip().lower()
+        if e and e not in seen:
+            out.append(e)
+            seen.add(e)
+    return out
+
+
 def _group_team_by_email(team: List[Dict[str, Any]]) -> "OrderedDict[str, Dict[str, Any]]":
+    """Group team members by their PRIMARY email (first parsed alternate).
+
+    A team row's email column may list comma-separated alternates with
+    first-response-wins semantics. We key by the primary so callers can do
+    single-email lookups (Remind/Delegate, response matching), but also
+    expose the full alternates list so all addresses on the row are
+    visible and any of them can satisfy the response."""
     grouped: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
     for member in team:
-        em = (member.get("email") or "").strip()
-        if not em:
+        raw_email = (member.get("email") or "").strip()
+        if not raw_email:
             continue
-        em_lower = em.lower()
-        if em_lower not in grouped:
-            grouped[em_lower] = {
+        alternates = _parse_emails(raw_email)
+        if not alternates:
+            continue
+        primary = alternates[0]
+        if primary not in grouped:
+            grouped[primary] = {
                 "name": member.get("name", ""),
-                "email": em,
+                "email": raw_email,
+                "primary_email": primary,
+                "alternates": list(alternates),
                 "products": [],
                 "readonly": bool(member.get("readonly", False)),
             }
+        else:
+            for alt in alternates:
+                if alt not in grouped[primary]["alternates"]:
+                    grouped[primary]["alternates"].append(alt)
         product = member.get("product")
-        if product and product not in grouped[em_lower]["products"]:
-            grouped[em_lower]["products"].append(product)
+        if product and product not in grouped[primary]["products"]:
+            grouped[primary]["products"].append(product)
     return grouped
 
 
@@ -350,23 +383,44 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
         if em:
             resp_by_email[em] = r
 
-    # Reminder counts/last per email
+    # Reminder counts/last per email. Historical records may have stored a
+    # comma-separated composite string as recipient_email, so explode every
+    # record through _parse_emails and count under each individual address.
+    # Lookups by primary email then work whether the record was written
+    # before or after the multi-email fix.
     reminder_count_by_email: Dict[str, int] = {}
     last_reminder_by_email: Dict[str, str] = {}
     for h in history:
-        em = (h.get("recipient_email") or "").lower()
-        if not em:
-            continue
-        reminder_count_by_email[em] = reminder_count_by_email.get(em, 0) + 1
-        prev = last_reminder_by_email.get(em, "")
-        if h.get("sent_at", "") > prev:
-            last_reminder_by_email[em] = h.get("sent_at", "")
+        raw_em = h.get("recipient_email", "") or ""
+        addresses = _parse_emails(raw_em)
+        if not addresses and raw_em:
+            addresses = [raw_em.lower()]
+        sent_at = h.get("sent_at", "")
+        for em in addresses:
+            if not em:
+                continue
+            reminder_count_by_email[em] = reminder_count_by_email.get(em, 0) + 1
+            prev = last_reminder_by_email.get(em, "")
+            if sent_at > prev:
+                last_reminder_by_email[em] = sent_at
 
     # Build per-(member, product) rows so the popup mirrors the email's
     # Products | Email | Results | Remarks | Status layout.
+    # First-response-wins: a team row is satisfied as soon as ANY of its
+    # alternates submits a response. Track which response emails get
+    # consumed so the "responders not in team" fallback below doesn't
+    # re-surface them as duplicate Former rows.
     rows: List[Dict[str, Any]] = []
-    for em_lower, info in grouped.items():
-        resp = resp_by_email.get(em_lower)
+    consumed_response_emails: set = set()
+    for primary_lower, info in grouped.items():
+        resp = None
+        responder_name = info["name"]
+        for alt in info["alternates"]:
+            if alt in resp_by_email:
+                resp = resp_by_email[alt]
+                responder_name = resp.get("cr673_name", "") or info["name"]
+                consumed_response_emails.add(alt)
+                break
         responded = resp is not None
         products_by_product = _parse_response_data(
             (resp or {}).get("cr673_response_data", "")
@@ -390,16 +444,17 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
                 results = ""
                 remarks = ""
             rows.append({
-                "email": info["email"],
-                "name": info["name"],
+                "email": info["primary_email"],
+                "alternates": list(info["alternates"]),
+                "name": responder_name,
                 "product": product or "-",
                 "readonly": info["readonly"],
                 "status": "responded" if responded else "pending",
                 "results": results,
                 "remarks": remarks,
                 "responded_at": (resp or {}).get("cr673_submitted_at", "") or "",
-                "reminder_count": reminder_count_by_email.get(em_lower, 0),
-                "last_reminder_at": last_reminder_by_email.get(em_lower, ""),
+                "reminder_count": reminder_count_by_email.get(primary_lower, 0),
+                "last_reminder_at": last_reminder_by_email.get(primary_lower, ""),
                 "former": False,
             })
 
@@ -413,15 +468,14 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
         if d.get("new_email")
     }
 
-    # Surface responders whose email is NOT in the live team table — could
+    # Surface responders whose email is NOT consumed by any team row — could
     # be because the team was reconfigured after they submitted, the email
     # was changed, or the response was created in a different EMAIL_MODE.
     # Without this, a real response would silently vanish from the popup.
     # We also skip emails that will be rendered as a chain's final recipient
     # below — their response gets attached to the chain row instead.
-    seen_emails = {r["email"].lower() for r in rows}
     for em_lower, resp in resp_by_email.items():
-        if em_lower in seen_emails:
+        if em_lower in consumed_response_emails:
             continue
         if em_lower in delegated_to_emails:
             continue
@@ -435,6 +489,7 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
             for product_key, per_product in products_by_product.items():
                 rows.append({
                     "email": responder_email,
+                    "alternates": [em_lower],
                     "name": responder_name,
                     "product": product_key or "-",
                     "readonly": True,
@@ -452,6 +507,7 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
             for product in [p.strip() for p in product_str.split(",") if p.strip()] or ["-"]:
                 rows.append({
                     "email": responder_email,
+                    "alternates": [em_lower],
                     "name": responder_name,
                     "product": product,
                     "readonly": True,
@@ -463,7 +519,7 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
                     "last_reminder_at": last_reminder_by_email.get(em_lower, ""),
                     "former": True,
                 })
-        seen_emails.add(em_lower)
+        consumed_response_emails.add(em_lower)
 
     # `delegations` and `delegated_to_emails` were pre-fetched above so
     # responder-not-in-team would already skip chain finals. The same set
@@ -472,13 +528,23 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
 
     # Historical reminder recipients no longer on the team and with no
     # response — surface them as pending rows so the audit trail is visible.
+    # An email "belongs to a team row" if it appears in ANY row's alternates
+    # (covers both primary and CC/portal addresses).
+    team_addresses_seen: set = set()
+    for r in rows:
+        for alt in (r.get("alternates") or []):
+            team_addresses_seen.add(alt)
+        team_addresses_seen.add((r.get("email") or "").lower())
     for em_lower in reminder_count_by_email:
-        if em_lower in seen_emails:
+        if em_lower in team_addresses_seen:
+            continue
+        if em_lower in consumed_response_emails:
             continue
         if em_lower in delegated_to_emails:
             continue
         rows.append({
             "email": em_lower,
+            "alternates": [em_lower],
             "name": "",
             "product": "-",
             "readonly": True,
@@ -561,6 +627,7 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
 
         rows.append({
             "email": chain["final_email"],
+            "alternates": [new_lower] if new_lower else [],
             "name": chain["final_name"],
             "product": chain["product"] or "-",
             "readonly": False,
@@ -575,12 +642,19 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
             "delegated_from_name": chain["original_name"],
         })
 
+        # Match the chain back to its source team row. old_lower may be
+        # either a primary email (post-fix delegations) or a composite
+        # email string (pre-fix delegations) — check both the row's primary
+        # email and its alternates list to handle either form.
+        old_parsed = set(_parse_emails(old_lower)) or {old_lower}
         for r in rows:
-            if (r.get("email") or "").lower() != old_lower:
-                continue
             if (r.get("product") or "").lower() != prod_lower:
                 continue
             if r.get("delegated_to_email"):
+                continue
+            row_emails = {(r.get("email") or "").lower()}
+            row_emails.update((r.get("alternates") or []))
+            if not (old_parsed & row_emails):
                 continue
             r["delegated_to_email"] = chain["final_email"]
             r["delegated_to_name"] = chain["final_name"]
@@ -773,18 +847,21 @@ def send_rfp_reminder(
         overall_error = str(e)[:1900]
         print(f"[open_rfp] Reminder send failed for {rfp_id}: {e}")
 
-    # 5. Record one Dataverse reminder row per recipient + collect results
+    # 5. Record one Dataverse reminder row per recipient + collect results.
+    # Store the primary (single) email — not the composite team-table value —
+    # so future reminder-count lookups can match a clean key.
     results: List[Dict[str, Any]] = []
     for em_lower, info in members_by_email.items():
         product_str = ", ".join(info["products"]) if info["products"] else ""
+        primary = info.get("primary_email") or em_lower
         _record_reminder_row(
             rfp_id, company_name, product_str,
-            info["email"], info["name"],
+            primary, info["name"],
             actor_email, actor_name,
             overall_status, overall_error,
         )
         results.append({
-            "email": info["email"],
+            "email": primary,
             "name": info["name"],
             "status": overall_status,
             "error": overall_error if overall_status == "Failed" else "",

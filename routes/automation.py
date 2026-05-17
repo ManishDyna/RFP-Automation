@@ -437,7 +437,7 @@ async def list_existing_tds_files(rfp_id: str = Query(...), company: str = Query
         )
         graph_client.auth()
         graph_client.resolve_site_and_drive()
-        files = graph_client.list_files_in_directory(tds_folder, ['.pdf']) or []
+        files = graph_client.list_files_in_directory(tds_folder) or []
     except Exception as e:
         print(f"[WARN] Could not list TDS folder for {rfp_id}/{target_company}: {e}")
         files = []
