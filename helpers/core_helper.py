@@ -204,6 +204,14 @@ def get_sharepoint_rfp_tds_path(rfp_title: str, company_name: str, material_code
         return f"{tds_path}/{material_code}_TDS.pdf"
     return tds_path
 
+def get_sharepoint_rfp_pricing_path(rfp_title: str, company_name: str, filename: str = None) -> str:
+    """Get SharePoint pricing-files path: RFP-logs/ALLRFPs/CompanyName/RFP_title/pricing-files/"""
+    base_path = get_sharepoint_rfp_path(rfp_title, company_name)
+    pricing_path = f"{base_path}/pricing-files"
+    if filename:
+        return f"{pricing_path}/{filename}"
+    return pricing_path
+
 def get_sharepoint_rfp_savedrfp_path(rfp_title: str, company_name: str, filename: str = None) -> str:
     """Get SharePoint rfp-upload-file path: RFP-logs/ALLRFPs/CompanyName/RFP_title/rfp-upload-file/"""
     base_path = get_sharepoint_rfp_path(rfp_title, company_name)
@@ -468,14 +476,18 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
         return False
 
 # Check if RFP IDs match
-def update_rfp_participation_status(rfp_id: str, status: str, category: str = None):
+def update_rfp_participation_status(rfp_id: str, status: str, category: str = None, log_change: bool = False):
     """
-    Update participation status for a specific RFP in the rfp_activity_log table and log the change.
+    Update participation status for a specific RFP in the rfp_activity_log table.
 
     Args:
         rfp_id: The RFP identifier
         status: New status to set
-        category: Optional category for the status change log. If not provided, will be auto-determined.
+        category: Optional category for the status change log. Only used when log_change=True.
+        log_change: If True, also write a history row to cr673_bhara_rfp_status.
+            Defaults to False — automation callers (submit/decline/sync flows) must NOT log,
+            because those writes were polluting the dashboard's "by-system" counts. Only the
+            user-driven UI route should pass log_change=True.
 
     Returns:
         bool: True if update was successful, False otherwise
@@ -561,23 +573,17 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
                 raise
 
             logger.info(f"Updated RFP {rfp_id} participation status to: {status}")
-            
-            # Log status change if status actually changed
-            if old_status.lower() != status.lower():
-                # Determine category if not provided - use lowercase "submit" to match table
+
+            # Log status change only when explicitly requested (user-driven UI updates).
+            # Automation/sync paths intentionally skip this — see log_change docstring.
+            if log_change and old_status.lower() != status.lower():
                 if not category:
-                    # All status changes map to "submit" category based on table structure
                     category = "submit"
-                
                 log_rfp_status_change(rfp_id, old_status, status, category)
-            
+
             return True
         else:
             logger.warning(f"No RFP record found with ID: {rfp_id}")
-            # Log initial status if this is a new record
-            if status:
-                initial_category = category or "submit"
-                log_rfp_status_change(rfp_id, "", status, initial_category)
             return False
 
     except ValueError:
@@ -827,6 +833,7 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
     if include_details:
         # Return list of dicts with details
         desc_col = find_column_name(df.columns, "description")
+        qty_col = find_column_name(df.columns, "quantity")
         materials_data = []
         seen_codes = set()
 
@@ -834,6 +841,9 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
         for row in filtered.to_dict('records'):
             name_value = str(row.get(name_col, "")) if not pd.isna(row.get(name_col)) else ""
             desc_value = str(row.get(desc_col, "")) if desc_col and not pd.isna(row.get(desc_col)) else ""
+            qty_value = row.get(qty_col) if qty_col else None
+            if qty_value is None or pd.isna(qty_value):
+                qty_value = ""
 
             # Extract 9-digit material codes
             for mat_code in re.findall(r"\d{9}", name_value):
@@ -842,7 +852,8 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
                     materials_data.append({
                         "material_code": mat_code,
                         "name": name_value,
-                        "description": desc_value
+                        "description": desc_value,
+                        "quantity": qty_value
                     })
 
         print(f"Materials extracted (filter_by_intent={filter_by_intent}): {len(materials_data)}")

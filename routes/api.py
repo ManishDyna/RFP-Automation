@@ -777,13 +777,32 @@ async def api_rfp_details_export(
     def _match_label(val):
         return "Yes" if (val or "").lower() == "yes" else "No"
 
+    def _fmt_mdy(val):
+        """Format ISO datetime / any parseable string as 'M/D/YYYY H:MM AM/PM'
+        for human-readable CSV/Excel export. publish_time and RFP_End_Date are
+        now DateTime columns and arrive as ISO 8601 (e.g. '2025-09-11T07:45:00Z')."""
+        if not val:
+            return ""
+        try:
+            import pandas as pd
+            dt = pd.to_datetime(val, errors="coerce")
+            if pd.isna(dt):
+                return str(val)
+            if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
+                dt = dt.tz_localize(None)
+            h12 = dt.hour % 12 or 12
+            ampm = "PM" if dt.hour >= 12 else "AM"
+            return f"{dt.month}/{dt.day}/{dt.year} {h12}:{dt.minute:02d} {ampm}"
+        except Exception:
+            return str(val)
+
     def _row_to_export(r):
         return [
             r.get("RFP_ID", ""),
             r.get("Company_Name", ""),
             r.get("Owner_Name", ""),
-            r.get("Publish_Time", ""),
-            r.get("RFP_End_Date", ""),
+            _fmt_mdy(r.get("Publish_Time", "")),
+            _fmt_mdy(r.get("RFP_End_Date", "")),
             (r.get("status_key", "") or "").replace("_", " ").title(),
             _participation_label(r.get("status_key", "")),
             _match_label(r.get("Material_Matched", "")),

@@ -54,19 +54,21 @@ def normalize_date_format(val) -> str:
 
 
 def normalize_publish_time(val) -> str:
-    """Return 'M/D/YYYY H:MM AM/PM' in Asia/Riyadh — the locked DB standard
-    for the publish_time TEXT column (cr673_bahra_rfps_v2).
+    """Return ISO 8601 string ('YYYY-MM-DDTHH:MM:SSZ') for the publish_time
+    DateTime column (cr673_bahra_rfps_v2). This is the wire format Dataverse
+    requires; the column is configured with TimeZoneIndependent behavior, so
+    the wall-clock value we send is stored literally without UTC conversion
+    and Power Apps still displays it as 'M/D/YYYY H:MM AM/PM' to users.
 
     Handles:
-      * ISO 8601 with T-separator: '2019-08-27T16:00:00Z' (UTC -> KSA shift)
+      * ISO 8601 with T-separator: '2019-08-27T16:00:00Z' (kept as-is)
       * Excel locale-swapped: 'YYYY-DD-MM HH:MM:SS'
-      * MDY slash format (round-trip): '10/6/2025 4:33 AM'
+      * MDY slash format: '10/6/2025 4:33 AM'
       * Other pandas-parseable formats
 
     Returns '' for blank/None input. Returns the raw stripped input on parse
     failure so we never silently mangle a value we can't understand.
     """
-    KSA_TZ = pytz.timezone("Asia/Riyadh")
     if val is None or pd.isna(val) or str(val).strip() in ("", "-"):
         return ""
     val = str(val).strip()
@@ -82,9 +84,11 @@ def normalize_publish_time(val) -> str:
             dt = pd.to_datetime(fixed)
         else:
             dt = pd.to_datetime(val)
-        if dt.tzinfo is not None:
-            dt = dt.astimezone(KSA_TZ)
-        return dt.strftime("%#m/%#d/%Y %#I:%M %p")
+        # Drop any tz so we emit naive wall-clock numbers. Column behavior is
+        # TimeZoneIndependent → stored literally, no UTC conversion.
+        if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
+            dt = dt.tz_localize(None) if hasattr(dt, "tz_localize") else dt.replace(tzinfo=None)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         return str(val).strip()
 

@@ -80,6 +80,30 @@ def _verify_actionable_message_token(auth_header: str) -> dict:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
 
+def _build_not_in_team_card(name: str, rfp_id: str) -> dict:
+    """Return a card shown to users who are not part of the RFP team."""
+    return {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.0",
+        "padding": "Default",
+        "body": [
+            {"type": "TextBlock", "text": f"Dear {name or 'User'},", "wrap": True, "size": "Small"},
+            {"type": "TextBlock",
+             "text": "You don't have permission to reply to this RFP.",
+             "wrap": True, "spacing": "Small", "weight": "Bolder", "color": "Attention"},
+            {"type": "TextBlock",
+             "text": f"Your email is not part of the RFP team for **{rfp_id}**. "
+                     "Please contact the RFP administrator if you believe this is an error.",
+             "wrap": True, "spacing": "Small", "size": "Small", "isSubtle": True},
+            {"type": "TextBlock", "text": "Best Regards,",
+             "wrap": True, "spacing": "Medium", "separator": True, "size": "Small"},
+            {"type": "TextBlock", "text": "Automation System",
+             "wrap": True, "spacing": "None", "size": "Small"},
+        ],
+    }
+
+
 def _get_all_responses_for_rfp(rfp_id: str) -> list:
     """Query Dataverse for all responses for a given RFP."""
     try:
@@ -97,25 +121,173 @@ def _get_all_responses_for_rfp(rfp_id: str) -> list:
     return []
 
 
+def _parse_emails(email_field: str) -> list:
+    """Split a (possibly comma-separated) email-field value into a normalized
+    lowercase list. 'Alice@Co.com, bob@co.com ' → ['alice@co.com', 'bob@co.com']."""
+    if not email_field:
+        return []
+    out = []
+    seen = set()
+    for part in str(email_field).replace(";", ",").split(","):
+        e = part.strip().lower()
+        if e and e not in seen:
+            out.append(e)
+            seen.add(e)
+    return out
+
+
+def _first_response_per_row(rfp_responses: list, team_table: list) -> dict:
+    """
+    Row-level first-response-wins.
+
+    Each team-table row is a responsibility unit; the row's email field may list
+    multiple alternates (comma-separated). Within a row's alternates, the EARLIEST
+    non-empty answer wins. Each row needs its own answer for the RFP to complete.
+
+    Caller must pre-filter rfp_responses by cr673_rfp_id.
+
+    Returns: {responsibility_id: {<input fields>, name, email, submitted_at, product}}
+
+    Matching logic (newest → oldest fallback):
+      1. Response carries explicit responsibility_id → exact match.
+      2. Legacy responses (no responsibility_id): match by (product, submitter_email
+         in the row's alternates list). If multiple team rows share a product,
+         attribute the response to the first row whose alternates include the
+         submitter — gives sensible behavior for data created before this feature.
+    """
+    # Index team rows for fast lookup
+    rows_by_id = {}
+    rows_by_product = {}
+    for m in team_table:
+        rid = m.get("record_id")
+        prod = m.get("product")
+        if not rid or not prod or prod == "All":
+            continue
+        emails = _parse_emails(m.get("email", ""))
+        entry = {"record_id": rid, "product": prod, "emails": emails, "name": m.get("name", "")}
+        rows_by_id[rid] = entry
+        rows_by_product.setdefault(prod, []).append(entry)
+
+    winners = {}
+    for r in rfp_responses:
+        r_email = (r.get("cr673_email") or "").lower()
+        r_name = r.get("cr673_name", "")
+        submitted_at = r.get("cr673_submitted_at", "") or ""
+        raw_json = r.get("cr673_response_data") or r.get("response_data", "")
+
+        parsed_products = []
+        if raw_json:
+            try:
+                parsed = json.loads(raw_json)
+                if isinstance(parsed, dict) and isinstance(parsed.get("products"), list):
+                    parsed_products = parsed["products"]
+            except (json.JSONDecodeError, TypeError):
+                parsed_products = []
+
+        # Legacy: single-product rows stored fields at top level
+        if not parsed_products:
+            legacy_product = r.get("cr673_product", "")
+            if legacy_product:
+                parsed_products = [{
+                    "product": legacy_product,
+                    "results": r.get("cr673_results", ""),
+                    "remarks": r.get("cr673_remarks", ""),
+                }]
+
+        for p_resp in parsed_products:
+            product = (p_resp.get("product") or "").strip()
+            if not product:
+                continue
+            has_value = any(
+                str(v).strip()
+                for k, v in p_resp.items()
+                if k not in ("product", "responsibility_id")
+            )
+            if not has_value:
+                continue
+
+            # Resolve responsibility_id (new path) or fall back to (product, email) match
+            resp_id = p_resp.get("responsibility_id")
+            if not resp_id or resp_id not in rows_by_id:
+                for candidate in rows_by_product.get(product, []):
+                    if r_email in candidate["emails"]:
+                        resp_id = candidate["record_id"]
+                        break
+            if not resp_id:
+                # Submitter isn't in any team row for this product — skip
+                continue
+
+            existing = winners.get(resp_id)
+            if existing is None:
+                keep = True
+            elif submitted_at and existing.get("submitted_at"):
+                keep = submitted_at < existing["submitted_at"]
+            else:
+                keep = False
+            if keep:
+                winners[resp_id] = {
+                    **{k: v for k, v in p_resp.items() if k not in ("product", "responsibility_id")},
+                    "name": r_name,
+                    "email": r_email,
+                    "submitted_at": submitted_at,
+                    "product": product,
+                    "responsibility_id": resp_id,
+                }
+    return winners
+
+
+def _uploaded_products_globally(rfp_responses: list) -> set:
+    """Products with at least one uploaded file from ANY assignee for this RFP."""
+    uploaded = set()
+    for r in rfp_responses:
+        raw_json = r.get("cr673_response_data") or r.get("response_data", "")
+        if not raw_json:
+            continue
+        try:
+            parsed = json.loads(raw_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        files = parsed.get("uploaded_files")
+        if isinstance(files, list):
+            for entry in files:
+                if isinstance(entry, dict) and entry.get("product"):
+                    uploaded.add(entry["product"])
+    return uploaded
+
+
 def _build_refresh_card(
     rfp_id: str,
     company_name: str,
     products: list,
     name: str,
     email: str,
-    response_lookup: dict,
-    user_has_submitted: bool,
+    winners_by_row: dict,
+    uploaded_products_global: set,
     responded_count: int,
     total_count: int,
     callback_url: str,
     team_table: list = None,
+    is_team_member: bool = True,
 ) -> dict:
     """
-    Build the Adaptive Card JSON for refresh/post-submit display.
-    Shows the person's own products with their responses (read-only if submitted,
-    editable if not yet submitted), plus a team status summary.
+    Adaptive Card for refresh/post-submit display.
+
+    Row-level first-response-wins:
+      • One row per team-table responsibility (NOT deduped by product — two team
+        rows for the same product render as two card rows).
+      • A row's email field may list multiple alternates (comma-separated).
+        Within those alternates, first-response-wins.
+      • Editable when: current user's email is in the row's alternates AND no
+        answer for that row yet.
+      • Otherwise: shows the winner's answer (if any) or "Pending".
+
+    winners_by_row: {responsibility_id: response} from _first_response_per_row()
+    uploaded_products_global: products with any uploaded files (any responder).
+    is_team_member: when False, recipient isn't a team member — lock everything.
     """
-    user_email_key = email.lower()
+    user_email_key = (email or "").lower()
     refresh_url = callback_url + "/refresh"
 
     columns = get_all_columns()
@@ -124,25 +296,34 @@ def _build_refresh_card(
     if team_table is None:
         team_table = get_all_rfp_team_for_emails()
 
-    # Get this user's response data (per-product)
-    user_resp = response_lookup.get(user_email_key, {})
-    user_product_responses = {}  # product → {results: ..., remarks: ...}
-    if "products" in user_resp and isinstance(user_resp["products"], list):
-        for p_resp in user_resp["products"]:
-            user_product_responses[p_resp.get("product", "")] = p_resp
-    elif user_resp:
-        # Legacy: single response applies to all products
-        for p in products:
-            user_product_responses[p] = user_resp
+    # Build the list of responsibility rows to render
+    team_rows = []
+    for m in team_table:
+        rid = m.get("record_id")
+        prod = m.get("product")
+        if not rid or not prod or prod == "All":
+            continue
+        team_rows.append({
+            "record_id": rid,
+            "product": prod,
+            "name": m.get("name") or "",
+            "emails": _parse_emails(m.get("email", "")),
+            "raw_email": m.get("email", ""),
+        })
+    # Stable, grouped order: by product then name
+    team_rows.sort(key=lambda r: (r["product"], r["name"]))
 
-    # --- Build list of all team member rows (one row per person+product) ---
-    all_member_rows = [
-        {"product": m["product"], "email": m.get("email", ""), "name": m.get("name", "")}
-        for m in team_table
-        if m.get("product") and m["product"] != "All"
-    ]
+    # Assign editable indices for THIS user's pending rows (preserves card order)
+    editable_idx_map = {}  # responsibility_id → idx
+    next_idx = 0
+    for r in team_rows:
+        is_alt = user_email_key in r["emails"]
+        already_won = r["record_id"] in winners_by_row
+        if is_team_member and is_alt and not already_won:
+            editable_idx_map[r["record_id"]] = next_idx
+            next_idx += 1
 
-    # --- Build table header (showing all products) ---
+    # --- Table header ---
     header_cols = []
     for col in columns:
         if col["column_key"] == "email":
@@ -160,37 +341,31 @@ def _build_refresh_card(
     }
 
     data_rows = []
-    editable_idx = 0
-    for member_row in all_member_rows:
-        row_product = member_row["product"]
-        row_email = member_row["email"]
-        row_name = member_row["name"]
-        # This row is editable if product belongs to current person AND email matches
-        is_own = row_product in products and row_email.lower() == user_email_key
+    for r in team_rows:
+        rid = r["record_id"]
+        product = r["product"]
+        winner = winners_by_row.get(rid)
+        row_responded = winner is not None
+        current_user_is_alt = user_email_key in r["emails"]
+        is_editable_for_me = rid in editable_idx_map
 
-        # Find response for this row's person+product
-        product_response = {}
-        if is_own:
-            product_response = user_product_responses.get(row_product, {})
+        if row_responded:
+            display_name = winner.get("name") or ""
+            display_email = winner.get("email") or ""
+        elif current_user_is_alt:
+            display_name = name
+            display_email = email
         else:
-            # Look up this specific person's response
-            other_resp = response_lookup.get(row_email.lower(), {})
-            if other_resp:
-                if "products" in other_resp and isinstance(other_resp["products"], list):
-                    for pr in other_resp["products"]:
-                        if pr.get("product") == row_product:
-                            product_response = pr
-                            break
-                elif other_resp.get("results") or other_resp.get("remarks"):
-                    product_response = other_resp
+            display_name = r["name"] or " / ".join(r["emails"]) or "—"
+            display_email = ", ".join(r["emails"])
 
-        # Per-row context for button URL placeholder substitution
+        # Upload button signs token with the CURRENT user's identity
         row_ctx = {
             "rfp_id": rfp_id,
             "company_name": company_name,
-            "product": row_product,
-            "name": row_name or (name if is_own else ""),
-            "email": row_email,
+            "product": product,
+            "name": name if current_user_is_alt else display_name,
+            "email": email if current_user_is_alt else display_email,
         }
 
         row_columns = []
@@ -199,36 +374,60 @@ def _build_refresh_card(
             if key == "email":
                 continue
             if col.get("column_type") == "button":
-                btn_url = _resolve_button_url(col.get("dropdown_options", "") or "", row_ctx, rfp_id) or "https://example.com"
-                item = {
-                    "type": "ActionSet",
-                    "actions": [{
-                        "type": "Action.OpenUrl",
-                        "title": col.get("column_label", key),
-                        "url": btn_url,
-                    }],
-                }
-            elif col.get("column_category") == "input":
-                if is_own and not user_has_submitted:
-                    # Editable for own unsubmitted products
-                    item = _build_input_widget_indexed(col, editable_idx)
+                url_template = col.get("dropdown_options", "") or ""
+                is_upload_btn = "{upload_url}" in url_template
+
+                if is_upload_btn:
+                    if product in uploaded_products_global:
+                        item = {"type": "TextBlock", "text": "Uploaded ✓",
+                                "color": "Good", "weight": "Bolder", "wrap": True, "size": "Small"}
+                    elif current_user_is_alt and not row_responded:
+                        btn_url = _resolve_button_url(url_template, row_ctx, rfp_id) or "https://example.com"
+                        item = {
+                            "type": "ActionSet",
+                            "actions": [{
+                                "type": "Action.OpenUrl",
+                                "title": col.get("column_label", key),
+                                "url": btn_url,
+                            }],
+                        }
+                    else:
+                        item = {"type": "TextBlock", "text": "—",
+                                "color": "Default", "wrap": True, "size": "Small", "isSubtle": True}
                 else:
-                    # Show actual response or "Pending"
-                    value = product_response.get(key, "") or "Pending"
+                    btn_url = _resolve_button_url(url_template, row_ctx, rfp_id) or "https://example.com"
+                    item = {
+                        "type": "ActionSet",
+                        "actions": [{
+                            "type": "Action.OpenUrl",
+                            "title": col.get("column_label", key),
+                            "url": btn_url,
+                        }],
+                    }
+            elif col.get("column_category") == "input":
+                if is_editable_for_me:
+                    item = _build_input_widget_indexed(col, editable_idx_map[rid])
+                elif row_responded:
+                    value = winner.get(key, "") or "Pending"
                     color = "Good" if value != "Pending" else "Accent"
                     item = {"type": "TextBlock", "text": value,
                             "color": color, "wrap": True, "size": "Small"}
+                else:
+                    item = {"type": "TextBlock", "text": "Pending",
+                            "color": "Accent", "wrap": True, "size": "Small"}
             else:
-                display_name = name if is_own else row_name or row_email
-                value = row_product if key == "product" else (display_name if key == "name" else "")
+                if key == "product":
+                    value = product
+                elif key == "name":
+                    value = display_name
+                else:
+                    value = ""
                 item = {"type": "TextBlock", "text": value, "wrap": True,
                         "size": "Small", "weight": "Bolder"}
             row_columns.append({
                 "type": "Column", "width": 1, "padding": "None",
                 "items": [item],
             })
-        if is_own and not user_has_submitted:
-            editable_idx += 1
         data_rows.append({
             "type": "ColumnSet",
             "separator": True,
@@ -236,7 +435,15 @@ def _build_refresh_card(
             "columns": row_columns,
         })
 
-    # Refresh payload
+    # Submit body must carry responsibility_id per editable row so the backend can
+    # attribute each answer to the right team-table row. Parallel arrays:
+    #   products[i], responsibility_ids[i], results_i, remarks_i, ...
+    submit_rows = sorted(editable_idx_map.items(), key=lambda kv: kv[1])
+    submit_responsibility_ids = [rid for rid, _ in submit_rows]
+    rid_to_row = {r["record_id"]: r for r in team_rows}
+    submit_products = [rid_to_row[rid]["product"] for rid in submit_responsibility_ids]
+    user_assigned = set(products or [])
+
     refresh_body = json.dumps({
         "rfp_id": rfp_id,
         "products": products,
@@ -254,18 +461,19 @@ def _build_refresh_card(
         "body": refresh_body,
     }
 
-    status_text = f"Team responses: {responded_count}/{total_count} received."
+    status_text = f"Team responses: {responded_count}/{total_count} responsibilities answered."
 
     actions = [refresh_action]
-    if not user_has_submitted and products:
+    if submit_responsibility_ids:
         submit_body = {
             "rfp_id": rfp_id,
-            "products": products,
+            "products": submit_products,
+            "responsibility_ids": submit_responsibility_ids,
             "name": name,
             "email": email,
             "company_name": company_name,
         }
-        for idx in range(len(products)):
+        for idx in range(len(submit_responsibility_ids)):
             for col in input_columns:
                 field_id = f"{col['column_key']}_{idx}"
                 submit_body[field_id] = "{{" + field_id + ".value}}"
@@ -281,13 +489,13 @@ def _build_refresh_card(
         }
         actions = [submit_action, refresh_action]
 
-    products_text = ", ".join(f"**{p}**" for p in products)
-    if not products:
+    products_text = ", ".join(f"**{p}**" for p in (products or []))
+    if not user_assigned:
         instruction_text = "You can refresh to see the team's response status."
-    elif user_has_submitted:
-        instruction_text = "Your response has been submitted. You can refresh to see team status."
+    elif not submit_responsibility_ids and user_assigned:
+        instruction_text = "Your responsibilities have already been answered by your co-assignees. Thank you."
     else:
-        instruction_text = "Please fill in your Results and Remarks for each product below."
+        instruction_text = "Please fill in your Results and Remarks for each pending row below."
     body_items = [
         {"type": "TextBlock", "text": f"Dear {name},",
          "wrap": True, "size": "Small"},
@@ -364,22 +572,53 @@ async def receive_card_response(request: Request):
             detail=f"Token email ({submitter_email}) does not match expected ({expected_email})",
         )
 
-    # Step 4: Extract per-product responses from indexed fields
+    # Step 3a: Reject submitters who aren't an alternate in any team-table row
+    # OR an active delegation target for this specific RFP. The delegations
+    # table is the per-RFP override surface — its targets are legitimate
+    # responders even though they were never added to the master team table.
+    rfp_team_pre = get_all_rfp_team_for_emails()
+    team_emails_pre = set()
+    for m in rfp_team_pre:
+        for e in _parse_emails(m.get("email", "")):
+            team_emails_pre.add(e)
+    try:
+        from services.open_rfp_service import get_active_delegations
+        for d in get_active_delegations(rfp_id):
+            new_em = (d.get("new_email") or "").lower()
+            if new_em:
+                team_emails_pre.add(new_em)
+    except Exception as e:
+        print(f"[/response] Could not load delegations for {rfp_id}: {e}")
+    submitter_key_pre = (expected_email or submitter_email).lower()
+    if submitter_key_pre not in team_emails_pre:
+        print(f"⛔ Non-team submitter rejected: {submitter_key_pre} (RFP {rfp_id})")
+        return JSONResponse(
+            content=_build_not_in_team_card(name, rfp_id),
+            status_code=200,
+            headers={"CARD-UPDATE-IN-BODY": "true"},
+        )
+
+    # Step 4: Extract per-row responses from indexed fields.
+    # Parallel arrays in the body:
+    #   products[i], responsibility_ids[i] → identify which team row this answer is for
+    #   results_i, remarks_i, ...           → the actual answer values for row i
+    responsibility_ids = body.get("responsibility_ids", []) or []
     input_cols = get_input_columns()
     per_product_responses = []
     for idx, product in enumerate(products):
-        product_data = {}
+        row_data_entry = {}
         for col in input_cols:
             key = col["column_key"]
-            # Try indexed field first (results_0, remarks_0), then fallback to non-indexed
             indexed_key = f"{key}_{idx}"
-            product_data[key] = body.get(indexed_key, "") or body.get(key, "")
+            row_data_entry[key] = body.get(indexed_key, "") or body.get(key, "")
+        rid = responsibility_ids[idx] if idx < len(responsibility_ids) else ""
         per_product_responses.append({
+            "responsibility_id": rid,
             "product": product,
-            **product_data,
+            **row_data_entry,
         })
 
-    # Build combined response_data JSON with all product responses
+    # Build combined response_data JSON with all per-row responses
     response_data = {"products": per_product_responses}
 
     # Backward compat: first product's results/remarks for legacy fields
@@ -440,12 +679,18 @@ async def receive_card_response(request: Request):
         print(f"❌ Failed to save response to Dataverse: {e}")
         raise HTTPException(status_code=500, detail="Failed to save response")
 
-    # Step 5: Check if all team members have responded
-    rfp_team = get_all_rfp_team_for_emails()
+    # Step 5: Check completion — every team-table ROW (responsibility) has at least
+    # one response from one of its alternates. RFP-scoped via _get_all_responses_for_rfp.
+    rfp_team = rfp_team_pre
     all_responses = _get_all_responses_for_rfp(rfp_id)
-    responded_emails = {r.get("cr673_email", "").lower() for r in all_responses}
-    team_emails = {m.get("email", "").lower() for m in rfp_team if m.get("email")}
-    all_responded = team_emails.issubset(responded_emails)
+    winners_by_row = _first_response_per_row(all_responses, rfp_team)
+    uploaded_products_global = _uploaded_products_globally(all_responses)
+    team_row_ids = {
+        m.get("record_id") for m in rfp_team
+        if m.get("record_id") and m.get("product") and m["product"] != "All"
+    }
+    responded_row_ids = set(winners_by_row.keys()) & team_row_ids
+    all_responded = bool(team_row_ids) and team_row_ids.issubset(set(winners_by_row.keys()))
 
     # Step 5a: Update response metrics on RFP activity log
     try:
@@ -480,7 +725,7 @@ async def receive_card_response(request: Request):
             _act_id = (_act_row.get(_pk_display) if _pk_display else None) or _act_row.get(_pk_logical)
             if _act_id:
                 _update = {
-                    "response_count": str(len(responded_emails & team_emails)),
+                    "response_count": str(len(responded_row_ids)),
                     "first_response_at": _first_response,
                 }
                 if _all_responses_at:
@@ -495,48 +740,39 @@ async def receive_card_response(request: Request):
     except Exception as e:
         print(f"⚠ Could not update response metrics on activity log: {e}")
 
-    if all_responded and len(team_emails) > 0:
-        # All team members have responded - send consolidated email with attachments + Decline button
+    if all_responded and len(team_row_ids) > 0:
+        # Every responsibility (team-table row) has been answered — fire consolidated email.
         try:
             from helpers.email_helper import send_consolidated_response_email
             RFP_ACTIVITY_LOG_TABLE_API = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
             RFP_ACTIVITY_LOG_TABLE_LOGICAL = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
 
+            # One row per team-table responsibility, sorted by product then row name.
+            # If two rows share a product (multiple responsibles), both appear in the
+            # email, each attributed to the alternate who answered first within that row.
+            row_lookup = {m["record_id"]: m for m in rfp_team if m.get("record_id")}
             responses_for_email = []
-            for r in all_responses:
-                r_email = r.get("cr673_email", "")
-                r_name = r.get("cr673_name", "")
-                # Parse response_data which now contains per-product responses
-                raw_json = r.get("cr673_response_data") or r.get("response_data", "")
-                parsed = {}
-                if raw_json:
-                    try:
-                        parsed = json.loads(raw_json)
-                    except (json.JSONDecodeError, TypeError):
-                        parsed = {}
-
-                # New format: {"products": [{"product": "Cables", "results": "Yes", ...}, ...]}
-                if "products" in parsed and isinstance(parsed["products"], list):
-                    for p_resp in parsed["products"]:
-                        responses_for_email.append({
-                            "product": p_resp.get("product", ""),
-                            "name": r_name,
-                            "email": r_email,
-                            **{k: v for k, v in p_resp.items() if k != "product"},
-                        })
-                else:
-                    # Legacy single-product format
-                    resp_item = {
-                        "product": r.get("cr673_product", ""),
-                        "name": r_name,
-                        "email": r_email,
-                    }
-                    if parsed:
-                        resp_item.update(parsed)
-                    else:
-                        resp_item["results"] = r.get("cr673_results", "")
-                        resp_item["remarks"] = r.get("cr673_remarks", "")
-                    responses_for_email.append(resp_item)
+            ordered_row_ids = sorted(
+                responded_row_ids,
+                key=lambda rid: (
+                    row_lookup.get(rid, {}).get("product", ""),
+                    row_lookup.get(rid, {}).get("name", ""),
+                ),
+            )
+            for rid in ordered_row_ids:
+                win = winners_by_row.get(rid)
+                row = row_lookup.get(rid, {})
+                if not win:
+                    continue
+                responses_for_email.append({
+                    "product": row.get("product", win.get("product", "")),
+                    "name": win.get("name") or row.get("name", ""),
+                    "email": win.get("email", ""),
+                    **{
+                        k: v for k, v in win.items()
+                        if k not in ("name", "email", "submitted_at", "product", "responsibility_id")
+                    },
+                })
 
             # Look up RFP end date from Dataverse activity log
             rfp_end_date = "-"
@@ -561,24 +797,31 @@ async def receive_card_response(request: Request):
         except Exception as e:
             print(f"⚠ Could not send consolidated email: {e}")
 
-    # Step 6: Return updated card using shared builder
-    response_lookup = {}
-    for r in all_responses:
-        r_email = r.get("cr673_email", "").lower()
-        # Try new JSON field first, fallback to legacy fields
-        raw_json = r.get("cr673_response_data") or r.get("response_data", "")
-        if raw_json:
-            try:
-                fields = json.loads(raw_json)
-            except (json.JSONDecodeError, TypeError):
-                fields = {"results": r.get("cr673_results", ""), "remarks": r.get("cr673_remarks", "")}
-        else:
-            fields = {"results": r.get("cr673_results", ""), "remarks": r.get("cr673_remarks", "")}
-        response_lookup[r_email] = fields
-    # Ensure the current submission is in the lookup (in case query didn't return it yet)
+    # Step 6: Return updated card using shared builder.
+    # If the just-saved submission isn't reflected in winners yet (Dataverse read-after-write
+    # can lag), patch it in so the submitter sees their answer immediately.
     submitter_key = (expected_email or submitter_email).lower()
-    if submitter_key not in response_lookup:
-        response_lookup[submitter_key] = response_data
+    submitted_at_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for p_resp in per_product_responses:
+        rid = (p_resp.get("responsibility_id") or "").strip()
+        if not rid:
+            continue
+        has_value = any(
+            str(v).strip()
+            for k, v in p_resp.items()
+            if k not in ("product", "responsibility_id")
+        )
+        if not has_value:
+            continue
+        if rid not in winners_by_row:
+            winners_by_row[rid] = {
+                **{k: v for k, v in p_resp.items() if k not in ("product", "responsibility_id")},
+                "name": name,
+                "email": expected_email or submitter_email,
+                "submitted_at": submitted_at_now,
+                "product": p_resp.get("product", ""),
+                "responsibility_id": rid,
+            }
 
     refresh_card = _build_refresh_card(
         rfp_id=rfp_id,
@@ -586,12 +829,13 @@ async def receive_card_response(request: Request):
         products=products,
         name=name,
         email=expected_email or submitter_email,
-        response_lookup=response_lookup,
-        user_has_submitted=True,
-        responded_count=len(responded_emails & team_emails),
-        total_count=len(team_emails),
+        winners_by_row=winners_by_row,
+        uploaded_products_global=uploaded_products_global,
+        responded_count=len(set(winners_by_row.keys()) & team_row_ids),
+        total_count=len(team_row_ids),
         callback_url=get_setting("ACTIONABLE_CARD_CALLBACK_URL", ""),
         team_table=rfp_team,
+        is_team_member=True,
     )
 
     return JSONResponse(
@@ -631,36 +875,37 @@ async def refresh_card_status(request: Request):
         single_product = body.get("product", "")
         products = [single_product] if single_product else []
 
-    # Step 3: Query Dataverse for latest responses
+    # Step 3: Query Dataverse for latest responses (scoped to this rfp_id)
     all_responses = _get_all_responses_for_rfp(rfp_id)
-
-    # Step 4: Build response lookup (supports new multi-product format)
-    response_lookup = {}
-    for r in all_responses:
-        r_email = r.get("cr673_email", "").lower()
-        raw_json = r.get("cr673_response_data") or r.get("response_data", "")
-        if raw_json:
-            try:
-                fields = json.loads(raw_json)
-            except (json.JSONDecodeError, TypeError):
-                fields = {"results": r.get("cr673_results", ""), "remarks": r.get("cr673_remarks", "")}
-        else:
-            fields = {"results": r.get("cr673_results", ""), "remarks": r.get("cr673_remarks", "")}
-        response_lookup[r_email] = fields
-
-    # Step 5: Check if current user has already submitted
-    user_email_key = (expected_email or opener_email).lower()
-    user_has_submitted = user_email_key in response_lookup
-
     rfp_team = get_all_rfp_team_for_emails()
-    team_emails = {m.get("email", "").lower() for m in rfp_team if m.get("email")}
-    responded_count = len(set(response_lookup.keys()) & team_emails)
+    winners_by_row = _first_response_per_row(all_responses, rfp_team)
+    uploaded_products_global = _uploaded_products_globally(all_responses)
 
-    print(f"🔄 Refresh: rfp={rfp_id}, user={user_email_key}, submitted={user_has_submitted}, {responded_count}/{len(team_emails)}")
+    user_email_key = (expected_email or opener_email).lower()
 
-    # If products not in the refresh body, look them up from team table
+    # An email is a "team member" if it appears in ANY row's email list (after comma-split).
+    team_emails = set()
+    for m in rfp_team:
+        for e in _parse_emails(m.get("email", "")):
+            team_emails.add(e)
+
+    team_row_ids = {
+        m.get("record_id") for m in rfp_team
+        if m.get("record_id") and m.get("product") and m["product"] != "All"
+    }
+    responded_rows_count = len(set(winners_by_row.keys()) & team_row_ids)
+
+    is_team_member = user_email_key in team_emails
+
+    print(f"🔄 Refresh: rfp={rfp_id}, user={user_email_key}, in_team={is_team_member}, "
+          f"rows={responded_rows_count}/{len(team_row_ids)}")
+
+    # If products not in the refresh body, look them up from team rows where the user is an alternate
     if not products:
-        products = [m["product"] for m in rfp_team if m.get("email", "").lower() == user_email_key]
+        products = [
+            m["product"] for m in rfp_team
+            if user_email_key in _parse_emails(m.get("email", ""))
+        ]
 
     # Step 6: Build and return the updated card
     card = _build_refresh_card(
@@ -669,12 +914,13 @@ async def refresh_card_status(request: Request):
         products=products,
         name=name,
         email=expected_email or opener_email,
-        response_lookup=response_lookup,
-        user_has_submitted=user_has_submitted,
-        responded_count=responded_count,
-        total_count=len(team_emails),
+        winners_by_row=winners_by_row,
+        uploaded_products_global=uploaded_products_global,
+        responded_count=responded_rows_count,
+        total_count=len(team_row_ids),
         callback_url=get_setting("ACTIONABLE_CARD_CALLBACK_URL", ""),
         team_table=rfp_team,
+        is_team_member=is_team_member,
     )
 
     return JSONResponse(
@@ -804,10 +1050,34 @@ async def get_rfp_responses(rfp_id: str):
                 entry[key] = member.get(key, "")
         team_status.append(entry)
 
+    # Row-level summary (first-response-wins within each team-table row).
+    # Each row is a responsibility unit. Two rows for the same product = two
+    # separate responsibilities — both must be answered.
+    winners_by_row = _first_response_per_row(all_responses, rfp_team)
+    team_row_ids = {
+        m.get("record_id") for m in rfp_team
+        if m.get("record_id") and m.get("product") and m["product"] != "All"
+    }
+    rows_responded = sorted(set(winners_by_row.keys()) & team_row_ids)
+    rows_pending_ids = team_row_ids - set(rows_responded)
+    row_lookup = {m["record_id"]: m for m in rfp_team if m.get("record_id")}
+    rows_pending = sorted(
+        (
+            {"product": row_lookup[rid].get("product", ""),
+             "name": row_lookup[rid].get("name", ""),
+             "email": row_lookup[rid].get("email", "")}
+            for rid in rows_pending_ids if rid in row_lookup
+        ),
+        key=lambda x: (x["product"], x["name"]),
+    )
+
     return JSONResponse(content={
         "ok": True,
         "rfp_id": rfp_id,
         "total_members": len(rfp_team),
         "responses_received": len(response_map),
         "team_status": team_status,
+        "responsibilities_total": len(team_row_ids),
+        "responsibilities_responded": len(rows_responded),
+        "responsibilities_pending": rows_pending,
     })

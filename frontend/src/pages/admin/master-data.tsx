@@ -712,11 +712,19 @@ function RfpTeamTab() {
         return
       }
     }
-    // Validate email format if email field exists
+    // Email field may contain multiple comma-separated alternates (any one of
+    // them can respond on behalf of the row — first-response-wins).
     const emailVal = formValues['email']
-    if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
-      toast.error('Must be a valid email')
-      return
+    if (emailVal) {
+      const parts = emailVal.split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+      const pattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      const bad = parts.find((p) => !pattern.test(p))
+      if (bad) {
+        toast.error(`'${bad}' is not a valid email`)
+        return
+      }
+      // Normalize: lowercased, comma-separated, no extra whitespace
+      formValues['email'] = parts.map((p) => p.toLowerCase()).join(', ')
     }
     saveMutation.mutate(formValues)
   }
@@ -903,9 +911,21 @@ function RfpTeamTab() {
                         <SelectItem value="No">No</SelectItem>
                       </SelectContent>
                     </Select>
+                  ) : col.column_key === 'email' ? (
+                    <>
+                      <Input
+                        type="text"
+                        value={formValues[col.column_key] || ''}
+                        onChange={(e) => handleFormChange(col.column_key, e.target.value)}
+                        placeholder="alice@co.com, bob@co.com"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Comma-separate multiple emails to allow alternates (anyone listed can respond — first reply wins).
+                      </p>
+                    </>
                   ) : (
                     <Input
-                      type={col.column_key === 'email' ? 'email' : 'text'}
+                      type="text"
                       value={formValues[col.column_key] || ''}
                       onChange={(e) => handleFormChange(col.column_key, e.target.value)}
                       placeholder={`Enter ${col.column_label.toLowerCase()}`}

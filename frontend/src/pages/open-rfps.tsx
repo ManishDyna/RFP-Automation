@@ -12,6 +12,7 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  UserCheck,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -46,6 +47,7 @@ import {
 import { api } from '@/lib/api'
 import { formatDateMDY } from '@/lib/utils'
 import { useHasPermission } from '@/hooks/use-auth'
+import { DelegateRfpDialog } from '@/components/dialogs/delegate-rfp-dialog'
 
 type OpenRfp = {
   rfp_id: string
@@ -357,6 +359,13 @@ function OpenRfpDetailModal({
 }) {
   const queryClient = useQueryClient()
   const canRemind = useHasPermission('rfp.open.remind')
+  const canDelegate = useHasPermission('rfp.open.delegate')
+
+  const [delegateTarget, setDelegateTarget] = useState<{
+    product: string
+    email: string
+    name: string
+  } | null>(null)
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['open-rfp-status', rfpId],
@@ -390,11 +399,15 @@ function OpenRfpDetailModal({
   const rows = data?.rows ?? []
   const reminders = data?.reminders ?? []
 
-  // Unique pending emails (for the bulk "Remind All Pending" button)
+  // Unique pending emails (for the bulk "Remind All Pending" button).
+  // A row that's been delegated away is no longer remindable — exclude it
+  // (its new recipient row will appear separately and be picked up here).
   const pendingEmails = useMemo(() => {
     const seen = new Set<string>()
     for (const r of rows) {
-      if (r.status === 'pending' && !r.former) seen.add(r.email)
+      if (r.status === 'pending' && !r.former && !r.delegated_to_email) {
+        seen.add(r.email)
+      }
     }
     return Array.from(seen)
   }, [rows])
@@ -481,13 +494,38 @@ function OpenRfpDetailModal({
                     ) : (
                       rows.map((r, idx) => {
                         const isPending = r.status === 'pending'
+                        const isDelegatedAway = !!r.delegated_to_email
                         return (
                           <TableRow key={`${r.email}-${r.product}-${idx}`}>
                             <TableCell className="font-medium">{r.product || '-'}</TableCell>
                             <TableCell>
-                              <div>{r.email}</div>
-                              {r.name && (
-                                <div className="text-xs text-slate-500">{r.name}</div>
+                              {isDelegatedAway ? (
+                                <div className="space-y-0.5">
+                                  <div className="line-through text-slate-400 text-sm">
+                                    {r.email}
+                                  </div>
+                                  {r.name && (
+                                    <div className="text-xs text-slate-400 line-through">{r.name}</div>
+                                  )}
+                                  <div className="font-bold text-slate-900 text-sm">
+                                    → Delegated to {r.delegated_to_email}
+                                  </div>
+                                  {r.delegated_to_name && (
+                                    <div className="text-xs text-slate-600">{r.delegated_to_name}</div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div>
+                                  <div>{r.email}</div>
+                                  {r.name && (
+                                    <div className="text-xs text-slate-500">{r.name}</div>
+                                  )}
+                                  {r.delegated_from_email && (
+                                    <div className="text-xs text-slate-500 italic mt-1">
+                                      Delegated from {r.delegated_from_email}
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </TableCell>
                             <TableCell className="max-w-xs">
@@ -509,7 +547,19 @@ function OpenRfpDetailModal({
                               )}
                             </TableCell>
                             <TableCell>
-                              {isPending ? (
+                              {isDelegatedAway ? (
+                                <Badge
+                                  variant="outline"
+                                  title={
+                                    r.delegated_by || r.delegated_at
+                                      ? `Delegated${r.delegated_by ? ` by ${r.delegated_by}` : ''}${r.delegated_at ? ` on ${r.delegated_at}` : ''}`
+                                      : 'Delegated'
+                                  }
+                                >
+                                  <UserCheck className="h-3 w-3 mr-1" />
+                                  Delegated
+                                </Badge>
+                              ) : isPending ? (
                                 <Badge variant="warning">
                                   <AlertCircle className="h-3 w-3 mr-1" />
                                   Pending
@@ -546,20 +596,42 @@ function OpenRfpDetailModal({
                               )}
                             </TableCell>
                             <TableCell className="text-right">
-                              {canRemind && isPending && !r.former && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => remindMutation.mutate([r.email])}
-                                  disabled={remindMutation.isPending}
-                                >
-                                  {remindMutation.isPending ? (
-                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  ) : (
-                                    <Send className="h-4 w-4 mr-2" />
+                              {isDelegatedAway ? (
+                                <span className="text-slate-400">—</span>
+                              ) : (
+                                <div className="inline-flex items-center gap-2 justify-end">
+                                  {canRemind && isPending && !r.former && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => remindMutation.mutate([r.email])}
+                                      disabled={remindMutation.isPending}
+                                    >
+                                      {remindMutation.isPending ? (
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                      ) : (
+                                        <Send className="h-4 w-4 mr-2" />
+                                      )}
+                                      Remind
+                                    </Button>
                                   )}
-                                  Remind
-                                </Button>
+                                  {canDelegate && isPending && !r.former && r.product && r.product !== '-' && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() =>
+                                        setDelegateTarget({
+                                          product: r.product,
+                                          email: r.email,
+                                          name: r.name || '',
+                                        })
+                                      }
+                                    >
+                                      <UserCheck className="h-4 w-4 mr-2" />
+                                      Delegate
+                                    </Button>
+                                  )}
+                                </div>
                               )}
                             </TableCell>
                           </TableRow>
@@ -640,6 +712,22 @@ function OpenRfpDetailModal({
           )}
         </div>
       </DialogContent>
+
+      {delegateTarget && rfpId && (
+        <DelegateRfpDialog
+          open={!!delegateTarget}
+          onOpenChange={(v) => { if (!v) setDelegateTarget(null) }}
+          rfpId={rfpId}
+          product={delegateTarget.product}
+          currentEmail={delegateTarget.email}
+          currentName={delegateTarget.name}
+          onSuccess={() => {
+            setDelegateTarget(null)
+            refetch()
+            queryClient.invalidateQueries({ queryKey: ['open-rfps'] })
+          }}
+        />
+      )}
     </Dialog>
   )
 }

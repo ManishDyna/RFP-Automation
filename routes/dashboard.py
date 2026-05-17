@@ -210,7 +210,7 @@ async def update_rfp_status(request: Request, payload: dict = Body(...), user: d
                 detail=f"Invalid status: '{status}'. Valid values are: {', '.join(VALID_RFP_STATUSES)}"
             )
 
-        ok = update_rfp_participation_status(rfp_id, status_normalized)
+        ok = update_rfp_participation_status(rfp_id, status_normalized, log_change=True)
         if not ok:
             raise HTTPException(status_code=404, detail="RFP not found to update")
         # Invalidate caches so the next dashboard fetch gets fresh data

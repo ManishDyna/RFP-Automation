@@ -3,11 +3,12 @@ Per-RFP file upload page reached from the Adaptive Card "Upload" button.
 
 Flow:
   1. Card embeds: GET /upload?token=<JWT>
-  2. Page (inline HTML) presents two file inputs: TIR + Pricing.
-  3. Submit -> POST /api/rfp-upload (multipart) with token + both files.
-  4. Token is verified, both files are streamed to SharePoint's TDS-files
-     folder for that RFP, and the upload is recorded in the existing
-     RFP response row (`cr673_response_data.uploaded_files`).
+  2. Page (inline HTML) presents two multi-file inputs: TIR + Pricing.
+  3. Submit -> POST /api/rfp-upload (multipart) with token + lists of files.
+  4. Token is verified. TIR files stream to the RFP's TDS-files folder;
+     Pricing files stream to the RFP's pricing-files folder. All uploads
+     are recorded in the existing RFP response row
+     (`cr673_response_data.uploaded_files`).
 """
 import json
 import os
@@ -15,13 +16,19 @@ import re
 import tempfile
 from datetime import datetime
 
+from typing import List
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 
 from config.config import (
     CLIENT_ID, CLIENT_SECRET, RESOURCE_URL, TENANT_ID,
 )
-from helpers.core_helper import clean_rfp_title, get_sharepoint_rfp_tds_path
+from helpers.core_helper import (
+    clean_rfp_title,
+    get_sharepoint_rfp_pricing_path,
+    get_sharepoint_rfp_tds_path,
+)
 from helpers.dataverse_helper import DataverseClient
 from helpers.sharepoint_helper import GraphClient
 from helpers.upload_token import verify_upload_token
@@ -193,9 +200,9 @@ body {{ min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764b
 .card-header .sub {{ font-size: 13px; opacity: 0.85; }}
 .card-body {{ padding: 28px 32px 32px; }}
 .meta {{ background: #f3f4f6; border-radius: 8px; padding: 14px 16px; font-size: 13px; margin-bottom: 22px; }}
-.meta div {{ margin: 3px 0; color: #374151; }}
-.meta span {{ color: #6b7280; display: inline-block; min-width: 86px; }}
-.meta b {{ color: #1f2937; }}
+.meta .row {{ display: flex; margin: 3px 0; color: #374151; gap: 8px; }}
+.meta .row .k {{ color: #6b7280; flex: 0 0 86px; }}
+.meta .row .v {{ color: #1f2937; font-weight: 600; word-break: break-word; overflow-wrap: anywhere; flex: 1; }}
 .field {{ margin-bottom: 18px; }}
 .field label {{ display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }}
 .field input[type=file] {{ width: 100%; padding: 10px 12px; border: 1.5px dashed #c7d2fe; border-radius: 8px; font-size: 13px; background: #fafbff; cursor: pointer; }}
@@ -203,9 +210,16 @@ body {{ min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764b
 .btn {{ width: 100%; padding: 13px; background: #4f46e5; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 6px; }}
 .btn:hover {{ background: #4338ca; }}
 .btn:disabled {{ background: #a5b4fc; cursor: not-allowed; }}
-.alert {{ padding: 12px 14px; border-radius: 8px; font-size: 13px; margin-top: 16px; display: none; }}
+.alert {{ padding: 14px 16px; border-radius: 8px; font-size: 13px; margin-top: 16px; display: none; line-height: 1.45; word-break: break-word; overflow-wrap: anywhere; }}
 .alert.err {{ background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }}
 .alert.ok {{ background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }}
+.alert.ok .group-title {{ font-weight: 700; margin-top: 8px; margin-bottom: 4px; color: #14532d; }}
+.alert.ok .group-title:first-child {{ margin-top: 0; }}
+.alert.ok ul {{ list-style: none; padding: 0; margin: 0 0 4px; }}
+.alert.ok li {{ padding: 6px 0; border-bottom: 1px dashed #bbf7d0; }}
+.alert.ok li:last-child {{ border-bottom: none; }}
+.alert.ok .fname {{ font-weight: 600; color: #14532d; display: block; }}
+.alert.ok .fpath {{ font-family: ui-monospace, "Consolas", "Menlo", monospace; font-size: 11px; color: #15803d; opacity: 0.85; display: block; margin-top: 2px; word-break: break-all; }}
 .spinner {{ display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 8px; vertical-align: -2px; }}
 @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
 </style></head>
@@ -218,24 +232,24 @@ body {{ min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764b
   <div class="card-body">
     {preview_banner}
     <div class="meta">
-      <div><span>RFP ID:</span><b>{rfp_id}</b></div>
-      <div><span>Product:</span><b>{product}</b></div>
-      <div><span>Recipient:</span><b>{email}</b></div>
-      <div><span>Company:</span><b>{company_name}</b></div>
+      <div class="row"><div class="k">RFP ID:</div><div class="v">{rfp_id}</div></div>
+      <div class="row"><div class="k">Product:</div><div class="v">{product}</div></div>
+      <div class="row"><div class="k">Recipient:</div><div class="v">{email}</div></div>
+      <div class="row"><div class="k">Company:</div><div class="v">{company_name}</div></div>
     </div>
     <form id="upForm">
       <input type="hidden" name="token" value="{token}">
       <div class="field">
-        <label for="tir">TIR File <span style="color:#dc2626">*</span></label>
-        <input type="file" id="tir" name="tir_file" required accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip">
-        <div class="hint">Max 25 MB. Accepted: PDF, Word, Excel, images, ZIP.</div>
+        <label for="tir">TIR Files <span style="color:#dc2626">*</span></label>
+        <input type="file" id="tir" name="tir_files" required multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip">
+        <div class="hint">Select one or more files. Max 25 MB each. Accepted: PDF, Word, Excel, images, ZIP.</div>
       </div>
       <div class="field">
-        <label for="pricing">Pricing File <span style="color:#dc2626">*</span></label>
-        <input type="file" id="pricing" name="pricing_file" required accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip">
-        <div class="hint">Max 25 MB.</div>
+        <label for="pricing">Pricing Files <span style="color:#dc2626">*</span></label>
+        <input type="file" id="pricing" name="pricing_files" required multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip">
+        <div class="hint">Select one or more files. Max 25 MB each.</div>
       </div>
-      <button type="submit" class="btn" id="submitBtn">Upload Both Files</button>
+      <button type="submit" class="btn" id="submitBtn">Upload Files</button>
       <div class="alert err" id="errAlert"></div>
       <div class="alert ok" id="okAlert"></div>
     </form>
@@ -254,14 +268,14 @@ body {{ min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764b
     errAlert.style.display = 'none';
     okAlert.style.display = 'none';
 
-    const tir = document.getElementById('tir').files[0];
-    const pricing = document.getElementById('pricing').files[0];
-    if (!tir || !pricing) {{
-      errAlert.textContent = 'Please select both files.';
+    const tirFiles = Array.from(document.getElementById('tir').files);
+    const pricingFiles = Array.from(document.getElementById('pricing').files);
+    if (tirFiles.length === 0 || pricingFiles.length === 0) {{
+      errAlert.textContent = 'Please select at least one TIR file and one Pricing file.';
       errAlert.style.display = 'block';
       return;
     }}
-    for (const f of [tir, pricing]) {{
+    for (const f of tirFiles.concat(pricingFiles)) {{
       if (f.size > MAX_BYTES) {{
         errAlert.textContent = 'File too large: ' + f.name + ' (max 25 MB).';
         errAlert.style.display = 'block';
@@ -272,7 +286,11 @@ body {{ min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764b
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>Uploading...';
 
-    const fd = new FormData(form);
+    const fd = new FormData();
+    fd.append('token', form.querySelector('input[name=token]').value);
+    for (const f of tirFiles) fd.append('tir_files', f);
+    for (const f of pricingFiles) fd.append('pricing_files', f);
+
     try {{
       const res = await fetch('/api/rfp-upload', {{ method: 'POST', body: fd }});
       const data = await res.json().catch(() => ({{}}));
@@ -280,17 +298,34 @@ body {{ min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764b
         errAlert.textContent = (data && data.detail) ? data.detail : 'Upload failed (' + res.status + ').';
         errAlert.style.display = 'block';
         btn.disabled = false;
-        btn.textContent = 'Upload Both Files';
+        btn.textContent = 'Upload Files';
         return;
       }}
-      okAlert.innerHTML = 'Uploaded successfully:<br>&bull; ' + (data.tir || '?') + '<br>&bull; ' + (data.pricing || '?');
+      const esc = s => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      const renderList = items => {{
+        if (!items || items.length === 0) return '<ul><li><span class="fname">(none)</span></li></ul>';
+        return '<ul>' + items.map(it => {{
+          const name = typeof it === 'string' ? it : (it.filename || '');
+          const path = typeof it === 'object' && it ? (it.sp_path || '') : '';
+          return '<li><span class="fname">' + esc(name) + '</span>'
+               + (path ? '<span class="fpath">' + esc(path) + '</span>' : '')
+               + '</li>';
+        }}).join('') + '</ul>';
+      }};
+      okAlert.innerHTML =
+        '<div class="group-title">TIR uploaded (' + (data.tir_files || []).length + ')</div>' +
+        renderList(data.tir_files) +
+        '<div class="group-title">Pricing uploaded (' + (data.pricing_files || []).length + ')</div>' +
+        renderList(data.pricing_files);
       okAlert.style.display = 'block';
       btn.textContent = 'Uploaded';
     }} catch (err) {{
       errAlert.textContent = 'Network error: ' + err.message;
       errAlert.style.display = 'block';
       btn.disabled = false;
-      btn.textContent = 'Upload Both Files';
+      btn.textContent = 'Upload Files';
     }}
   }});
 }})();
@@ -302,8 +337,8 @@ body {{ min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764b
 @router.post("/api/rfp-upload")
 async def submit_upload(
     token: str = Form(...),
-    tir_file: UploadFile = File(...),
-    pricing_file: UploadFile = File(...),
+    tir_files: List[UploadFile] = File(...),
+    pricing_files: List[UploadFile] = File(...),
 ):
     if token == PREVIEW_TOKEN:
         claims = _preview_claims()
@@ -317,40 +352,49 @@ async def submit_upload(
     product = claims["product"]
     company_name = claims["company_name"]
 
-    tds_folder = get_sharepoint_rfp_tds_path(clean_rfp_title(rfp_id), company_name)
+    if not tir_files or not pricing_files:
+        raise HTTPException(status_code=400, detail="At least one TIR file and one Pricing file are required.")
+
+    rfp_title = clean_rfp_title(rfp_id)
+    tds_folder = get_sharepoint_rfp_tds_path(rfp_title, company_name)
+    pricing_folder = get_sharepoint_rfp_pricing_path(rfp_title, company_name)
     graph_client = _make_graph_client()
+    safe_product = re.sub(r'[<>:"/\\|?*\s]+', "_", product).strip("_") or "product"
 
     new_entries = []
     temp_paths = []
     try:
-        for kind, upload in (("tir", tir_file), ("pricing", pricing_file)):
-            original = _safe_name(upload.filename or f"{kind}.bin")
-            ext = os.path.splitext(original)[1] or ""
-            safe_product = re.sub(r'[<>:"/\\|?*\s]+', "_", product).strip("_") or "product"
-            dest_filename = f"{clean_rfp_title(rfp_id)}__{safe_product}__{kind}__{original}"
+        for kind, uploads, dest_folder in (
+            ("tir", tir_files, tds_folder),
+            ("pricing", pricing_files, pricing_folder),
+        ):
+            for upload in uploads:
+                original = _safe_name(upload.filename or f"{kind}.bin")
+                ext = os.path.splitext(original)[1] or ""
+                dest_filename = f"{rfp_title}__{safe_product}__{kind}__{original}"
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-                content = await upload.read()
-                tmp.write(content)
-                tmp_path = tmp.name
-            temp_paths.append(tmp_path)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                    content = await upload.read()
+                    tmp.write(content)
+                    tmp_path = tmp.name
+                temp_paths.append(tmp_path)
 
-            res = graph_client.upload_file_as(tmp_path, tds_folder, dest_filename)
-            if getattr(res, "status_code", 0) not in (200, 201, 202):
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"SharePoint rejected {kind} upload: {getattr(res, 'status_code', '?')} {getattr(res, 'text', '')[:200]}",
-                )
+                res = graph_client.upload_file_as(tmp_path, dest_folder, dest_filename)
+                if getattr(res, "status_code", 0) not in (200, 201, 202):
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"SharePoint rejected {kind} upload '{original}': {getattr(res, 'status_code', '?')} {getattr(res, 'text', '')[:200]}",
+                    )
 
-            new_entries.append({
-                "kind": kind,
-                "filename": dest_filename,
-                "original_filename": original,
-                "sp_path": f"{tds_folder}/{dest_filename}",
-                "product": product,
-                "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "size_bytes": len(content),
-            })
+                new_entries.append({
+                    "kind": kind,
+                    "filename": dest_filename,
+                    "original_filename": original,
+                    "sp_path": f"{dest_folder}/{dest_filename}",
+                    "product": product,
+                    "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "size_bytes": len(content),
+                })
 
         if not is_preview:
             _append_upload_records(rfp_id, email, product, company_name, new_entries)
@@ -361,10 +405,17 @@ async def submit_upload(
             except OSError:
                 pass
 
+    def _summarize(kind: str):
+        return [
+            {"filename": e["filename"], "sp_path": e["sp_path"]}
+            for e in new_entries if e["kind"] == kind
+        ]
+
     return {
         "ok": True,
-        "tir": new_entries[0]["filename"],
-        "pricing": new_entries[1]["filename"],
-        "sp_folder": tds_folder,
+        "tir_files": _summarize("tir"),
+        "pricing_files": _summarize("pricing"),
+        "tds_folder": tds_folder,
+        "pricing_folder": pricing_folder,
         "preview": is_preview,
     }

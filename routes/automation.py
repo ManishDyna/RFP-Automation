@@ -228,6 +228,7 @@ async def dashboard_submit_rfp_endpoint(
     rfp_id: str = Form(...),
     excel_file: UploadFile = File(...),
     technical_files: list[UploadFile] = File(default=[]),
+    existing_tds_files: list[str] = Form(default=[]),
     company: str = Form("")
  ):
     """
@@ -364,7 +365,18 @@ async def dashboard_submit_rfp_endpoint(
                     print(f"[ERROR] Failed to upload TDS file '{uf.filename}': {e}")
 
             print(f"TDS upload complete: {uploaded_count}/{len(valid_tds_files)} files saved to TDS-files folder")
-        
+
+        # Build the allow-list of TDS filenames the automation should use.
+        # Combines: (a) names user picked from existing SharePoint files,
+        #           (b) names of files just uploaded in this submission.
+        # If empty, the automation falls back to using every PDF in the TDS folder
+        # (preserves prior behavior for callers that don't send the new field).
+        selected_existing = [name.strip() for name in (existing_tds_files or []) if (name or "").strip()]
+        uploaded_names = [os.path.basename((uf.filename or "").strip()) for uf in valid_tds_files if (uf.filename or "").strip()]
+        allowed_tds_filenames = list({n for n in (selected_existing + uploaded_names) if n}) or None
+        if allowed_tds_filenames:
+            print(f"[TDS] Restricting automation to {len(allowed_tds_filenames)} TDS file(s): {allowed_tds_filenames}")
+
         # Now trigger the automation in background
         # Thread-safe atomic check-and-set
         if not _try_start_operation("submit"):
@@ -372,7 +384,7 @@ async def dashboard_submit_rfp_endpoint(
 
         async def _task():
             try:
-                await run_automation_submit(rfp_id, selected_company or None)
+                await run_automation_submit(rfp_id, selected_company or None, allowed_tds_filenames=allowed_tds_filenames)
             finally:
                 _finish_operation("submit")
                 invalidate_dashboard_caches()  # Flush cache so Draft tab reflects immediately
@@ -404,6 +416,40 @@ async def dashboard_submit_rfp_endpoint(
                     os.unlink(p)
             except Exception:
                 pass
+
+@router.get("/dashboard/list-tds-files")
+async def list_existing_tds_files(rfp_id: str = Query(...), company: str = Query("")):
+    """
+    List existing PDF files in the SharePoint TDS-files folder for a given RFP.
+    Used by the Submit RFP dialog so users can pick already-uploaded files instead
+    of re-uploading them.
+    """
+    if not rfp_id:
+        raise HTTPException(status_code=400, detail="rfp_id is required")
+
+    target_company = (company or "").strip() or get_setting("COMPANY_NAME", "")
+    tds_folder = get_sharepoint_rfp_tds_path(rfp_id, target_company)
+
+    try:
+        graph_client = GraphClient(
+            get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+            get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", "")
+        )
+        graph_client.auth()
+        graph_client.resolve_site_and_drive()
+        files = graph_client.list_files_in_directory(tds_folder, ['.pdf']) or []
+    except Exception as e:
+        print(f"[WARN] Could not list TDS folder for {rfp_id}/{target_company}: {e}")
+        files = []
+
+    return JSONResponse({
+        "ok": True,
+        "rfp_id": rfp_id,
+        "company": target_company,
+        "folder": tds_folder,
+        "files": [{"name": f.get("name", ""), "path": f.get("path", "")} for f in files],
+    })
+
 
 @router.post("/submit-rfp")
 async def submit_rfp_endpoint(payload: dict = Body(...)):

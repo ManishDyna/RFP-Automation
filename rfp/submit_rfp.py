@@ -1,5 +1,6 @@
 import time
 import re
+import os
 import asyncio
 import tempfile
 from pathlib import Path
@@ -325,11 +326,14 @@ async def upload_attachments_via_bidding_console(
 
         await page.wait_for_timeout(300)
 
-async def build_materials_dict_from_excel_reuse(excel_local_path: str, graph_client, rfp_title: str, company_name: str) -> Dict[str, str]:
+async def build_materials_dict_from_excel_reuse(excel_local_path: str, graph_client, rfp_title: str, company_name: str, allowed_tds_filenames: list[str] | None = None) -> Dict[str, str]:
     """
     Builds { material_code: local_pdf_path } by listing all PDFs in the TDS folder
     and matching them to material codes found in the Excel file.
     Matches when a material code appears anywhere in the filename.
+
+    If `allowed_tds_filenames` is provided, only files whose basename is in that
+    set are considered (user-selected subset from the Submit RFP dialog).
     """
     codes = extract_materials_from_excel(excel_local_path, include_details=False)
     print(f"📋 Material codes from Excel: {sorted(codes)}")
@@ -350,6 +354,13 @@ async def build_materials_dict_from_excel_reuse(excel_local_path: str, graph_cli
         tds_files = []
 
     print(f"📎 Found {len(tds_files)} PDF(s) in TDS folder: {[f['name'] for f in tds_files]}")
+
+    # Restrict to user-selected files when caller provided an allow-list
+    if allowed_tds_filenames:
+        allowed = {os.path.basename(n).strip() for n in allowed_tds_filenames if (n or "").strip()}
+        before = len(tds_files)
+        tds_files = [f for f in tds_files if os.path.basename(f.get("name", "")).strip() in allowed]
+        print(f"🎯 Filtered TDS files by user selection: {len(tds_files)}/{before} kept (allow-list: {sorted(allowed)})")
 
     if not tds_files:
         print("⚠ No TDS files found in SharePoint folder")
@@ -391,7 +402,7 @@ async def build_materials_dict_from_excel_reuse(excel_local_path: str, graph_cli
 
 
 # 🔹 Main process flow
-async def flow_of_process_according_to_step(page, current_position: int, graph_client: Any, title: str, company_name: str, rfp_id: str = None) -> bool:
+async def flow_of_process_according_to_step(page, current_position: int, graph_client: Any, title: str, company_name: str, rfp_id: str = None, allowed_tds_filenames: list[str] | None = None) -> bool:
     # Log start of submit flow for this RFP
     try:
         log_event("RFP", "Submit", "Start", f"Begin submit flow for '{title}'", title)
@@ -745,12 +756,12 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
     # Attached Files after uploading excel file with their respective sections
     # Use rfp_id for TDS lookup since that's how files were uploaded
     tds_title = rfp_id if rfp_id else title
-    materials_files = await build_materials_dict_from_excel_reuse(upload_path, graph_client, tds_title, company_name=company_name)
+    materials_files = await build_materials_dict_from_excel_reuse(upload_path, graph_client, tds_title, company_name=company_name, allowed_tds_filenames=allowed_tds_filenames)
     print("materials_files:-",materials_files)
     # If no materials found with rfp_id, try with portal title as fallback
     if not materials_files and rfp_id and rfp_id != title:
         print(f"🔄 No TDS files found with rfp_id '{rfp_id}', trying portal title '{title}'...")
-        materials_files = await build_materials_dict_from_excel_reuse(upload_path, graph_client, title, company_name=company_name)
+        materials_files = await build_materials_dict_from_excel_reuse(upload_path, graph_client, title, company_name=company_name, allowed_tds_filenames=allowed_tds_filenames)
         print("materials_files (fallback):-",materials_files)
 
     await upload_attachments_via_bidding_console(page, materials_files)
@@ -816,7 +827,7 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
     return True
 
 # 🔹 High-level RFP submission
-async def submit_rfp(page, data: List[Dict[str, str]], rfp_id: str, graph_client: Any, company_name: str) -> List[Dict[str, str]]:
+async def submit_rfp(page, data: List[Dict[str, str]], rfp_id: str, graph_client: Any, company_name: str, allowed_tds_filenames: list[str] | None = None) -> List[Dict[str, str]]:
    
     filtered_data = []
     for row in data:
@@ -862,7 +873,7 @@ async def submit_rfp(page, data: List[Dict[str, str]], rfp_id: str, graph_client
             await new_page.wait_for_load_state()
 
             current_position = await get_wizstep_position(new_page)
-            if await flow_of_process_according_to_step(new_page, current_position, graph_client=graph_client, title=title, company_name=company_name, rfp_id=rfp_id):
+            if await flow_of_process_according_to_step(new_page, current_position, graph_client=graph_client, title=title, company_name=company_name, rfp_id=rfp_id, allowed_tds_filenames=allowed_tds_filenames):
 
                 print(f"✅ RFP '{title}' processed successfully.")
                 # Update participation status to "saved_draft"

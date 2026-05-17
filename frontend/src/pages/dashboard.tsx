@@ -33,6 +33,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Progress } from '@/components/ui/progress'
@@ -45,6 +46,11 @@ import { useHasPermission } from '@/hooks/use-auth'
 const VIRTUALIZATION_THRESHOLD = 50
 
 // Format ISO date string as "25 April 2021" — returns null when unparseable.
+// Uses UTC accessors so values display the same regardless of the viewer's
+// timezone. This matches the publish_time column's intended semantics: the
+// stored "8:10 PM" is meant to be "8:10 PM" everywhere (TimeZoneIndependent
+// once the column is migrated). Local-TZ accessors would shift the day for
+// non-KSA viewers after the migration.
 function formatLongDate(value: string | null | undefined): string | null {
   if (!value || value === '-') return null
   const d = new Date(value)
@@ -53,7 +59,7 @@ function formatLongDate(value: string | null | undefined): string | null {
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December',
   ]
-  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
 
 // Metric Card Component
@@ -65,9 +71,12 @@ interface MetricCardProps {
   trendUp?: boolean
   href?: string
   variant?: 'default' | 'success' | 'warning' | 'danger' | 'info'
+  breakdown?: Array<{ label: string; value: number }>
+  fallbackNote?: string
+  hoverList?: { title: string; items: Array<{ id: string; subtitle?: string }> }
 }
 
-function MetricCard({ title, value, icon, trend, trendUp, href, variant = 'default' }: MetricCardProps) {
+function MetricCard({ title, value, icon, trend, trendUp, href, variant = 'default', breakdown, fallbackNote, hoverList }: MetricCardProps) {
   const variantStyles = {
     default: 'bg-slate-50 text-slate-600',
     success: 'bg-emerald-50 text-emerald-600',
@@ -96,6 +105,23 @@ function MetricCard({ title, value, icon, trend, trendUp, href, variant = 'defau
           <div className="space-y-1 sm:space-y-2 min-w-0">
             <p className="text-xs sm:text-sm font-medium text-slate-500 truncate">{title}</p>
             <p className="font-bold text-slate-900 tracking-tight text-base sm:text-lg xl:text-xl break-words">{value}</p>
+            {breakdown && breakdown.length > 0 && (
+              <div className="text-[11px] sm:text-xs font-medium text-slate-500 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                {breakdown.map((b, i) => (
+                  <span key={b.label} className="inline-flex items-center">
+                    {i > 0 && <span className="mr-1.5 text-slate-300">·</span>}
+                    <span className="text-slate-400">{b.label}</span>
+                    <span className="ml-1 font-semibold text-slate-700">{b.value}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {fallbackNote && (
+              <div className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded" title={fallbackNote}>
+                <AlertCircle className="h-3 w-3" />
+                <span>fallback</span>
+              </div>
+            )}
             {trend && (
               <div className={cn(
                 'inline-flex items-center gap-1 text-xs font-medium',
@@ -119,11 +145,43 @@ function MetricCard({ title, value, icon, trend, trendUp, href, variant = 'defau
     </Card>
   )
 
-  if (href) {
-    return <Link to={href} className="block">{content}</Link>
+  const wrapped = href ? <Link to={href} className="block">{content}</Link> : content
+
+  if (hoverList && hoverList.items.length > 0) {
+    return (
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div>{wrapped}</div>
+          </TooltipTrigger>
+          <TooltipContent
+            side="bottom"
+            align="start"
+            className="max-w-sm p-0 overflow-hidden"
+          >
+            <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
+              <p className="text-xs font-semibold text-slate-700">
+                {hoverList.title}{' '}
+                <span className="text-slate-400 font-normal">({hoverList.items.length})</span>
+              </p>
+            </div>
+            <div className="max-h-72 overflow-y-auto py-1">
+              {hoverList.items.map((it) => (
+                <div key={it.id} className="px-3 py-1.5 hover:bg-slate-50">
+                  <p className="text-xs font-medium text-slate-800 truncate" title={it.id}>{it.id}</p>
+                  {it.subtitle && (
+                    <p className="text-[11px] text-slate-500 truncate" title={it.subtitle}>{it.subtitle}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
   }
 
-  return content
+  return wrapped
 }
 
 function MetricCardSkeleton() {
@@ -443,7 +501,7 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
                       )}
                     </TableCell>
                     <TableCell className="text-slate-600 text-sm">{rfp.Owner_Name || '-'}</TableCell>
-                    <TableCell className="text-slate-500 text-sm">{rfp.Publish_Time || '-'}</TableCell>
+                    <TableCell className="text-slate-500 text-sm">{formatDateMDY(rfp.Publish_Time)}</TableCell>
                     <TableCell className="text-slate-500 text-sm">{rfp.RFP_End_Date || '-'}</TableCell>
                     <TableCell>
                       {pct !== null ? (
@@ -774,7 +832,7 @@ export default function DashboardPage() {
         if (!first && !last) return null
         return (
           <p className="-mt-6 mb-6 text-sm text-slate-700">
-            <span className="font-bold">Data-Timeline :-</span>{' '}
+            <span className="font-bold">RFP Date Range :-</span>{' '}
             <span className="font-semibold text-slate-900">
               {first ?? '—'} To {last ?? '—'}
             </span>
@@ -831,6 +889,50 @@ export default function DashboardPage() {
             />
           </>
         )}
+      </div>
+
+      {/* System-action metrics (counted from audit log) */}
+      <div className="mb-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+          By Our System
+        </p>
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 mb-6">
+          {isLoading ? (
+            <>
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+            </>
+          ) : (
+            <>
+              <MetricCard
+                title="Submitted by System"
+                value={data?.total_submitted_by_system ?? 0}
+                icon={<CheckCircle2 className="h-5 w-5" />}
+                variant="success"
+                hoverList={{
+                  title: 'Submitted RFPs',
+                  items: (data?.submitted_by_system_rfps ?? []).map((r: { RFP_ID: string; Company_Name?: string }) => ({
+                    id: r.RFP_ID,
+                    subtitle: r.Company_Name,
+                  })),
+                }}
+              />
+              <MetricCard
+                title="Declined by System"
+                value={data?.total_declined_by_system ?? 0}
+                icon={<XCircle className="h-5 w-5" />}
+                variant="danger"
+                hoverList={{
+                  title: 'Declined RFPs',
+                  items: (data?.declined_by_system_rfps ?? []).map((r: { RFP_ID: string; Company_Name?: string }) => ({
+                    id: r.RFP_ID,
+                    subtitle: r.Company_Name,
+                  })),
+                }}
+              />
+            </>
+          )}
+        </div>
       </div>
 
       {/* RFP Management Section */}

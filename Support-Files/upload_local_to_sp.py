@@ -3,8 +3,14 @@ Upload Local → SharePoint (one-way)
 
 Scans local ALLRFPs/<Company>/<RFP_ID>/downloaded-rfp/ folders
 and uploads files to SharePoint for any RFP not already present there.
+
+Usage:
+  python -m Support-Files.upload_local_to_sp                 # all companies
+  python -m Support-Files.upload_local_to_sp --company "X"   # one company
+  python -m Support-Files.upload_local_to_sp --company "X" --company "Y"
 """
 
+import argparse
 import os
 import re
 
@@ -20,9 +26,13 @@ def _safe_company(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', '_', name).strip().rstrip('.')
 
 
-def _list_local_rfps(company_name: str) -> list:
-    """Scan ALLRFPs/<Company>/ and return RFP entries with Excel files."""
-    company_dir = os.path.join(OUTPUT_DIR, _safe_company(company_name))
+def _list_local_rfps(company_name: str, base_dir: str = None) -> list:
+    """Scan <base_dir>/<Company>/ and return RFP entries with Excel files.
+
+    base_dir defaults to OUTPUT_DIR (project-root ALLRFPs/).
+    """
+    base = base_dir or OUTPUT_DIR
+    company_dir = os.path.join(base, _safe_company(company_name))
     results = []
 
     if not os.path.isdir(company_dir):
@@ -66,6 +76,29 @@ def main():
     from core.common_imports import GraphClient
     from helpers.core_helper import get_sharepoint_rfp_material_path
 
+    parser = argparse.ArgumentParser(description="Upload local RFP Excels to SharePoint")
+    parser.add_argument(
+        "--company", action="append", default=None,
+        help="Limit to one or more companies (repeatable). Default: all in COMPANY_OPTIONS."
+    )
+    parser.add_argument(
+        "--base-dir", default=None,
+        help="Local ALLRFPs base directory. Default: project-root ALLRFPs/ from OUTPUT_DIR."
+    )
+    args = parser.parse_args()
+
+    companies = args.company if args.company else COMPANY_OPTIONS
+    base_dir = args.base_dir
+    if base_dir:
+        base_dir = os.path.abspath(base_dir)
+        print(f"[INFO] Using base directory: {base_dir}")
+
+    # Validate company names against known options
+    unknown = [c for c in companies if c not in COMPANY_OPTIONS]
+    if unknown:
+        print(f"[WARN] Unknown company name(s) not in COMPANY_OPTIONS: {unknown}")
+        print(f"       Known: {COMPANY_OPTIONS}")
+
     # ── Init SharePoint client ──
     sp = GraphClient(
         CLIENT_ID, CLIENT_SECRET, TENANT_ID,
@@ -78,12 +111,12 @@ def main():
     total_skipped = 0
     total_failed = 0
 
-    for company in COMPANY_OPTIONS:
+    for company in companies:
         print(f"\n{'='*60}")
         print(f"Company: {company}")
         print('='*60)
 
-        local_rfps = _list_local_rfps(company)
+        local_rfps = _list_local_rfps(company, base_dir=base_dir)
         if not local_rfps:
             print("  No local RFPs found.")
             continue

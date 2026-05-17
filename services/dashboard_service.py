@@ -164,6 +164,65 @@ def _automation_fetch_from_dataverse(top=200):
         return []
 
 
+def _get_system_action_sets():
+    # Returns (submitted_ids, declined_ids).
+    # Source of truth: the RFP status-history table cr673_bhara_rfp_statuses.
+    # We read the `to_this` column — it records the status the RFP
+    # transitioned INTO. Our automation writes `to_this='saved_draft'` when
+    # it submits via the portal, and `to_this='declined'` when it declines.
+    # We dedupe by rfp_id so each RFP is counted at most once even if it
+    # went through multiple transitions.
+    status_api = get_setting("RFP_STATUS_TABLE_API", "cr673_bhara_rfp_statuses")
+    status_logical = get_setting("RFP_STATUS_TABLE_LOGICAL", "cr673_bhara_rfp_status")
+    submitted, declined = set(), set()
+    try:
+        rows = DATAVERSE.get_all_rows(
+            table_api_name=status_api,
+            table_logical_name=status_logical,
+            use_display_names=True,
+        )
+    except Exception as e:
+        print(f"⚠ _get_system_action_sets: rfp_statuses read failed: {e}")
+        return submitted, declined
+
+    def _find_key(row, candidates):
+        keys_lower = {k.lower().replace(" ", "").replace("_", ""): k for k in row.keys()}
+        for c in candidates:
+            norm = c.lower().replace(" ", "").replace("_", "")
+            if norm in keys_lower:
+                return keys_lower[norm]
+        return None
+
+    rfp_key = None
+    to_key = None
+    for r in rows or []:
+        if rfp_key is None:
+            rfp_key = _find_key(r, ["RFP_ID", "rfp_id", "rfpreference", "RFP Reference"])
+        if to_key is None:
+            to_key = _find_key(r, ["to_this", "tothis", "currentstatus", "CurrentStatus"])
+        if rfp_key and to_key:
+            break
+
+    if not rfp_key or not to_key:
+        print(f"⚠ _get_system_action_sets: could not resolve rfp_id or to_this columns (rfp_key={rfp_key}, to_key={to_key}). Sample row keys: {list((rows[0] if rows else {}).keys())}")
+        return submitted, declined
+
+    for r in rows or []:
+        raw_rid = r.get(rfp_key)
+        rid = (raw_rid.strip() if isinstance(raw_rid, str) else str(raw_rid or "").strip())
+        if not rid:
+            continue
+        raw_to = r.get(to_key)
+        to_val = (raw_to.strip().lower() if isinstance(raw_to, str) else str(raw_to or "").strip().lower())
+        if to_val == "saved_draft":
+            submitted.add(rid)
+        elif to_val == "declined":
+            declined.add(rid)
+
+    print(f"_get_system_action_sets: rfp_statuses → submitted={len(submitted)}, declined={len(declined)} (from {len(rows or [])} status rows)")
+    return submitted, declined
+
+
 def get_dashboard_data():
     try:
         print(f"Starting dashboard data fetch at {datetime.now()}")
@@ -219,31 +278,19 @@ def get_dashboard_data():
                 use_display_names=True,
             )
 
-        def _fetch_first_rfp_date():
-            """Return the earliest row's `createdon` (Dataverse system DateTime).
-            We use `createdon` instead of `publish_time` because publish_time is
-            a TEXT column and OData $orderby on text sorts lexicographically."""
-            rows = DATAVERSE.get_rows_from_dataverse(
+        def _fetch_publish_timeline():
+            """Pull only publish_time across all rows. publish_time is a TEXT
+            column (e.g. '2/23/2026 8:10 PM'), so OData $orderby is unreliable
+            — we parse every value with pd.to_datetime and take min/max in
+            Python. We DO want publish_time (not createdon) because createdon
+            reflects when each row was inserted into Dataverse, which is much
+            more recent than the actual portal publish dates."""
+            return DATAVERSE.get_all_rows(
                 table_api_name=_table_api,
-                select_columns=["createdon"],
-                order_by="createdon asc",
-                top=1,
+                select_columns=["publish_time"],
                 table_logical_name=_table_logical,
                 use_display_names=True,
             )
-            return rows[0].get("createdon") if rows else None
-
-        def _fetch_last_rfp_date():
-            """Return the latest row's `createdon`."""
-            rows = DATAVERSE.get_rows_from_dataverse(
-                table_api_name=_table_api,
-                select_columns=["createdon"],
-                order_by="createdon desc",
-                top=1,
-                table_logical_name=_table_logical,
-                use_display_names=True,
-            )
-            return rows[0].get("createdon") if rows else None
 
         total_all_rfps = 0
         total_submitted_rfps = 0
@@ -251,11 +298,10 @@ def get_dashboard_data():
         total_open_rfps = 0
         total_not_participated_rfps = 0
         rfp_rows = []
-        first_created_on = None
-        last_created_on = None
+        publish_timeline_rows = []
 
         try:
-            with ThreadPoolExecutor(max_workers=8) as executor:
+            with ThreadPoolExecutor(max_workers=7) as executor:
                 futures = {
                     executor.submit(_count, "total"): "total",
                     executor.submit(_count, "submitted", "participated eq 'submitted' or participated eq 'yes'"): "submitted",
@@ -263,8 +309,7 @@ def get_dashboard_data():
                     executor.submit(_count, "open", f"RFP_End_Date ge {now_iso} and (participated eq '' or participated eq 'no' or participated eq null)"): "open",
                     executor.submit(_count, "not_participated", f"RFP_End_Date lt {now_iso} and (participated eq '' or participated eq 'no' or participated eq null)"): "not_participated",
                     executor.submit(_fetch_future): "future_rows",
-                    executor.submit(_fetch_first_rfp_date): "first_rfp_date",
-                    executor.submit(_fetch_last_rfp_date): "last_rfp_date",
+                    executor.submit(_fetch_publish_timeline): "publish_timeline",
                 }
                 for future in as_completed(futures):
                     key = futures[future]
@@ -272,10 +317,8 @@ def get_dashboard_data():
                         result = future.result()
                         if key == "future_rows":
                             rfp_rows = result
-                        elif key == "first_rfp_date":
-                            first_created_on = result
-                        elif key == "last_rfp_date":
-                            last_created_on = result
+                        elif key == "publish_timeline":
+                            publish_timeline_rows = result
                         else:
                             label, count = result
                             if label == "total": total_all_rfps = count
@@ -436,14 +479,76 @@ def get_dashboard_data():
 
         unique_companies_list = sorted(list(unique_companies))
 
-        # Data timeline sourced from Dataverse's `createdon` system column
-        # (proper DateTime) — two single-row queries already ran in parallel
-        # above, so this is just unwrapping the results.
+        # Data timeline sourced from `publish_time` (TEXT column with KSA-local
+        # values like '2/23/2026 8:10 PM'). OData $orderby on text is unreliable,
+        # so we parse every value with pd.to_datetime and take min/max here.
+        # publish_time reflects the actual portal publish date, which goes back
+        # years — unlike `createdon` which only tracks when we inserted the row.
+        first_publish_iso = "-"
+        last_publish_iso = "-"
+        parsed_count = 0
+        try:
+            if publish_timeline_rows:
+                pt_series = pd.to_datetime(
+                    pd.Series([r.get("publish_time", "") for r in publish_timeline_rows]),
+                    errors="coerce",
+                )
+                parsed_count = int(pt_series.notna().sum())
+                pt_series = pt_series.dropna()
+                if not pt_series.empty:
+                    if pt_series.dt.tz is not None:
+                        pt_series = pt_series.dt.tz_localize(None)
+                    first_publish_iso = _ist_to_utc_iso(pt_series.min())
+                    last_publish_iso = _ist_to_utc_iso(pt_series.max())
+        except Exception as e:
+            print(f"Error computing publish timeline: {e}")
+
         data_timeline = {
-            "first_rfp_date": first_created_on or "-",
-            "last_rfp_date": last_created_on or "-",
+            "first_rfp_date": first_publish_iso,
+            "last_rfp_date": last_publish_iso,
         }
-        print(f"Timeline (createdon): first={data_timeline['first_rfp_date']}, last={data_timeline['last_rfp_date']}")
+        print(
+            f"Timeline (publish_time): rows={len(publish_timeline_rows)}, "
+            f"parsed={parsed_count}, first={first_publish_iso}, last={last_publish_iso}"
+        )
+
+        # ── System-action counts from cr673_bhara_rfp_statuses ──
+        # DISTINCT RFP_IDs with `from_this = 'saved_draft'` → Submitted by System.
+        # DISTINCT RFP_IDs with `from_this = 'declined'`    → Declined by System.
+        submitted_ids, declined_ids = _get_system_action_sets()
+        system_breakdown_by_company = {}
+        submitted_by_system_rfps = []
+        declined_by_system_rfps = []
+        if submitted_ids or declined_ids:
+            try:
+                all_rfp_rows_for_index = get_rfp_activity_data_lightweight()
+            except Exception as e:
+                print(f"⚠ Could not build full RFP index for system breakdowns: {e}")
+                all_rfp_rows_for_index = []
+            rfp_index = {}
+            for r in all_rfp_rows_for_index or []:
+                rid = (r.get("RFP_ID") or "").strip()
+                if rid:
+                    rfp_index[rid] = r
+
+            for rid in sorted(submitted_ids):
+                row = rfp_index.get(rid) or {}
+                co = (row.get("Company_Name") or "").strip() or "Unknown"
+                submitted_by_system_rfps.append({"RFP_ID": rid, "Company_Name": co})
+                system_breakdown_by_company.setdefault(co, {"submitted": 0, "declined": 0})["submitted"] += 1
+
+            for rid in sorted(declined_ids):
+                row = rfp_index.get(rid) or {}
+                co = (row.get("Company_Name") or "").strip() or "Unknown"
+                declined_by_system_rfps.append({"RFP_ID": rid, "Company_Name": co})
+                system_breakdown_by_company.setdefault(co, {"submitted": 0, "declined": 0})["declined"] += 1
+
+        total_submitted_by_system = len(submitted_ids)
+        total_declined_by_system = len(declined_ids)
+        print(
+            f"System action counts: submitted={total_submitted_by_system}, "
+            f"declined={total_declined_by_system}, companies_in_breakdown={len(system_breakdown_by_company)}"
+        )
 
         data = {
             "rfp": rfp_stats,
@@ -457,6 +562,11 @@ def get_dashboard_data():
             "total_declined_rfps": total_declined_rfps,
             "total_open_rfps": total_open_rfps,
             "total_not_participated_rfps": total_not_participated_rfps,
+            "total_submitted_by_system": total_submitted_by_system,
+            "total_declined_by_system": total_declined_by_system,
+            "submitted_by_system_rfps": submitted_by_system_rfps,
+            "declined_by_system_rfps": declined_by_system_rfps,
+            "system_breakdown_by_company": system_breakdown_by_company,
             "companies_rfps": companies_rfps,
             "unique_companies": unique_companies_list,
             "data_timeline": data_timeline,

@@ -13,6 +13,7 @@ from services.open_rfp_service import (
     get_rfps_with_email_sent,
     get_rfp_response_status,
     send_rfp_reminder,
+    delegate_rfp_recipient,
 )
 
 router = APIRouter(prefix="/api/open-rfp", tags=["open-rfp"])
@@ -20,6 +21,13 @@ router = APIRouter(prefix="/api/open-rfp", tags=["open-rfp"])
 
 class RemindBody(BaseModel):
     emails: List[str]
+
+
+class DelegateBody(BaseModel):
+    product: str
+    original_email: str
+    new_email: str
+    new_name: str
 
 
 @router.get("/list")
@@ -65,5 +73,33 @@ async def remind_rfp(
             actor_name=actor_name,
         )
         return JSONResponse({"ok": True, **result})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{rfp_id}/delegate")
+async def delegate_rfp(
+    rfp_id: str,
+    body: DelegateBody,
+    request: Request,
+    user: dict = Depends(require_permission("rfp.open.delegate")),
+):
+    actor_email = (user.get("email") or "").strip()
+    actor_name = (user.get("name") or user.get("full_name") or actor_email).strip()
+    try:
+        result = delegate_rfp_recipient(
+            rfp_id=rfp_id,
+            product=body.product,
+            original_email=body.original_email,
+            new_email=body.new_email,
+            new_name=body.new_name,
+            actor_email=actor_email,
+            actor_name=actor_name,
+        )
+        if not result.get("ok"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Delegation failed"))
+        return JSONResponse(result)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -636,12 +636,14 @@ def get_all_rfp_team_for_emails() -> List[Dict[str, str]]:
             use_display_names=True,
         )
         team = []
+        pk_logical = f"{get_setting('RFP_TEAM_DV_TABLE_LOGICAL', 'cr673_bahra_rfp_team')}id"
         for r in rows:
             if str(r.get("is_active", "")).lower() != "true":
                 continue
             if not r.get("product") or not r.get("name") or not r.get("email"):
                 continue
             member = {
+                "record_id": _extract_record_id(r, pk_logical),
                 "product": str(r.get("product", "")).strip(),
                 "name": str(r.get("name", "")).strip(),
                 "email": (

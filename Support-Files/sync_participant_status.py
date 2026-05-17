@@ -145,9 +145,6 @@ def sync_statuses(file_path: str, dry_run: bool = False):
     # Build DB lookup
     db_lookup = build_db_lookup(dataverse)
 
-    # Get column mapping for status change logging
-    from helpers.core_helper import log_rfp_status_change
-
     # Counters
     total = len(df)
     skipped_not_found = 0
@@ -200,13 +197,6 @@ def sync_statuses(file_path: str, dry_run: bool = False):
             if success:
                 updated += 1
                 logger.info(f"  [{idx+1}/{total}] {rfp_id}: '{old_status}' → '{new_status}'")
-
-                # Log status change if status actually changed
-                if old_status.lower().strip() != new_status.lower().strip():
-                    try:
-                        log_rfp_status_change(rfp_id, old_status, new_status, "synced from portal")
-                    except Exception as e:
-                        logger.warning(f"  Could not log status change for {rfp_id}: {e}")
             else:
                 failed += 1
                 logger.error(f"  [{idx+1}/{total}] {rfp_id}: UPDATE FAILED")

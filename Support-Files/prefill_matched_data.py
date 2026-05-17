@@ -41,26 +41,36 @@ def find_excel_file(rfp_id, company, graph_client):
         get_sharepoint_rfp_material_path, clean_rfp_title,
     )
 
+    clean_title = clean_rfp_title(rfp_id)
+
     # Try company-specific path first (fastest — no DB call)
     if company:
         path = get_rfp_excel_file_path(rfp_id, company)
         if os.path.exists(path):
             return path, company
 
-    # Search through all company folders locally (no DB call)
-    output_dir = os.path.join(os.getcwd(), "ALLRFPs")
-    clean_title = clean_rfp_title(rfp_id)
-    if os.path.exists(output_dir):
+    # Search through all company folders locally — check both root ALLRFPs/
+    # and Support-Files/ALLRFPs/ (where manually-scripted companies live).
+    project_root = os.getcwd()
+    search_roots = [
+        os.path.join(project_root, "ALLRFPs"),
+        os.path.join(project_root, "Support-Files", "ALLRFPs"),
+    ]
+    for output_dir in search_roots:
+        if not os.path.exists(output_dir):
+            continue
         for company_folder in os.listdir(output_dir):
             company_path = os.path.join(output_dir, company_folder)
             if not os.path.isdir(company_path):
                 continue
-            try:
-                path = get_rfp_excel_file_path(rfp_id, company_folder)
-                if os.path.exists(path):
-                    return path, company_folder
-            except Exception:
-                continue
+            # Direct check on this base directory (don't rely on get_rfp_excel_file_path,
+            # which only knows about OUTPUT_DIR).
+            for ext in (".xls", ".xlsx"):
+                candidate = os.path.join(
+                    company_path, clean_title, "downloaded-rfp", f"{clean_title}{ext}"
+                )
+                if os.path.exists(candidate):
+                    return candidate, company_folder
 
     # Not found locally — try downloading from SharePoint
     if graph_client and company:

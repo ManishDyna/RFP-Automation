@@ -641,7 +641,7 @@ async def run_automation_download_open_rfps():
     return {"status": "success", "message": summary_msg, "summary": summary}
 
 
-async def run_automation_submit(rfp_id: str, company: str | None = None):
+async def run_automation_submit(rfp_id: str, company: str | None = None, allowed_tds_filenames: list[str] | None = None):
     start_new_run()  # Generate new unique RUN_ID for this automation run
     log_event("SYSTEM", "StartRun", "Success", f"Submit RFP {rfp_id} started")
     target_company = _resolve_company(company)
@@ -662,7 +662,7 @@ async def run_automation_submit(rfp_id: str, company: str | None = None):
                 profile_label=f"submit-{rfp_id}",
                 company=target_company,
             )
-            result = await submit_rfp(page, open_rfps, rfp_id, graph_client, target_company)
+            result = await submit_rfp(page, open_rfps, rfp_id, graph_client, target_company, allowed_tds_filenames=allowed_tds_filenames)
             # result is a list of failed/missing RFPs; empty list means success
             # Check if result contains an "RFP not found" error (portal scraping failed)
             rfp_not_found = any(

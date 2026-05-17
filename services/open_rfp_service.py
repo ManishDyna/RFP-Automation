@@ -30,9 +30,21 @@ _REMINDER_DEDUPE: Dict[tuple, datetime] = {}
 _REMINDER_LOCK = threading.Lock()
 _DEDUPE_WINDOW_SECONDS = 10
 
+_DELEGATION_DEDUPE: Dict[tuple, datetime] = {}
+_DELEGATION_LOCK = threading.Lock()
+
 
 def _mdy_now() -> str:
     return datetime.now().strftime("%#m/%#d/%Y %#I:%M %p")
+
+
+def _parse_mdy(s: str) -> datetime:
+    """Parse our MDY storage format back to a datetime so chronological
+    sorts work across months (string sort breaks: '11/2/...' < '5/17/...')."""
+    try:
+        return datetime.strptime((s or "").strip(), "%m/%d/%Y %I:%M %p")
+    except Exception:
+        return datetime.min
 
 
 # --------------------------------------------------------------------------
@@ -54,7 +66,7 @@ def _group_team_by_email(team: List[Dict[str, Any]]) -> "OrderedDict[str, Dict[s
                 "readonly": bool(member.get("readonly", False)),
             }
         product = member.get("product")
-        if product:
+        if product and product not in grouped[em_lower]["products"]:
             grouped[em_lower]["products"].append(product)
     return grouped
 
@@ -221,6 +233,86 @@ def get_reminder_history(rfp_id: str) -> List[Dict[str, Any]]:
     return history
 
 
+def get_active_delegations(rfp_id: str) -> List[Dict[str, Any]]:
+    """Fetch all active delegations for an RFP, oldest first (so chains apply
+    in the order they were created)."""
+    table_api = get_setting("RFP_DELEGATION_TABLE_API", "cr673_bahra_rfp_delegationses")
+    table_logical = get_setting("RFP_DELEGATION_TABLE_LOGICAL", "cr673_bahra_rfp_delegations")
+    # Display-name filter — see [[project_email_table_columns]] note on
+    # cr673_bahra_rfp_reminder_for_info: this table was created with short
+    # display names too, so passing "cr673_rfp_id" trips the naive
+    # substring-replace in DataverseClient and double-prefixes to
+    # "cr673_cr673_rfp_id".
+    try:
+        result = DATAVERSE.query_rows(
+            table_api,
+            filter_expr=f"rfp_id eq '{rfp_id}'",
+            top=200,
+            table_logical_name=table_logical,
+            use_display_names=True,
+        )
+        rows = (result or {}).get("value", []) or []
+    except Exception as e:
+        print(f"[open_rfp] Could not fetch delegations for {rfp_id}: {e}")
+        rows = []
+
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        if str(r.get("is_active", "true")).lower() == "false":
+            continue
+        out.append({
+            "rfp_id": r.get("rfp_id", "") or "",
+            "product": r.get("product", "") or "",
+            "original_email": r.get("original_email", "") or "",
+            "original_name": r.get("original_name", "") or "",
+            "new_email": r.get("new_email", "") or "",
+            "new_name": r.get("new_name", "") or "",
+            "delegated_by_email": r.get("delegated_by_email", "") or "",
+            "delegated_by_name": r.get("delegated_by_name", "") or "",
+            "delegated_at": r.get("delegated_at", "") or "",
+        })
+    out.sort(key=lambda d: _parse_mdy(d.get("delegated_at", "")))
+    return out
+
+
+def _insert_delegation_row(
+    rfp_id: str,
+    product: str,
+    original_email: str,
+    original_name: str,
+    new_email: str,
+    new_name: str,
+    actor_email: str,
+    actor_name: str,
+) -> bool:
+    table_api = get_setting("RFP_DELEGATION_TABLE_API", "cr673_bahra_rfp_delegationses")
+    table_logical = get_setting("RFP_DELEGATION_TABLE_LOGICAL", "cr673_bahra_rfp_delegations")
+    now_str = _mdy_now()
+    row = {
+        "name": f"{rfp_id} | {product} | {original_email} -> {new_email}"[:500],
+        "rfp_id": rfp_id,
+        "product": product,
+        "original_email": original_email,
+        "original_name": original_name,
+        "new_email": new_email,
+        "new_name": new_name,
+        "delegated_by_email": actor_email,
+        "delegated_by_name": actor_name,
+        "delegated_at": now_str,
+        "is_active": "true",
+    }
+    try:
+        return bool(DATAVERSE.insert_row(
+            table_api_name=table_api,
+            data=row,
+            table_logical_name=table_logical,
+            use_display_names=True,
+        ))
+    except Exception as e:
+        print(f"[open_rfp] Failed to insert delegation row for {rfp_id} -> {new_email}: {e}")
+        return False
+
+
 def _parse_response_data(raw: str) -> Dict[str, Dict[str, str]]:
     """Parse cr673_response_data JSON → {product_lower: {results, remarks, ...}}.
     Returns an empty dict if the JSON is missing or malformed."""
@@ -311,13 +403,27 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
                 "former": False,
             })
 
+    # Pre-fetch delegations so we know which emails will get a proper
+    # chain row further down — those should not be surfaced here as
+    # "stranger responder" rows.
+    delegations = get_active_delegations(rfp_id)
+    delegated_to_emails = {
+        (d.get("new_email") or "").lower()
+        for d in delegations
+        if d.get("new_email")
+    }
+
     # Surface responders whose email is NOT in the live team table — could
     # be because the team was reconfigured after they submitted, the email
     # was changed, or the response was created in a different EMAIL_MODE.
     # Without this, a real response would silently vanish from the popup.
+    # We also skip emails that will be rendered as a chain's final recipient
+    # below — their response gets attached to the chain row instead.
     seen_emails = {r["email"].lower() for r in rows}
     for em_lower, resp in resp_by_email.items():
         if em_lower in seen_emails:
+            continue
+        if em_lower in delegated_to_emails:
             continue
         responded_at = resp.get("cr673_submitted_at", "") or ""
         responder_name = resp.get("cr673_name", "") or ""
@@ -359,10 +465,17 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
                 })
         seen_emails.add(em_lower)
 
+    # `delegations` and `delegated_to_emails` were pre-fetched above so
+    # responder-not-in-team would already skip chain finals. The same set
+    # also keeps intermediate-hop delegates out of the historical-reminder
+    # fallback below (their hops live in Reminder History only).
+
     # Historical reminder recipients no longer on the team and with no
     # response — surface them as pending rows so the audit trail is visible.
     for em_lower in reminder_count_by_email:
         if em_lower in seen_emails:
+            continue
+        if em_lower in delegated_to_emails:
             continue
         rows.append({
             "email": em_lower,
@@ -377,6 +490,103 @@ def get_rfp_response_status(rfp_id: str) -> Dict[str, Any]:
             "last_reminder_at": last_reminder_by_email.get(em_lower, ""),
             "former": True,
         })
+
+    # Collapse delegation chains so the modal shows only the *current*
+    # state of each (product, original_email) chain — not every hop.
+    # For A -> B -> C we render: A strikethrough "→ Delegated to C" and a
+    # single pending row for C ("Delegated from A"). B is hidden here;
+    # the full hop-by-hop trail stays visible in the Reminder History
+    # section below.
+    #
+    # Walk in chronological order; for each delegation, look for an existing
+    # chain whose current tip matches the new "original_email" and extend it.
+    # Otherwise start a new chain.
+    chains: Dict[tuple, Dict[str, Any]] = {}
+    for d in delegations:
+        prod_lower = (d.get("product") or "").lower()
+        old_lower = (d.get("original_email") or "").lower()
+
+        extend_key = None
+        for key, chain in chains.items():
+            if key[0] != prod_lower:
+                continue
+            if (chain["final_email"] or "").lower() == old_lower:
+                extend_key = key
+                break
+
+        if extend_key is not None:
+            chain = chains[extend_key]
+            chain["final_email"] = d["new_email"]
+            chain["final_name"] = d["new_name"]
+            chain["delegated_at"] = d["delegated_at"]
+            chain["delegated_by"] = d["delegated_by_name"] or d["delegated_by_email"]
+        else:
+            chains[(prod_lower, old_lower)] = {
+                "product": d["product"],
+                "original_email": d["original_email"],
+                "original_name": d["original_name"],
+                "final_email": d["new_email"],
+                "final_name": d["new_name"],
+                "delegated_at": d["delegated_at"],
+                "delegated_by": d["delegated_by_name"] or d["delegated_by_email"],
+            }
+
+    for (prod_lower, old_lower), chain in chains.items():
+        new_lower = (chain["final_email"] or "").lower()
+
+        # If the chain's final recipient has submitted a response, mirror
+        # it onto the chain row instead of showing them as pending. Their
+        # response was saved to cr6db_cr673_bahra_rfp_response (keyed by
+        # cr673_email) by the actionable-card /response handler, which
+        # now accepts delegates as a valid submitter for this RFP.
+        chain_resp = resp_by_email.get(new_lower)
+        if chain_resp is not None:
+            chain_products = _parse_response_data(
+                chain_resp.get("cr673_response_data", "") or ""
+            )
+            per_product = chain_products.get(prod_lower)
+            if per_product:
+                chain_results = per_product.get("results", "") or ""
+                chain_remarks = per_product.get("remarks", "") or ""
+            else:
+                chain_results = chain_resp.get("cr673_results", "") or ""
+                chain_remarks = chain_resp.get("cr673_remarks", "") or ""
+            chain_status = "responded"
+            chain_responded_at = chain_resp.get("cr673_submitted_at", "") or ""
+        else:
+            chain_results = ""
+            chain_remarks = ""
+            chain_status = "pending"
+            chain_responded_at = ""
+
+        rows.append({
+            "email": chain["final_email"],
+            "name": chain["final_name"],
+            "product": chain["product"] or "-",
+            "readonly": False,
+            "status": chain_status,
+            "results": chain_results,
+            "remarks": chain_remarks,
+            "responded_at": chain_responded_at,
+            "reminder_count": reminder_count_by_email.get(new_lower, 0),
+            "last_reminder_at": last_reminder_by_email.get(new_lower, ""),
+            "former": False,
+            "delegated_from_email": chain["original_email"],
+            "delegated_from_name": chain["original_name"],
+        })
+
+        for r in rows:
+            if (r.get("email") or "").lower() != old_lower:
+                continue
+            if (r.get("product") or "").lower() != prod_lower:
+                continue
+            if r.get("delegated_to_email"):
+                continue
+            r["delegated_to_email"] = chain["final_email"]
+            r["delegated_to_name"] = chain["final_name"]
+            r["delegated_at"] = chain["delegated_at"]
+            r["delegated_by"] = chain["delegated_by"]
+            break
 
     return {
         "rfp": {
@@ -604,3 +814,162 @@ def send_rfp_reminder(
 
     reminded_count = sum(1 for r in results if r["status"] == "Sent")
     return {"results": results, "reminded_count": reminded_count}
+
+
+# --------------------------------------------------------------------------
+# Delegate recipient — per-RFP override that hands off a product line to a
+# different email. Master cr673_bahra_rfp_team is NEVER touched.
+# --------------------------------------------------------------------------
+
+def delegate_rfp_recipient(
+    rfp_id: str,
+    product: str,
+    original_email: str,
+    new_email: str,
+    new_name: str,
+    actor_email: str,
+    actor_name: str,
+) -> Dict[str, Any]:
+    rfp_id = (rfp_id or "").strip()
+    product = (product or "").strip()
+    original_email = (original_email or "").strip()
+    new_email = (new_email or "").strip()
+    new_name = (new_name or "").strip()
+
+    if not rfp_id:
+        return {"ok": False, "error": "rfp_id is required"}
+    if not product:
+        return {"ok": False, "error": "product is required"}
+    if not original_email:
+        return {"ok": False, "error": "original_email is required"}
+    if not new_email or "@" not in new_email:
+        return {"ok": False, "error": "new_email is required and must be a valid email"}
+    if not new_name:
+        return {"ok": False, "error": "new_name is required"}
+    if new_email.lower() == original_email.lower():
+        return {"ok": False, "error": "new_email must differ from original_email"}
+
+    # Idempotency guard — drop double-clicks within the dedupe window
+    now = datetime.now()
+    cutoff = now.timestamp() - _DEDUPE_WINDOW_SECONDS
+    key = (rfp_id, product.lower(), new_email.lower())
+    with _DELEGATION_LOCK:
+        for k, ts in list(_DELEGATION_DEDUPE.items()):
+            if ts.timestamp() < cutoff:
+                _DELEGATION_DEDUPE.pop(k, None)
+        if key in _DELEGATION_DEDUPE:
+            return {"ok": False, "error": "Duplicate request within 10s — already in progress"}
+        _DELEGATION_DEDUPE[key] = now
+
+    # Validate the (product, original_email) pair is an active remindable row.
+    # Pulls live response status so we honour any prior delegations in the chain.
+    status = get_rfp_response_status(rfp_id)
+    matching_row = None
+    for r in status.get("rows", []):
+        if (r.get("product") or "").lower() != product.lower():
+            continue
+        if (r.get("email") or "").lower() != original_email.lower():
+            continue
+        if r.get("delegated_to_email"):
+            continue  # already delegated away — must delegate from the chain tip
+        if r.get("status") != "pending":
+            continue  # only pending rows can be delegated
+        if r.get("former"):
+            continue
+        matching_row = r
+        break
+    if not matching_row:
+        return {
+            "ok": False,
+            "error": "No active pending row matches the given (product, original_email). It may already be delegated or responded.",
+        }
+
+    original_name = (matching_row.get("name") or "").strip()
+    company_name = (status.get("rfp", {}).get("company_name") or "").strip()
+    rfp_end_date = (status.get("rfp", {}).get("rfp_end_date") or "-").strip() or "-"
+
+    # 1. Insert delegation row first so the popup reflects it even if the email fails
+    inserted = _insert_delegation_row(
+        rfp_id=rfp_id,
+        product=product,
+        original_email=original_email,
+        original_name=original_name,
+        new_email=new_email,
+        new_name=new_name,
+        actor_email=actor_email,
+        actor_name=actor_name,
+    )
+    if not inserted:
+        return {"ok": False, "error": "Failed to record delegation in Dataverse"}
+
+    # 2. Send the actionable card to the new recipient with a delegation banner
+    email_status = "Sent"
+    email_error = ""
+    try:
+        from helpers.email_helper import send_actionable_rfp_emails
+        graph_client = _build_graph_client()
+        send_actionable_rfp_emails(
+            rfp_id=rfp_id,
+            company_name=company_name,
+            rfp_end_date=rfp_end_date,
+            matched_csv_path=None,
+            graph_client=graph_client,
+            recipients_override=[{
+                "product": product,
+                "name": new_name,
+                "email": new_email,
+                "readonly": False,
+            }],
+            subject_prefix="Delegated: ",
+            delegation_banner=f"This RFP was delegated to you by {actor_name or actor_email}.",
+        )
+    except Exception as e:
+        email_status = "Failed"
+        email_error = str(e)[:1900]
+        print(f"[open_rfp] Delegation email send failed for {rfp_id} -> {new_email}: {e}")
+
+    # 3. Mirror into the reminder history table so the existing UI surfaces it
+    _record_reminder_row(
+        rfp_id, company_name, product,
+        new_email, new_name,
+        actor_email, actor_name,
+        "Delegated" if email_status == "Sent" else "Failed",
+        email_error or (f"Delegated from {original_email}"),
+    )
+
+    # 4. Audit log
+    try:
+        log_event(
+            action="RFP_DELEGATED",
+            category=AuditCategory.RFP,
+            actor_email=actor_email,
+            actor_name=actor_name,
+            target_type="rfp",
+            target_id=rfp_id,
+            details=json.dumps({
+                "rfp_id": rfp_id,
+                "product": product,
+                "original_email": original_email,
+                "original_name": original_name,
+                "new_email": new_email,
+                "new_name": new_name,
+                "email_status": email_status,
+                "email_error": email_error,
+            })[:4000],
+        )
+    except Exception as e:
+        print(f"[open_rfp] Audit log failed: {e}")
+
+    return {
+        "ok": True,
+        "delegation": {
+            "rfp_id": rfp_id,
+            "product": product,
+            "original_email": original_email,
+            "original_name": original_name,
+            "new_email": new_email,
+            "new_name": new_name,
+        },
+        "email_status": email_status,
+        "error": email_error,
+    }

@@ -34,6 +34,7 @@ PERMISSIONS = {
     "rfp.decline": "Decline RFPs",
     "rfp.open.view": "View Open RFP reminder tracker page",
     "rfp.open.remind": "Send reminder emails to RFP team members who haven't responded",
+    "rfp.open.delegate": "Delegate an RFP product line to a different recipient",
 
     # Dashboard
     "dashboard.view": "View main dashboard",
@@ -123,10 +124,11 @@ PERMISSION_CATEGORIES = {
     "rfp_operations": {
         "label": "RFP Operations",
         "permissions": {
-            "rfp.download":    "Download RFP",
-            "rfp.submit":      "Submit RFP",
-            "rfp.decline":     "Decline RFP",
-            "rfp.open.remind": "Send RFP Reminder",
+            "rfp.download":      "Download RFP",
+            "rfp.submit":        "Submit RFP",
+            "rfp.decline":       "Decline RFP",
+            "rfp.open.remind":   "Send RFP Reminder",
+            "rfp.open.delegate": "Delegate RFP",
         },
     },
     "user_management": {
@@ -198,6 +200,7 @@ DEFAULT_ROLES = {
             "rfp.submit",
             "rfp.decline",
             "rfp.open.view",
+            "rfp.open.delegate",
             "dashboard.view",
             "logs.view",
             "material_insights.view",

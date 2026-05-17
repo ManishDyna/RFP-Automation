@@ -247,41 +247,70 @@ def _build_input_widget_indexed(col_def: dict, index: int) -> dict:
         }
 
 
+def _parse_emails_for_card(field: str) -> list:
+    """Mirror of routes.actionable_cards._parse_emails — kept local so this
+    module doesn't depend on the routes layer at import time."""
+    if not field:
+        return []
+    out, seen = [], set()
+    for part in str(field).replace(";", ",").split(","):
+        e = part.strip().lower()
+        if e and e not in seen:
+            out.append(e)
+            seen.add(e)
+    return out
+
+
 def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_name, callback_url, originator_id, matched_line="", readonly=False, all_team_members=None, own_products=None):
     """
-    Build an Adaptive Card JSON string for one person (grouped by email).
-    Shows ALL products from the team, but only the person's own products
-    have editable input fields. Other rows show "Pending".
+    Build the initial Adaptive Card JSON for one recipient.
+
+    Row-level model: each team-table row is one responsibility. The row's email field
+    may list multiple alternates (comma-separated). The current user can edit a row
+    only if their email is one of that row's alternates. Two team-table rows for the
+    same product render as TWO independent rows — both need an answer.
 
     Args:
-        products: list of product names assigned to this person (own products)
-        all_team_members: full RFP_TEAM_TABLE for building all product rows
-        own_products: explicit list of products this person can edit (defaults to products)
+        products: list of product names the recipient is on (used only for header text)
+        all_team_members: full team table — used to enumerate all rows
+        own_products: ignored (kept for back-compat); editability is computed from row.emails
     """
     from services.rfp_team_columns_service import get_all_columns, get_input_columns
     columns = get_all_columns()
     input_columns = get_input_columns()
 
-    # Determine own editable products
-    if own_products is None:
-        own_products = products
+    user_email_lower = (email or "").lower()
 
-    # Build list of all team member rows (product + email pairs)
-    # Each row is one person's product assignment
+    # Build the list of responsibility rows
+    team_rows = []
     if all_team_members:
-        all_member_rows = [
-            {"product": m["product"], "email": m.get("email", ""), "name": m.get("name", "")}
-            for m in all_team_members
-            if m.get("product") and m["product"] != "All"
-        ]
+        for m in all_team_members:
+            rid = m.get("record_id")
+            prod = m.get("product")
+            if not rid or not prod or prod == "All":
+                continue
+            team_rows.append({
+                "record_id": rid,
+                "product": prod,
+                "name": m.get("name") or "",
+                "emails": _parse_emails_for_card(m.get("email", "")),
+            })
     else:
-        all_member_rows = [{"product": p, "email": email, "name": name} for p in products]
+        # Fallback: pretend one row per assigned product owned solely by the current user
+        for p in (products or []):
+            team_rows.append({
+                "record_id": f"local-{p}",
+                "product": p,
+                "name": name or "",
+                "emails": [user_email_lower] if user_email_lower else [],
+            })
+    team_rows.sort(key=lambda r: (r["product"], r["name"]))
 
     # --- Build ColumnSet-based table header ---
     header_cols = []
     for col in columns:
         if col["column_key"] == "name":
-            continue  # Skip name column — email is shown instead
+            continue
         col_width = 2 if col["column_key"] == "email" else 1
         header_cols.append({
             "type": "Column", "width": col_width, "padding": "None",
@@ -295,65 +324,99 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
         "columns": header_cols,
     }
 
-    data_rows = []
-    editable_idx = 0
-    for member_row in all_member_rows:
-        row_product = member_row["product"]
-        row_email = member_row["email"]
-        row_name = member_row.get("name", "")
-        # This row is editable if the product belongs to the current person AND their email matches
-        is_own = row_product in own_products and row_email.lower() == email.lower()
+    # Assign stable submit indices for rows where this user is an alternate
+    editable_idx_map = {}  # responsibility_id → idx
+    if not readonly:
+        next_idx = 0
+        for r in team_rows:
+            if user_email_lower in r["emails"]:
+                editable_idx_map[r["record_id"]] = next_idx
+                next_idx += 1
 
-        # Per-row context for button URL placeholder substitution
+    data_rows = []
+    for r in team_rows:
+        rid = r["record_id"]
+        product = r["product"]
+        current_user_is_alt = user_email_lower in r["emails"]
+        is_editable = current_user_is_alt and not readonly
+
+        if current_user_is_alt:
+            display_email = email
+        else:
+            display_email = ", ".join(r["emails"])
+
+        # Upload button signs token with the current user's identity
         row_ctx = {
             "rfp_id": rfp_id,
             "company_name": company_name,
-            "product": row_product,
-            "name": row_name,
-            "email": row_email,
+            "product": product,
+            "name": name,
+            "email": email,
         }
 
         row_columns = []
         for col in columns:
             key = col["column_key"]
             if key == "name":
-                continue  # Skip name column — email is shown instead
+                continue
             col_width = 2 if key == "email" else 1
             if col.get("column_type") == "button":
-                btn_url = _resolve_button_url(col.get("dropdown_options", "") or "", row_ctx, rfp_id) or "https://example.com"
-                item = {
-                    "type": "ActionSet",
-                    "actions": [{
-                        "type": "Action.OpenUrl",
-                        "title": col.get("column_label", key),
-                        "url": btn_url,
-                    }],
-                }
-            elif col.get("column_category") == "input":
-                if is_own and not readonly:
-                    # Editable widget with indexed ID (results_0, results_1, etc.)
-                    item = _build_input_widget_indexed(col, editable_idx)
+                url_template = col.get("dropdown_options", "") or ""
+                if "{upload_url}" in url_template:
+                    if is_editable:
+                        btn_url = _resolve_button_url(url_template, row_ctx, rfp_id) or "https://example.com"
+                        item = {
+                            "type": "ActionSet",
+                            "actions": [{
+                                "type": "Action.OpenUrl",
+                                "title": col.get("column_label", key),
+                                "url": btn_url,
+                            }],
+                        }
+                    else:
+                        item = {"type": "TextBlock", "text": "—",
+                                "color": "Default", "wrap": True, "size": "Small", "isSubtle": True}
                 else:
-                    # Read-only: show "Pending"
+                    btn_url = _resolve_button_url(url_template, row_ctx, rfp_id) or "https://example.com"
+                    item = {
+                        "type": "ActionSet",
+                        "actions": [{
+                            "type": "Action.OpenUrl",
+                            "title": col.get("column_label", key),
+                            "url": btn_url,
+                        }],
+                    }
+            elif col.get("column_category") == "input":
+                if is_editable:
+                    item = _build_input_widget_indexed(col, editable_idx_map[rid])
+                else:
                     item = {"type": "TextBlock", "text": "Pending",
                             "color": "Accent", "wrap": True, "size": "Small", "isSubtle": True}
             else:
-                # Display column
-                value = row_product if key == "product" else (row_email if key == "email" else "")
+                if key == "product":
+                    value = product
+                elif key == "email":
+                    value = display_email
+                else:
+                    value = ""
                 item = {"type": "TextBlock", "text": value, "wrap": True,
                         "size": "Small", "weight": "Bolder"}
             row_columns.append({
                 "type": "Column", "width": col_width, "padding": "None",
                 "items": [item],
             })
-        if is_own and not readonly:
-            editable_idx += 1
         data_rows.append({
             "type": "ColumnSet",
             "separator": True,
             "padding": "None",
             "columns": row_columns,
         })
+
+    # Submit body — parallel arrays of products + responsibility_ids in idx order
+    submit_rows = sorted(editable_idx_map.items(), key=lambda kv: kv[1])
+    submit_responsibility_ids = [rid for rid, _ in submit_rows]
+    rid_to_row = {r["record_id"]: r for r in team_rows}
+    submit_products = [rid_to_row[rid]["product"] for rid in submit_responsibility_ids]
 
     # --- Footer items (due date, matched note, sign-off) ---
     note_items = [
@@ -434,16 +497,16 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
         *footer_items,
     ]
 
-    # Build submit body with indexed input bindings for own editable products only
+    # Submit body — parallel arrays so backend can attribute each answer to its team-table row
     submit_body = {
         "rfp_id": rfp_id,
-        "products": own_products,
+        "products": submit_products,
+        "responsibility_ids": submit_responsibility_ids,
         "name": name,
         "email": email,
         "company_name": company_name,
     }
-    # Add indexed input column bindings: results_0, remarks_0, results_1, remarks_1, etc.
-    for idx in range(len(own_products)):
+    for idx in range(len(submit_responsibility_ids)):
         for col in input_columns:
             field_id = f"{col['column_key']}_{idx}"
             submit_body[field_id] = "{{" + field_id + ".value}}"
@@ -457,7 +520,7 @@ def _build_adaptive_card_json(rfp_id, products, name, email, due_date, company_n
         "padding": "Default",
         "body": body_items,
         "actions": [
-            *([] if readonly else [{
+            *([] if (readonly or not submit_responsibility_ids) else [{
                 "type": "Action.Http",
                 "title": "Submit All Responses",
                 "method": "POST",
@@ -532,6 +595,7 @@ def send_actionable_rfp_emails(
     graph_client=None,
     recipients_override: list = None,
     subject_prefix: str = "",
+    delegation_banner: str = "",
 ):
     """
     Send one personalized Adaptive Card email PER team member via Graph API MIME endpoint.
@@ -544,6 +608,9 @@ def send_actionable_rfp_emails(
                           table from Dataverse is used.
     subject_prefix      : optional text prepended to the email subject (e.g.
                           "Reminder: ") so a re-send is visually distinct.
+    delegation_banner   : optional plain text rendered inside a styled banner
+                          before the adaptive card (used by the delegate flow
+                          to tell the new recipient who delegated it to them).
     """
     import base64
     from email.mime.multipart import MIMEMultipart
@@ -640,18 +707,29 @@ def send_actionable_rfp_emails(
     # Sender email (must match the registered sender in Actionable Message dashboard)
     sender_email = "D365FOadmin@bahra-electric.com"
 
-    # Group team members by email -> one email per person with all their products
+    # Fan out comma-separated email fields into individual recipients.
+    # One outbound email per unique address. Each recipient's "products" list
+    # collects the products of every team-table row where they appear as an alternate.
     from collections import OrderedDict
     grouped = OrderedDict()
     for member in RFP_TEAM_TABLE:
-        em = member.get("email", "")
-        if not em:
+        em_field = member.get("email", "")
+        if not em_field:
             print(f"[WARN] No email configured for {member.get('name', '?')}, skipping")
             continue
-        em_lower = em.lower()
-        if em_lower not in grouped:
-            grouped[em_lower] = {"name": member["name"], "email": em, "products": [], "readonly": member.get("readonly", False)}
-        grouped[em_lower]["products"].append(member["product"])
+        recipients = _parse_emails_for_card(em_field) if not member.get("readonly") else [em_field.strip().lower()]
+        if not recipients:
+            print(f"[WARN] No valid emails parsed from '{em_field}' for {member.get('name', '?')}")
+            continue
+        for em_lower in recipients:
+            if em_lower not in grouped:
+                grouped[em_lower] = {
+                    "name": member["name"],
+                    "email": em_lower,
+                    "products": [],
+                    "readonly": member.get("readonly", False),
+                }
+            grouped[em_lower]["products"].append(member["product"])
 
     for em_lower, info in grouped.items():
         person_name = info["name"]
@@ -676,6 +754,22 @@ def send_actionable_rfp_emails(
             own_products=person_products,
         )
 
+        # Optional delegation banner — rendered before the adaptive card so the
+        # new recipient knows who delegated this RFP to them. Clients that strip
+        # <script> (e.g. Outlook web fallback) still see the banner; clients
+        # that render the adaptive card show the banner above it.
+        banner_html = ""
+        if delegation_banner:
+            from html import escape as _esc
+            banner_html = (
+                '<div style="background:#fff3cd;border:1px solid #ffeeba;'
+                'color:#856404;padding:12px 16px;margin:0 0 12px 0;'
+                'border-radius:4px;font-family:Segoe UI,Arial,sans-serif;'
+                'font-size:14px;">'
+                f'<strong>Delegated:</strong> {_esc(delegation_banner)}'
+                '</div>'
+            )
+
         # Build email HTML with embedded adaptive card
         body_html = f"""<html>
 <head>
@@ -684,7 +778,7 @@ def send_actionable_rfp_emails(
   {card_json}
   </script>
 </head>
-<body></body>
+<body>{banner_html}</body>
 </html>"""
 
         # Build raw MIME message (preserves <script> tag — JSON sendMail strips it)

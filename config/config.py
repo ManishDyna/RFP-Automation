@@ -82,6 +82,13 @@ RFP_RESPONSE_TABLE_API = "cr6db_cr673_bahra_rfp_responses"
 BAHRA_RFP_REMINDER_LOGICAL = "cr673_bahra_rfp_reminder_for_info"
 BAHRA_RFP_REMINDER_API = "cr673_bahra_rfp_reminder_for_infos"
 
+# RFP Delegation table — per-RFP product-line delegations (original -> new
+# recipient). Master cr673_bahra_rfp_team is never touched. EntitySetName is
+# unpredictable; setup_delegation_table.py prints the resolved value — paste
+# it into RFP_DELEGATION_TABLE_API below.
+RFP_DELEGATION_TABLE_LOGICAL = "cr673_bahra_rfp_delegations"
+RFP_DELEGATION_TABLE_API = "cr673_bahra_rfp_delegationses"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. SHAREPOINT / GRAPH API
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,14 +134,15 @@ POWER_AUTOMATE_RECURRENCE_TRIGGER_NAME = "Recurrence"
 # 4f5d8362-8a49-420d-8506-6b1c0a616647
 # Actionable Messages (Adaptive Cards in Outlook) 8dc8a969-5abf-4c49-828f-fbced5ae7570
 ACTIONABLE_CARD_ORIGINATOR_ID = "8dc8a969-5abf-4c49-828f-fbced5ae7570"
-ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
+# ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
 
+ACTIONABLE_CARD_CALLBACK_URL = "https://hx41z30s-8000.inc1.devtunnels.ms/api/actionable-card/response"
 # Per-RFP file-upload page (TIR + Pricing) reached from the Adaptive Card "Upload" button.
 # UPLOAD_BASE_URL is the public origin of this FastAPI server; emails embed
 # <UPLOAD_BASE_URL>/upload?token=<JWT>. Change to the production server IP or
 # domain (e.g. "http://10.20.30.40:8000/" or "https://rfp.example.com/") before
 # deploying so recipients outside the server host can open the upload links.
-UPLOAD_BASE_URL = "http://localhost:8000/"
+UPLOAD_BASE_URL = "https://hx41z30s-8000.inc1.devtunnels.ms/"
 # HS256 secret signing the upload-link JWT. Rotate to invalidate all in-flight links.
 UPLOAD_TOKEN_SECRET = "change-me-upload-secret-set-via-system-settings"
 
@@ -182,7 +190,7 @@ VALID_RFP_STATUSES = ["no", "saved_draft", "submitted", "declined"]
 #   "dev"  -> every email goes to DEV_EMAIL only
 #   "prod" -> emails go to the production recipient lists below
 
-EMAIL_MODE = "dev"
+EMAIL_MODE = "prod"
 DEV_EMAIL = "KSAGov.tenders@bahra-cables.com"
 
 # Dev RFP team assignment

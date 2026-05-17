@@ -215,6 +215,20 @@ export const api = {
     return handleResponse(response)
   },
 
+  listExistingTdsFiles: async (rfpId: string, company: string) => {
+    const params = new URLSearchParams({ rfp_id: rfpId, company: company || '' })
+    const response = await fetch(`${ENDPOINTS.DASHBOARD.LIST_TDS_FILES}?${params.toString()}`, {
+      credentials: 'include',
+    })
+    return handleResponse<{
+      ok: boolean
+      rfp_id: string
+      company: string
+      folder: string
+      files: Array<{ name: string; path: string }>
+    }>(response)
+  },
+
   declineRfp: async (rfpTitle: string, company: string) => {
     const response = await fetch(ENDPOINTS.RFP.DECLINE, {
       method: 'POST',
@@ -412,6 +426,12 @@ export const api = {
         reminder_count: number
         last_reminder_at: string
         former: boolean
+        delegated_to_email?: string
+        delegated_to_name?: string
+        delegated_at?: string
+        delegated_by?: string
+        delegated_from_email?: string
+        delegated_from_name?: string
       }>
       reminders: Array<{
         rfp_id: string
@@ -439,6 +459,31 @@ export const api = {
       ok: boolean
       reminded_count: number
       results: Array<{ email: string; name?: string; status: string; error?: string }>
+    }>(response)
+  },
+
+  delegateOpenRfp: async (
+    rfpId: string,
+    body: { product: string; original_email: string; new_email: string; new_name: string }
+  ) => {
+    const response = await fetch(ENDPOINTS.OPEN_RFP.DELEGATE(rfpId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      credentials: 'include',
+    })
+    return handleResponse<{
+      ok: boolean
+      delegation: {
+        rfp_id: string
+        product: string
+        original_email: string
+        original_name: string
+        new_email: string
+        new_name: string
+      }
+      email_status: 'Sent' | 'Failed'
+      error: string
     }>(response)
   },
 

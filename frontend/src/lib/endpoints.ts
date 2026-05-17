@@ -69,6 +69,7 @@ export const ENDPOINTS = {
     RFP_DETAILS: `${API_PREFIX}/dashboard/rfp-details`,
     RFP_EXPORT: `${API_PREFIX}/dashboard/rfp-details/export`,
     SUBMIT_RFP: `${API_PREFIX}/dashboard/submit-rfp`,
+    LIST_TDS_FILES: `${API_PREFIX}/dashboard/list-tds-files`,
     VALIDATE_RFP: `${API_PREFIX}/validate-rfp`,
     VIEW_LOGS: `${API_PREFIX}/dashboard/view-logs`,
     MATERIAL_INSIGHTS: `${API_PREFIX}/dashboard/material-insights`,
@@ -144,9 +145,10 @@ export const ENDPOINTS = {
 
   // ==================== OPEN RFP (routes/open_rfp.py) ====================
   OPEN_RFP: {
-    LIST:   `${API_PREFIX}/open-rfp/list`,
-    STATUS: (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/status`,
-    REMIND: (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/remind`,
+    LIST:     `${API_PREFIX}/open-rfp/list`,
+    STATUS:   (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/status`,
+    REMIND:   (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/remind`,
+    DELEGATE: (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/delegate`,
   },
 
   // ==================== MASTER DATA (routes/master_data_routes.py) ====================
