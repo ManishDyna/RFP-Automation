@@ -326,8 +326,6 @@ def _build_refresh_card(
     # --- Table header ---
     header_cols = []
     for col in columns:
-        if col["column_key"] == "email":
-            continue
         header_cols.append({
             "type": "Column", "width": 1, "padding": "None",
             "items": [{"type": "TextBlock", "text": col.get("column_label", col["column_key"]),
@@ -371,8 +369,6 @@ def _build_refresh_card(
         row_columns = []
         for col in columns:
             key = col["column_key"]
-            if key == "email":
-                continue
             if col.get("column_type") == "button":
                 url_template = col.get("dropdown_options", "") or ""
                 is_upload_btn = "{upload_url}" in url_template
@@ -420,10 +416,12 @@ def _build_refresh_card(
                     value = product
                 elif key == "name":
                     value = display_name
+                elif key == "email":
+                    value = display_email
                 else:
                     value = ""
                 item = {"type": "TextBlock", "text": value, "wrap": True,
-                        "size": "Small", "weight": "Bolder"}
+                        "size": "Small", "weight": "Bolder" if key != "email" else "Default"}
             row_columns.append({
                 "type": "Column", "width": 1, "padding": "None",
                 "items": [item],
@@ -688,16 +686,31 @@ async def receive_card_response(request: Request):
 
     # Filter: only let entries the user actually filled in this submission
     # overwrite existing values. Blank rows are silently ignored.
+    existing_count_before = len(existing_products_by_key)
+    new_filtered_count = 0
     for entry in per_product_responses:
         if not _has_any_input(entry):
             continue
         existing_products_by_key[_merge_key(entry)] = entry
+        new_filtered_count += 1
 
     merged_products = list(existing_products_by_key.values())
     response_data = {
         "products": merged_products,
         "uploaded_files": existing_uploaded_files,
     }
+
+    # Diagnostic: shows exactly what the merge did. If "merged" never grows
+    # across multiple submits, the existing-row lookup or JSON parse failed.
+    print(
+        f"[/response] MERGE rfp={rfp_id} email={resp_email} "
+        f"existing_record_id={'<found>' if existing_record_id else '<none>'} "
+        f"existing_products={existing_count_before} "
+        f"new_filtered={new_filtered_count} "
+        f"merged={len(merged_products)} "
+        f"uploaded_files={len(existing_uploaded_files)} "
+        f"merged_keys={list(existing_products_by_key.keys())}"
+    )
 
     # Derive the legacy single-product columns from the MERGED set so they
     # reflect the full picture, not just this submission.
