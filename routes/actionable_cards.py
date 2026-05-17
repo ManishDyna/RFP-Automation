@@ -381,7 +381,7 @@ def _build_refresh_card(
                     if product in uploaded_products_global:
                         item = {"type": "TextBlock", "text": "Uploaded ✓",
                                 "color": "Good", "weight": "Bolder", "wrap": True, "size": "Small"}
-                    elif current_user_is_alt and not row_responded:
+                    elif current_user_is_alt:
                         btn_url = _resolve_button_url(url_template, row_ctx, rfp_id) or "https://example.com"
                         item = {
                             "type": "ActionSet",
@@ -618,19 +618,107 @@ async def receive_card_response(request: Request):
             **row_data_entry,
         })
 
-    # Build combined response_data JSON with all per-row responses
-    response_data = {"products": per_product_responses}
+    # Step 5: Read-merge-write of cr673_response_data.
+    # The form posts every visible row each time (including blanks for the rows
+    # the user didn't touch in this submission). A naive replace would wipe any
+    # answer the user submitted earlier for a different product, plus any
+    # uploaded_files entries written by /upload. Mirror the pattern used in
+    # rfp_upload._append_upload_records: load existing JSON, merge per-product
+    # entries by responsibility_id (or product name as fallback), preserve
+    # uploaded_files, then upsert.
+    resp_email = expected_email or submitter_email
+    table_api = get_setting("RFP_RESPONSE_TABLE_API", "")
+    table_logical = get_setting("RFP_RESPONSE_TABLE_LOGICAL", "")
 
-    # Backward compat: first product's results/remarks for legacy fields
-    first_results = per_product_responses[0].get("results", "") if per_product_responses else ""
-    first_remarks = per_product_responses[0].get("remarks", "") if per_product_responses else ""
+    existing_products_by_key: dict = {}
+    existing_uploaded_files: list = []
+    existing_record_id = None
 
-    # Step 5: Upsert to Dataverse (one row per email per RFP)
+    def _merge_key(entry: dict) -> str:
+        rid = (entry.get("responsibility_id") or "").strip()
+        if rid:
+            return f"rid:{rid}"
+        return f"product:{(entry.get('product') or '').strip().lower()}"
+
+    def _has_any_input(entry: dict) -> bool:
+        for col in input_cols:
+            k = col["column_key"]
+            if k in ("responsibility_id", "product"):
+                continue
+            if (entry.get(k) or "").strip():
+                return True
+        return False
+
+    try:
+        existing = _DATAVERSE.query_rows(
+            table_api,
+            filter_expr=f"cr673_rfp_id eq '{rfp_id}' and cr673_email eq '{resp_email}'",
+            top=1,
+            table_logical_name=table_logical,
+            use_display_names=True,
+        )
+        if existing and existing.get("value"):
+            existing_row = existing["value"][0]
+            pk_logical = f"{table_logical}id"
+            try:
+                colmap = _DATAVERSE.get_column_mapping(table_logical)
+                logical_to_display = {v: k for k, v in colmap.items()}
+            except Exception:
+                logical_to_display = {}
+            pk_display = logical_to_display.get(pk_logical)
+            existing_record_id = (
+                (existing_row.get(pk_display) if pk_display else None)
+                or existing_row.get(pk_logical)
+            )
+            raw_existing = existing_row.get("cr673_response_data") or ""
+            if raw_existing:
+                try:
+                    parsed = json.loads(raw_existing)
+                    if isinstance(parsed, dict):
+                        for entry in parsed.get("products", []) or []:
+                            if isinstance(entry, dict):
+                                existing_products_by_key[_merge_key(entry)] = entry
+                        files = parsed.get("uploaded_files", []) or []
+                        if isinstance(files, list):
+                            existing_uploaded_files = files
+                except (json.JSONDecodeError, TypeError):
+                    pass
+    except Exception as e:
+        print(f"[/response] Could not read existing response_data for {rfp_id}/{resp_email}: {e}")
+
+    # Filter: only let entries the user actually filled in this submission
+    # overwrite existing values. Blank rows are silently ignored.
+    for entry in per_product_responses:
+        if not _has_any_input(entry):
+            continue
+        existing_products_by_key[_merge_key(entry)] = entry
+
+    merged_products = list(existing_products_by_key.values())
+    response_data = {
+        "products": merged_products,
+        "uploaded_files": existing_uploaded_files,
+    }
+
+    # Derive the legacy single-product columns from the MERGED set so they
+    # reflect the full picture, not just this submission.
+    first_answered = next(
+        (p for p in merged_products if _has_any_input(p)),
+        merged_products[0] if merged_products else {},
+    )
+    first_results = first_answered.get("results", "") if isinstance(first_answered, dict) else ""
+    first_remarks = first_answered.get("remarks", "") if isinstance(first_answered, dict) else ""
+    merged_product_names = [
+        (p.get("product") or "").strip()
+        for p in merged_products
+        if isinstance(p, dict) and (p.get("product") or "").strip()
+    ]
+    combined_products_str = ", ".join(merged_product_names) if merged_product_names else ", ".join(products)
+
     row_data = {
         "cr673_rfp_id": rfp_id,
-        "cr673_product": ", ".join(products),
+        "cr673_product": combined_products_str,
         "cr673_name": name,
-        "cr673_email": expected_email or submitter_email,
+        "cr673_email": resp_email,
         "cr673_results": first_results,
         "cr673_remarks": first_remarks,
         "cr673_response_data": json.dumps(response_data),
@@ -639,40 +727,19 @@ async def receive_card_response(request: Request):
     }
 
     try:
-        existing = _DATAVERSE.query_rows(
-            get_setting("RFP_RESPONSE_TABLE_API", ""),
-            filter_expr=f"cr673_rfp_id eq '{rfp_id}' and cr673_email eq '{expected_email or submitter_email}'",
-            top=1,
-            table_logical_name=get_setting("RFP_RESPONSE_TABLE_LOGICAL", ""),
-            use_display_names=True,
-        )
-
-        if existing and "value" in existing and len(existing["value"]) > 0:
-            existing_row = existing["value"][0]
-            pk_logical = f"{get_setting('RFP_RESPONSE_TABLE_LOGICAL', '')}id"
-            try:
-                colmap = _DATAVERSE.get_column_mapping(get_setting("RFP_RESPONSE_TABLE_LOGICAL", ""))
-                logical_to_display = {v: k for k, v in colmap.items()}
-            except Exception:
-                logical_to_display = {}
-            pk_display = logical_to_display.get(pk_logical)
-            record_id = (
-                (existing_row.get(pk_display) if pk_display else None)
-                or existing_row.get(pk_logical)
+        if existing_record_id:
+            _DATAVERSE.update_row(
+                table_api,
+                existing_record_id,
+                row_data,
+                table_logical_name=table_logical,
+                use_display_names=True,
             )
-            if record_id:
-                _DATAVERSE.update_row(
-                    get_setting("RFP_RESPONSE_TABLE_API", ""),
-                    record_id,
-                    row_data,
-                    table_logical_name=get_setting("RFP_RESPONSE_TABLE_LOGICAL", ""),
-                    use_display_names=True,
-                )
         else:
             _DATAVERSE.insert_row(
-                get_setting("RFP_RESPONSE_TABLE_API", ""),
+                table_api,
                 row_data,
-                table_logical_name=get_setting("RFP_RESPONSE_TABLE_LOGICAL", ""),
+                table_logical_name=table_logical,
                 use_display_names=True,
             )
     except Exception as e:

@@ -136,7 +136,11 @@ POWER_AUTOMATE_RECURRENCE_TRIGGER_NAME = "Recurrence"
 ACTIONABLE_CARD_ORIGINATOR_ID = "8dc8a969-5abf-4c49-828f-fbced5ae7570"
 # ACTIONABLE_CARD_CALLBACK_URL = "https://xp7z0w4z-8000.inc1.devtunnels.ms/api/actionable-card/response"
 
-ACTIONABLE_CARD_CALLBACK_URL = "https://hx41z30s-8000.inc1.devtunnels.ms/api/actionable-card/response"
+# ACTIONABLE_CARD_CALLBACK_URL = "https://hx41z30s-8000.inc1.devtunnels.ms/api/actionable-card/response"
+
+ACTIONABLE_CARD_CALLBACK_URL = "https://0vv8220f-8000.inc1.devtunnels.ms/api/actionable-card/response"
+
+
 # Per-RFP file-upload page (TIR + Pricing) reached from the Adaptive Card "Upload" button.
 # UPLOAD_BASE_URL is the public origin of this FastAPI server; emails embed
 # <UPLOAD_BASE_URL>/upload?token=<JWT>. Change to the production server IP or
