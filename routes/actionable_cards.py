@@ -206,33 +206,41 @@ def _first_response_per_row(rfp_responses: list, team_table: list) -> dict:
             if not has_value:
                 continue
 
-            # Resolve responsibility_id (new path) or fall back to (product, email) match
-            resp_id = p_resp.get("responsibility_id")
-            if not resp_id or resp_id not in rows_by_id:
-                for candidate in rows_by_product.get(product, []):
-                    if r_email in candidate["emails"]:
-                        resp_id = candidate["record_id"]
-                        break
-            if not resp_id:
+            # Determine ALL team-table rows this single response satisfies.
+            # Storage is keyed by (rfp, email, product), so ksagov.tenders'
+            # single "TBS and BED" answer is stored once — but the team table
+            # has TWO TBS and BED rows (Mohammad + Intikhab), both with
+            # ksagov.tenders as an alternate. By design, one shared-inbox
+            # answer should mark BOTH team rows as answered (same product +
+            # same email + same RFP = one response covers all matching rows).
+            matching_rids: set = set()
+            explicit_rid = p_resp.get("responsibility_id")
+            if explicit_rid and explicit_rid in rows_by_id:
+                matching_rids.add(explicit_rid)
+            for candidate in rows_by_product.get(product, []):
+                if r_email in candidate["emails"]:
+                    matching_rids.add(candidate["record_id"])
+            if not matching_rids:
                 # Submitter isn't in any team row for this product — skip
                 continue
 
-            existing = winners.get(resp_id)
-            if existing is None:
-                keep = True
-            elif submitted_at and existing.get("submitted_at"):
-                keep = submitted_at < existing["submitted_at"]
-            else:
-                keep = False
-            if keep:
-                winners[resp_id] = {
-                    **{k: v for k, v in p_resp.items() if k not in ("product", "responsibility_id")},
-                    "name": r_name,
-                    "email": r_email,
-                    "submitted_at": submitted_at,
-                    "product": product,
-                    "responsibility_id": resp_id,
-                }
+            for resp_id in matching_rids:
+                existing = winners.get(resp_id)
+                if existing is None:
+                    keep = True
+                elif submitted_at and existing.get("submitted_at"):
+                    keep = submitted_at < existing["submitted_at"]
+                else:
+                    keep = False
+                if keep:
+                    winners[resp_id] = {
+                        **{k: v for k, v in p_resp.items() if k not in ("product", "responsibility_id")},
+                        "name": r_name,
+                        "email": r_email,
+                        "submitted_at": submitted_at,
+                        "product": product,
+                        "responsibility_id": resp_id,
+                    }
     return winners
 
 
