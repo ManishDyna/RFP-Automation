@@ -357,13 +357,15 @@ def _build_refresh_card(
 
         if row_responded:
             display_name = winner.get("name") or ""
-            display_email = winner.get("email") or ""
         elif current_user_is_alt:
             display_name = name
-            display_email = email
         else:
             display_name = r["name"] or " / ".join(r["emails"]) or "—"
-            display_email = ", ".join(r["emails"])
+
+        # Email column ALWAYS shows the team-row's full alternates list, so
+        # every recipient can see all the people responsible for a product
+        # — not just whoever happened to win the response.
+        display_email = ", ".join(r["emails"]) if r["emails"] else "—"
 
         # Upload button signs token with the CURRENT user's identity
         row_ctx = {
@@ -530,6 +532,120 @@ def _build_refresh_card(
     }
 
     return card
+
+
+def _maybe_fire_consolidated_email(rfp_id: str, rfp_team: list, all_responses: list,
+                                    winners_by_row: dict, company_name: str) -> bool:
+    """Fire the consolidated 'all-responded' email AT MOST ONCE per RFP.
+
+    Idempotency guard: the master row's `all_responses_at` field. Set after
+    a successful send; subsequent calls see it populated and short-circuit.
+    Called from BOTH /response (when the final submission flips state) and
+    /response/refresh (catches up if the trigger was missed — e.g. server
+    restart between save and notify, or fan-out fix deployed mid-cycle).
+
+    Returns True if the email was sent or had already been sent for this RFP;
+    False if the conditions weren't met or send failed.
+    """
+    team_row_ids = {
+        m.get("record_id") for m in rfp_team
+        if m.get("record_id") and m.get("product") and m["product"] != "All"
+    }
+    all_responded = bool(team_row_ids) and team_row_ids.issubset(set(winners_by_row.keys()))
+    if not all_responded:
+        return False
+
+    table_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+    table_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
+
+    try:
+        activity = _DATAVERSE.query_rows(
+            table_api,
+            filter_expr=f"RFP_ID eq '{rfp_id}'",
+            top=1,
+            table_logical_name=table_logical,
+            use_display_names=True,
+        )
+    except Exception as e:
+        print(f"[consolidated] Could not query activity log for {rfp_id}: {e}")
+        return False
+
+    if not (activity and activity.get("value")):
+        print(f"[consolidated] No activity log row found for {rfp_id}; skipping")
+        return False
+    activity_row = activity["value"][0]
+    if (activity_row.get("all_responses_at") or "").strip():
+        return True  # already fired previously — idempotent no-op
+
+    # Build the responses payload — one entry per team-table responsibility,
+    # sorted by product then row name so duplicate-product rows stay grouped.
+    row_lookup = {m["record_id"]: m for m in rfp_team if m.get("record_id")}
+    responded_row_ids = set(winners_by_row.keys()) & team_row_ids
+    ordered_row_ids = sorted(
+        responded_row_ids,
+        key=lambda rid: (
+            row_lookup.get(rid, {}).get("product", ""),
+            row_lookup.get(rid, {}).get("name", ""),
+        ),
+    )
+    responses_for_email = []
+    for rid in ordered_row_ids:
+        win = winners_by_row.get(rid)
+        team_row = row_lookup.get(rid, {})
+        if not win:
+            continue
+        responses_for_email.append({
+            "product": team_row.get("product", win.get("product", "")),
+            "name": win.get("name") or team_row.get("name", ""),
+            "email": win.get("email", ""),
+            **{
+                k: v for k, v in win.items()
+                if k not in ("name", "email", "submitted_at", "product", "responsibility_id")
+            },
+        })
+
+    rfp_end_date = (
+        activity_row.get("RFP_End_Date")
+        or activity_row.get("RFP End Date")
+        or activity_row.get("rfp_end_date")
+        or "-"
+    )
+
+    try:
+        from helpers.email_helper import send_consolidated_response_email
+        send_consolidated_response_email(rfp_id, responses_for_email, company_name, rfp_end_date)
+    except Exception as e:
+        print(f"[consolidated] Send failed for {rfp_id}: {e}")
+        return False
+
+    # Mark as fired so neither /response nor /response/refresh re-sends it.
+    _resp_timestamps = [
+        r.get("cr673_submitted_at", "") for r in all_responses
+        if r.get("cr673_submitted_at")
+    ]
+    fired_at = max(_resp_timestamps) if _resp_timestamps else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    pk_logical = f"{table_logical}id"
+    try:
+        colmap = _DATAVERSE.get_column_mapping(table_logical)
+        l2d = {v: k for k, v in colmap.items()}
+    except Exception:
+        l2d = {}
+    pk_display = l2d.get(pk_logical)
+    activity_record_id = (activity_row.get(pk_display) if pk_display else None) or activity_row.get(pk_logical)
+    if activity_record_id:
+        try:
+            _DATAVERSE.update_row(
+                table_api,
+                activity_record_id,
+                {"all_responses_at": fired_at},
+                table_logical_name=table_logical,
+                use_display_names=True,
+            )
+        except Exception as e:
+            print(f"[consolidated] Could not set all_responses_at for {rfp_id}: {e}")
+
+    print(f"✅ Consolidated email sent for {rfp_id} — {len(responses_for_email)} products covered")
+    return True
 
 
 @router.post("/response")
@@ -769,13 +885,14 @@ async def receive_card_response(request: Request):
         RFP_ACTIVITY_LOG_TABLE_API = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
         RFP_ACTIVITY_LOG_TABLE_LOGICAL = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
 
-        # Calculate response timestamps
+        # Calculate response timestamps. Note: `all_responses_at` is intentionally
+        # NOT set here — that field is the idempotency guard for the consolidated
+        # email and is owned exclusively by _maybe_fire_consolidated_email below.
         _resp_timestamps = [
             r.get("cr673_submitted_at", "") for r in all_responses
             if r.get("cr673_submitted_at")
         ]
         _first_response = min(_resp_timestamps) if _resp_timestamps else ""
-        _all_responses_at = max(_resp_timestamps) if all_responded and _resp_timestamps else ""
 
         # Find the activity log record for this RFP
         _activity = _DATAVERSE.query_rows(
@@ -796,78 +913,29 @@ async def receive_card_response(request: Request):
             _pk_display = _l2d.get(_pk_logical)
             _act_id = (_act_row.get(_pk_display) if _pk_display else None) or _act_row.get(_pk_logical)
             if _act_id:
-                _update = {
-                    "response_count": str(len(responded_row_ids)),
-                    "first_response_at": _first_response,
-                }
-                if _all_responses_at:
-                    _update["all_responses_at"] = _all_responses_at
                 _DATAVERSE.update_row(
                     RFP_ACTIVITY_LOG_TABLE_API,
                     _act_id,
-                    _update,
+                    {
+                        "response_count": str(len(responded_row_ids)),
+                        "first_response_at": _first_response,
+                    },
                     table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
                     use_display_names=True,
                 )
     except Exception as e:
         print(f"⚠ Could not update response metrics on activity log: {e}")
 
-    if all_responded and len(team_row_ids) > 0:
-        # Every responsibility (team-table row) has been answered — fire consolidated email.
-        try:
-            from helpers.email_helper import send_consolidated_response_email
-            RFP_ACTIVITY_LOG_TABLE_API = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
-            RFP_ACTIVITY_LOG_TABLE_LOGICAL = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
-
-            # One row per team-table responsibility, sorted by product then row name.
-            # If two rows share a product (multiple responsibles), both appear in the
-            # email, each attributed to the alternate who answered first within that row.
-            row_lookup = {m["record_id"]: m for m in rfp_team if m.get("record_id")}
-            responses_for_email = []
-            ordered_row_ids = sorted(
-                responded_row_ids,
-                key=lambda rid: (
-                    row_lookup.get(rid, {}).get("product", ""),
-                    row_lookup.get(rid, {}).get("name", ""),
-                ),
-            )
-            for rid in ordered_row_ids:
-                win = winners_by_row.get(rid)
-                row = row_lookup.get(rid, {})
-                if not win:
-                    continue
-                responses_for_email.append({
-                    "product": row.get("product", win.get("product", "")),
-                    "name": win.get("name") or row.get("name", ""),
-                    "email": win.get("email", ""),
-                    **{
-                        k: v for k, v in win.items()
-                        if k not in ("name", "email", "submitted_at", "product", "responsibility_id")
-                    },
-                })
-
-            # Look up RFP end date from Dataverse activity log
-            rfp_end_date = "-"
-            try:
-                activity = _DATAVERSE.query_rows(
-                    RFP_ACTIVITY_LOG_TABLE_API,
-                    filter_expr=f"RFP_ID eq '{rfp_id}'",
-                    top=1,
-                    table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
-                    use_display_names=True,
-                )
-                if activity and "value" in activity and len(activity["value"]) > 0:
-                    row = activity["value"][0]
-                    rfp_end_date = row.get("RFP_End_Date") or row.get("RFP End Date") or row.get("rfp_end_date") or "-"
-                    print(f"📅 End date lookup for {rfp_id}: '{rfp_end_date}' (available keys: {list(row.keys())[:10]})")
-                else:
-                    print(f"⚠ No activity log record found for {rfp_id}")
-            except Exception as e:
-                print(f"⚠ End date lookup failed for {rfp_id}: {e}")
-
-            send_consolidated_response_email(rfp_id, responses_for_email, company_name, rfp_end_date)
-        except Exception as e:
-            print(f"⚠ Could not send consolidated email: {e}")
+    # Step 5b: Fire consolidated-response email if this submission completed the RFP.
+    # The helper is idempotent (uses all_responses_at as a guard), so submitting
+    # again later or refreshing won't trigger a duplicate send.
+    _maybe_fire_consolidated_email(
+        rfp_id=rfp_id,
+        rfp_team=rfp_team,
+        all_responses=all_responses,
+        winners_by_row=winners_by_row,
+        company_name=company_name,
+    )
 
     # Step 6: Return updated card using shared builder.
     # If the just-saved submission isn't reflected in winners yet (Dataverse read-after-write
@@ -952,6 +1020,19 @@ async def refresh_card_status(request: Request):
     rfp_team = get_all_rfp_team_for_emails()
     winners_by_row = _first_response_per_row(all_responses, rfp_team)
     uploaded_products_global = _uploaded_products_globally(all_responses)
+
+    # Catch-up trigger: if all responsibilities are answered but the
+    # consolidated email never fired (e.g. timing race when state flipped,
+    # server restart between save and notify, or fan-out fix deployed mid-
+    # cycle), the helper sends it now and marks all_responses_at so it
+    # won't fire again on the next refresh.
+    _maybe_fire_consolidated_email(
+        rfp_id=rfp_id,
+        rfp_team=rfp_team,
+        all_responses=all_responses,
+        winners_by_row=winners_by_row,
+        company_name=company_name,
+    )
 
     user_email_key = (expected_email or opener_email).lower()
 
