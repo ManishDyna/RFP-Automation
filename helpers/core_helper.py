@@ -807,20 +807,25 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
         print("[WARN] 'name' column not found; no materials extracted.")
         return [] if include_details else set()
 
+    # Resolve intent column regardless of filter mode so per-row intent can be reported
+    intent_col = (
+        find_column_name(df.columns, "intend to respond")
+        or find_column_name(df.columns, "intend")
+        or find_column_name(df.columns, "respond intend")
+    )
+
+    def is_yes(v) -> bool:
+        s = str(v).strip().lower()
+        return s in {"yes", "y", "true", "1"}
+
+    def is_no(v) -> bool:
+        s = str(v).strip().lower()
+        return s in {"no", "n", "false", "0"}
+
     if filter_by_intent:
-        # Try to find the intent column with tolerant matching
-        intent_col = (
-            find_column_name(df.columns, "intend to respond")
-            or find_column_name(df.columns, "intend")
-            or find_column_name(df.columns, "respond intend")
-        )
         if not intent_col:
             print("[WARN] 'Intend To Respond' column not found; no materials selected.")
             return [] if include_details else set()
-
-        def is_yes(v) -> bool:
-            s = str(v).strip().lower()
-            return s in {"yes", "y", "true", "1"}
 
         # Keep only rows where intent indicates Yes
         try:
@@ -870,6 +875,19 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
             if qty_value is None or pd.isna(qty_value):
                 qty_value = ""
 
+            if intent_col:
+                raw_intent = row.get(intent_col)
+                if raw_intent is None or pd.isna(raw_intent):
+                    intent_value = ""
+                elif is_yes(raw_intent):
+                    intent_value = "Yes"
+                elif is_no(raw_intent):
+                    intent_value = "No"
+                else:
+                    intent_value = str(raw_intent).strip()
+            else:
+                intent_value = ""
+
             for mat_code in _extract_row_codes(row):
                 if mat_code not in seen_codes:
                     seen_codes.add(mat_code)
@@ -877,7 +895,8 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
                         "material_code": mat_code,
                         "name": name_value,
                         "description": desc_value,
-                        "quantity": qty_value
+                        "quantity": qty_value,
+                        "intent": intent_value,
                     })
 
         print(f"Materials extracted (filter_by_intent={filter_by_intent}): {len(materials_data)}")

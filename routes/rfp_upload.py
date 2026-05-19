@@ -19,13 +19,14 @@ from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from config.config import (
     CLIENT_ID, CLIENT_SECRET, RESOURCE_URL, TENANT_ID,
 )
 from helpers.core_helper import (
     clean_rfp_title,
+    extract_materials_from_excel,
     get_sharepoint_rfp_pricing_path,
     get_sharepoint_rfp_tds_path,
 )
@@ -254,6 +255,31 @@ body::before {{ content: ''; position: fixed; inset: 0; background-image: radial
 .alert.ok .fpath {{ font-family: ui-monospace, "Consolas", "Menlo", monospace; font-size: 11px; color: #15803d; opacity: 0.85; display: block; margin-top: 2px; word-break: break-all; }}
 .spinner {{ display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 8px; vertical-align: -2px; }}
 @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+.tabs {{ display: inline-flex; padding: 4px; background: #f1f5f9; border-radius: 8px; margin-bottom: 10px; gap: 2px; border: 1px solid rgba(50,55,60,0.08); }}
+.tab-btn {{ background: transparent; border: none; padding: 7px 14px; font-size: 12px; font-weight: 600; color: #6b7280; border-radius: 6px; cursor: pointer; transition: all 0.15s; font-family: inherit; }}
+.tab-btn:hover {{ color: #32373c; }}
+.tab-btn.active {{ background: #fff; color: #cf2e2e; box-shadow: 0 1px 3px rgba(50,55,60,0.12); }}
+.tab-panel.hidden {{ display: none; }}
+.material-pick-row {{ display: flex; gap: 8px; margin-bottom: 10px; align-items: stretch; }}
+.material-select {{ flex: 1; padding: 9px 10px; border: 1.5px solid rgba(207,46,46,0.25); border-radius: 8px; background: #fff; font-size: 13px; color: #32373c; font-family: inherit; cursor: pointer; min-width: 0; }}
+.material-select:focus {{ outline: none; border-color: #cf2e2e; }}
+.material-select:disabled {{ background: #f8fafc; color: #9ca3af; cursor: not-allowed; }}
+.add-mat-btn {{ display: inline-flex; align-items: center; gap: 4px; padding: 8px 14px; background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%); color: #fff; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 6px rgba(207,46,46,0.25); font-family: inherit; white-space: nowrap; }}
+.add-mat-btn:hover:not(:disabled) {{ background: linear-gradient(135deg, #e85555 0%, #cf2e2e 100%); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(207,46,46,0.35); }}
+.add-mat-btn:disabled {{ background: #abb8c3; cursor: not-allowed; box-shadow: none; }}
+.mat-row {{ display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #fef9f9; border: 1px solid rgba(207,46,46,0.18); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; }}
+.mat-row .mat-code {{ display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #fff; border: 1px solid rgba(207,46,46,0.2); border-radius: 999px; font-size: 12px; font-weight: 600; color: #a82424; }}
+.mat-row .mat-intent {{ font-size: 10px; padding: 1px 6px; border-radius: 999px; font-weight: 700; letter-spacing: 0.02em; }}
+.mat-row .mat-intent.yes {{ background: #dcfce7; color: #15803d; }}
+.mat-row .mat-intent.no {{ background: #fee2e2; color: #b91c1c; }}
+.mat-row .mat-intent.na {{ background: #f1f5f9; color: #6b7280; }}
+.mat-row .mat-file-btn {{ display: inline-flex; align-items: center; gap: 4px; padding: 6px 10px; background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%); color: #fff; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 4px rgba(207,46,46,0.2); }}
+.mat-row .mat-file-btn:hover {{ background: linear-gradient(135deg, #e85555 0%, #cf2e2e 100%); }}
+.mat-row .mat-file-name {{ font-size: 12px; color: #32373c; flex: 1; min-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+.mat-row .mat-file-name.empty {{ color: #9ca3af; font-style: italic; }}
+.mat-row .mat-remove {{ display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(207,46,46,0.15); color: #cf2e2e; cursor: pointer; font-size: 14px; line-height: 1; border: none; padding: 0; transition: all 0.15s; }}
+.mat-row .mat-remove:hover {{ background: #cf2e2e; color: #fff; }}
+.mat-empty {{ font-size: 12px; color: #9ca3af; padding: 12px; text-align: center; border: 1px dashed rgba(50,55,60,0.15); border-radius: 8px; }}
 </style></head>
 <body>
 <div class="card">
@@ -273,13 +299,29 @@ body::before {{ content: ''; position: fixed; inset: 0; background-image: radial
       <input type="hidden" name="token" value="{token}">
       <div class="field">
         <label>TIR Files <span style="color:#dc2626">*</span></label>
-        <div class="file-picker">
-          <input type="file" id="tir" class="file-input-hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip">
-          <label for="tir" class="file-picker-btn">Choose Files</label>
-          <span class="file-picker-count" id="tir-count">No files chosen</span>
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab-btn active" data-tab="tir-files" role="tab">Upload TIR files</button>
+          <button type="button" class="tab-btn" data-tab="material-wise" role="tab" id="matTabBtn">Material wise upload</button>
         </div>
-        <div class="file-tags" id="tir-tags"></div>
-        <div class="hint">Select one or more files. Max 150 MB each. Accepted: PDF, Word, Excel, images, ZIP.</div>
+        <div class="tab-panel" data-panel="tir-files">
+          <div class="file-picker">
+            <input type="file" id="tir" class="file-input-hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip">
+            <label for="tir" class="file-picker-btn">Choose Files</label>
+            <span class="file-picker-count" id="tir-count">No files chosen</span>
+          </div>
+          <div class="file-tags" id="tir-tags"></div>
+          <div class="hint">Select one or more files. Max 150 MB each. Accepted: PDF, Word, Excel, images, ZIP.</div>
+        </div>
+        <div class="tab-panel hidden" data-panel="material-wise">
+          <div class="material-pick-row">
+            <select id="materialSelect" class="material-select" disabled>
+              <option value="">Loading materials...</option>
+            </select>
+            <button type="button" id="addMaterialBtn" class="add-mat-btn" disabled>+ Add</button>
+          </div>
+          <div id="materialRows"></div>
+          <div class="hint">One file per material. Saved as &lt;material_code&gt;_TDS.&lt;ext&gt;. Uploading again for the same material replaces the previous file.</div>
+        </div>
       </div>
       <div class="field">
         <label>Pricing Files <span style="color:#dc2626">*</span></label>
@@ -305,7 +347,8 @@ body::before {{ content: ''; position: fixed; inset: 0; background-image: radial
   const okAlert = document.getElementById('okAlert');
   const MAX_BYTES = 150 * 1024 * 1024;
 
-  const state = {{ tir: [], pricing: [] }};
+  const state = {{ tir: [], pricing: [], activeTab: 'tir-files', allMaterials: [], materialRows: [] }};
+  const tokenValue = form.querySelector('input[name=token]').value;
 
   function fmtSize(b) {{
     if (b < 1024) return b + ' B';
@@ -365,20 +408,192 @@ body::before {{ content: ''; position: fixed; inset: 0; background-image: radial
   renderTags('tir');
   renderTags('pricing');
 
+  // ── Tab switching ─────────────────────────────────────────────────────────
+  const tabButtons = document.querySelectorAll('.tab-btn');
+  const tabPanels  = document.querySelectorAll('.tab-panel');
+  tabButtons.forEach(function(b) {{
+    b.addEventListener('click', function() {{
+      const target = b.dataset.tab;
+      state.activeTab = target;
+      tabButtons.forEach(x => x.classList.toggle('active', x.dataset.tab === target));
+      tabPanels.forEach(p => p.classList.toggle('hidden', p.dataset.panel !== target));
+    }});
+  }});
+
+  // ── Material-wise tab ─────────────────────────────────────────────────────
+  const matSelect    = document.getElementById('materialSelect');
+  const matAddBtn    = document.getElementById('addMaterialBtn');
+  const matRowsEl    = document.getElementById('materialRows');
+  const matTabBtn    = document.getElementById('matTabBtn');
+
+  function intentLabel(it) {{
+    const v = (it || '').toString();
+    if (!v) return 'N/A';
+    return v;
+  }}
+  function intentClass(it) {{
+    const v = (it || '').toString().toLowerCase();
+    if (v === 'yes') return 'yes';
+    if (v === 'no') return 'no';
+    return 'na';
+  }}
+
+  function renderMaterialDropdown() {{
+    const usedCodes = new Set(state.materialRows.map(r => r.material_code));
+    const available = state.allMaterials.filter(m => !usedCodes.has(m.material_code));
+    if (state.allMaterials.length === 0) {{
+      matSelect.innerHTML = '<option value="">No materials available</option>';
+      matSelect.disabled = true;
+      matAddBtn.disabled = true;
+      return;
+    }}
+    if (available.length === 0) {{
+      matSelect.innerHTML = '<option value="">All materials added</option>';
+      matSelect.disabled = true;
+      matAddBtn.disabled = true;
+      return;
+    }}
+    const opts = ['<option value="">Select a material...</option>'].concat(
+      available.map(function(m) {{
+        const label = m.material_code + ' — ' + (m.name || '') + ' — Intent: ' + intentLabel(m.intent);
+        return '<option value="' + escHtml(m.material_code) + '">' + escHtml(label) + '</option>';
+      }})
+    );
+    matSelect.innerHTML = opts.join('');
+    matSelect.disabled = false;
+    matAddBtn.disabled = true;
+  }}
+
+  function renderMaterialRows() {{
+    if (state.materialRows.length === 0) {{
+      matRowsEl.innerHTML = '<div class="mat-empty">No materials added yet. Select one above and click Add.</div>';
+      return;
+    }}
+    matRowsEl.innerHTML = state.materialRows.map(function(r, i) {{
+      const fileLabel = r.file ? (r.file.name + ' (' + fmtSize(r.file.size) + ')') : 'No file chosen';
+      const fileCls   = r.file ? '' : 'empty';
+      return ''
+        + '<div class="mat-row">'
+        +   '<span class="mat-code">' + escHtml(r.material_code)
+        +     ' <span class="mat-intent ' + intentClass(r.intent) + '">' + escHtml(intentLabel(r.intent)) + '</span>'
+        +   '</span>'
+        +   '<input type="file" id="mat-file-' + i + '" class="file-input-hidden" '
+        +     'accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip" data-i="' + i + '">'
+        +   '<label for="mat-file-' + i + '" class="mat-file-btn">Choose File</label>'
+        +   '<span class="mat-file-name ' + fileCls + '" title="' + escHtml(fileLabel) + '">' + escHtml(fileLabel) + '</span>'
+        +   '<button type="button" class="mat-remove" data-i="' + i + '" aria-label="Remove">&times;</button>'
+        + '</div>';
+    }}).join('');
+  }}
+
+  matSelect.addEventListener('change', function() {{
+    matAddBtn.disabled = !matSelect.value;
+  }});
+
+  matAddBtn.addEventListener('click', function() {{
+    const code = matSelect.value;
+    if (!code) return;
+    const mat = state.allMaterials.find(m => m.material_code === code);
+    if (!mat) return;
+    state.materialRows.push({{ material_code: mat.material_code, name: mat.name || '', intent: mat.intent || '', file: null }});
+    renderMaterialDropdown();
+    renderMaterialRows();
+  }});
+
+  matRowsEl.addEventListener('change', function(e) {{
+    const inp = e.target;
+    if (inp && inp.type === 'file' && inp.dataset && inp.dataset.i != null) {{
+      const idx = Number(inp.dataset.i);
+      const f = inp.files && inp.files[0];
+      if (f && f.size > MAX_BYTES) {{
+        errAlert.textContent = 'File too large: ' + f.name + ' (max 150 MB).';
+        errAlert.style.display = 'block';
+        inp.value = '';
+        return;
+      }}
+      state.materialRows[idx].file = f || null;
+      renderMaterialRows();
+    }}
+  }});
+
+  matRowsEl.addEventListener('click', function(e) {{
+    const t = e.target.closest('.mat-remove');
+    if (!t) return;
+    state.materialRows.splice(Number(t.dataset.i), 1);
+    renderMaterialDropdown();
+    renderMaterialRows();
+  }});
+
+  function disableMaterialTab(reason) {{
+    matSelect.innerHTML = '<option value="">' + escHtml(reason || 'Unavailable') + '</option>';
+    matSelect.disabled = true;
+    matAddBtn.disabled = true;
+    if (matTabBtn) {{
+      matTabBtn.disabled = true;
+      matTabBtn.style.opacity = '0.55';
+      matTabBtn.style.cursor = 'not-allowed';
+      matTabBtn.title = reason || 'Material list unavailable';
+    }}
+  }}
+
+  (async function loadMaterials() {{
+    try {{
+      const res = await fetch('/api/rfp-upload/materials?token=' + encodeURIComponent(tokenValue));
+      if (!res.ok) {{
+        const data = await res.json().catch(() => ({{}}));
+        disableMaterialTab((data && data.detail) || 'Material list unavailable');
+        return;
+      }}
+      const data = await res.json();
+      state.allMaterials = Array.isArray(data.materials) ? data.materials : [];
+      renderMaterialDropdown();
+      renderMaterialRows();
+    }} catch (err) {{
+      disableMaterialTab('Could not load materials');
+    }}
+  }})();
+
   form.addEventListener('submit', async function(e){{
     e.preventDefault();
     errAlert.style.display = 'none';
     okAlert.style.display = 'none';
 
-    const tirFiles = state.tir.slice();
     const pricingFiles = state.pricing.slice();
-    if (tirFiles.length === 0 || pricingFiles.length === 0) {{
-      errAlert.textContent = 'Please select at least one TIR file and one Pricing file.';
+    const mode = state.activeTab === 'material-wise' ? 'material' : 'tir';
+
+    let tirFiles = [];
+    let matRows = [];
+    if (mode === 'tir') {{
+      tirFiles = state.tir.slice();
+      if (tirFiles.length === 0) {{
+        errAlert.textContent = 'Please select at least one TIR file.';
+        errAlert.style.display = 'block';
+        return;
+      }}
+    }} else {{
+      matRows = state.materialRows.slice();
+      if (matRows.length === 0) {{
+        errAlert.textContent = 'Please add at least one material.';
+        errAlert.style.display = 'block';
+        return;
+      }}
+      const missing = matRows.find(r => !r.file);
+      if (missing) {{
+        errAlert.textContent = 'Please attach a file for material ' + missing.material_code + '.';
+        errAlert.style.display = 'block';
+        return;
+      }}
+    }}
+
+    if (pricingFiles.length === 0) {{
+      errAlert.textContent = 'Please select at least one Pricing file.';
       errAlert.style.display = 'block';
       return;
     }}
-    for (const f of tirFiles.concat(pricingFiles)) {{
-      if (f.size > MAX_BYTES) {{
+
+    const allTirSelected = mode === 'tir' ? tirFiles : matRows.map(r => r.file);
+    for (const f of allTirSelected.concat(pricingFiles)) {{
+      if (f && f.size > MAX_BYTES) {{
         errAlert.textContent = 'File too large: ' + f.name + ' (max 150 MB).';
         errAlert.style.display = 'block';
         return;
@@ -389,8 +604,16 @@ body::before {{ content: ''; position: fixed; inset: 0; background-image: radial
     btn.innerHTML = '<span class="spinner"></span>Uploading...';
 
     const fd = new FormData();
-    fd.append('token', form.querySelector('input[name=token]').value);
-    for (const f of tirFiles) fd.append('tir_files', f);
+    fd.append('token', tokenValue);
+    fd.append('tir_mode', mode);
+    if (mode === 'tir') {{
+      for (const f of tirFiles) fd.append('tir_files', f);
+    }} else {{
+      for (const r of matRows) {{
+        fd.append('material_files', r.file);
+        fd.append('material_codes', r.material_code);
+      }}
+    }}
     for (const f of pricingFiles) fd.append('pricing_files', f);
 
     try {{
@@ -439,8 +662,11 @@ body::before {{ content: ''; position: fixed; inset: 0; background-image: radial
 @router.post("/api/rfp-upload")
 async def submit_upload(
     token: str = Form(...),
-    tir_files: List[UploadFile] = File(...),
     pricing_files: List[UploadFile] = File(...),
+    tir_files: List[UploadFile] = File(None),
+    tir_mode: str = Form("tir"),
+    material_files: List[UploadFile] = File(None),
+    material_codes: List[str] = Form(None),
 ):
     if token == PREVIEW_TOKEN:
         claims = _preview_claims()
@@ -454,8 +680,30 @@ async def submit_upload(
     product = claims["product"]
     company_name = claims["company_name"]
 
-    if not tir_files or not pricing_files:
-        raise HTTPException(status_code=400, detail="At least one TIR file and one Pricing file are required.")
+    if not pricing_files:
+        raise HTTPException(status_code=400, detail="At least one Pricing file is required.")
+
+    mode = (tir_mode or "tir").strip().lower()
+    if mode not in ("tir", "material"):
+        raise HTTPException(status_code=400, detail=f"Unknown tir_mode '{tir_mode}'.")
+
+    if mode == "tir":
+        if not tir_files:
+            raise HTTPException(status_code=400, detail="At least one TIR file is required.")
+    else:
+        if not material_files:
+            raise HTTPException(status_code=400, detail="At least one material file is required.")
+        if not material_codes or len(material_codes) != len(material_files):
+            raise HTTPException(
+                status_code=400,
+                detail="material_codes count must match material_files count.",
+            )
+        for code in material_codes:
+            if not re.fullmatch(r"\d{9}", (code or "").strip()):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid material code '{code}' (must be 9 digits).",
+                )
 
     rfp_title = clean_rfp_title(rfp_id)
     tds_folder = get_sharepoint_rfp_tds_path(rfp_title, company_name)
@@ -466,42 +714,88 @@ async def submit_upload(
     new_entries = []
     temp_paths = []
     try:
-        for kind, uploads, dest_folder in (
-            ("tir", tir_files, tds_folder),
-            ("pricing", pricing_files, pricing_folder),
-        ):
-            for upload in uploads:
-                original = _safe_name(upload.filename or f"{kind}.bin")
+        # TIR uploads — either bundled (mode='tir') or per-material (mode='material')
+        if mode == "tir":
+            tir_jobs = []
+            for upload in tir_files:
+                original = _safe_name(upload.filename or "tir.bin")
                 ext = os.path.splitext(original)[1] or ""
-                dest_filename = f"{rfp_title}__{safe_product}__{kind}__{original}"
+                dest_filename = f"{rfp_title}__{safe_product}__tir__{original}"
+                tir_jobs.append((upload, original, ext, dest_filename, None))
+        else:
+            tir_jobs = []
+            for upload, code in zip(material_files, material_codes):
+                code = code.strip()
+                original = _safe_name(upload.filename or f"{code}.bin")
+                ext = os.path.splitext(original)[1] or ".bin"
+                dest_filename = f"{code}_TDS{ext}"
+                tir_jobs.append((upload, original, ext, dest_filename, code))
 
-                size_bytes = 0
-                with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-                    while True:
-                        chunk = await upload.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        tmp.write(chunk)
-                        size_bytes += len(chunk)
-                    tmp_path = tmp.name
-                temp_paths.append(tmp_path)
+        for upload, original, ext, dest_filename, material_code in tir_jobs:
+            size_bytes = 0
+            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                while True:
+                    chunk = await upload.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    tmp.write(chunk)
+                    size_bytes += len(chunk)
+                tmp_path = tmp.name
+            temp_paths.append(tmp_path)
 
-                res = graph_client.upload_file_as(tmp_path, dest_folder, dest_filename)
-                if getattr(res, "status_code", 0) not in (200, 201, 202):
-                    raise HTTPException(
-                        status_code=502,
-                        detail=f"SharePoint rejected {kind} upload '{original}': {getattr(res, 'status_code', '?')} {getattr(res, 'text', '')[:200]}",
-                    )
+            res = graph_client.upload_file_as(tmp_path, tds_folder, dest_filename)
+            if getattr(res, "status_code", 0) not in (200, 201, 202):
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"SharePoint rejected TIR upload '{original}': {getattr(res, 'status_code', '?')} {getattr(res, 'text', '')[:200]}",
+                )
 
-                new_entries.append({
-                    "kind": kind,
-                    "filename": dest_filename,
-                    "original_filename": original,
-                    "sp_path": f"{dest_folder}/{dest_filename}",
-                    "product": product,
-                    "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "size_bytes": size_bytes,
-                })
+            entry = {
+                "kind": "tir",
+                "filename": dest_filename,
+                "original_filename": original,
+                "sp_path": f"{tds_folder}/{dest_filename}",
+                "product": product,
+                "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "size_bytes": size_bytes,
+            }
+            if material_code:
+                entry["material_code"] = material_code
+            new_entries.append(entry)
+
+        # Pricing uploads — unchanged behaviour
+        for upload in pricing_files:
+            original = _safe_name(upload.filename or "pricing.bin")
+            ext = os.path.splitext(original)[1] or ""
+            dest_filename = f"{rfp_title}__{safe_product}__pricing__{original}"
+
+            size_bytes = 0
+            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                while True:
+                    chunk = await upload.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    tmp.write(chunk)
+                    size_bytes += len(chunk)
+                tmp_path = tmp.name
+            temp_paths.append(tmp_path)
+
+            res = graph_client.upload_file_as(tmp_path, pricing_folder, dest_filename)
+            if getattr(res, "status_code", 0) not in (200, 201, 202):
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"SharePoint rejected pricing upload '{original}': {getattr(res, 'status_code', '?')} {getattr(res, 'text', '')[:200]}",
+                )
+
+            new_entries.append({
+                "kind": "pricing",
+                "filename": dest_filename,
+                "original_filename": original,
+                "sp_path": f"{pricing_folder}/{dest_filename}",
+                "product": product,
+                "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "size_bytes": size_bytes,
+            })
 
         if not is_preview:
             _append_upload_records(rfp_id, email, product, company_name, new_entries)
@@ -526,3 +820,54 @@ async def submit_upload(
         "pricing_folder": pricing_folder,
         "preview": is_preview,
     }
+
+
+@router.get("/api/rfp-upload/materials")
+async def list_rfp_materials(token: str = ""):
+    """Return material codes for the bidder's RFP so the upload page can populate
+    the Material-wise dropdown. JWT-gated; preview token returns mock data."""
+    if not token:
+        raise HTTPException(status_code=400, detail="Missing token.")
+
+    if token == PREVIEW_TOKEN:
+        return JSONResponse({
+            "ok": True,
+            "preview": True,
+            "materials": [
+                {"material_code": "100000001", "name": "Demo Pump A", "intent": "Yes"},
+                {"material_code": "100000002", "name": "Demo Valve B", "intent": "No"},
+                {"material_code": "100000003", "name": "Demo Sensor C", "intent": "Yes"},
+            ],
+        })
+
+    claims = verify_upload_token(token)
+    rfp_id = claims.get("rfp_id", "")
+    company_name = claims.get("company_name", "")
+    if not rfp_id or not company_name:
+        raise HTTPException(status_code=400, detail="Token missing RFP context.")
+
+    # Lazy import to avoid circular import with routes.dashboard at module load
+    from routes.dashboard import ensure_rfp_excel_from_sharepoint
+
+    try:
+        graph_client = _make_graph_client()
+        excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, company_name, graph_client)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not fetch RFP material file: {e}")
+
+    if not excel_path or not os.path.exists(excel_path):
+        raise HTTPException(status_code=404, detail="RFP material list unavailable.")
+
+    materials = extract_materials_from_excel(
+        excel_path, include_details=True, filter_by_intent=False
+    )
+
+    out = sorted(
+        ({
+            "material_code": m["material_code"],
+            "name": m.get("name", ""),
+            "intent": m.get("intent", ""),
+        } for m in materials),
+        key=lambda m: m["material_code"],
+    )
+    return JSONResponse({"ok": True, "preview": False, "materials": out})
