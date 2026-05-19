@@ -1071,10 +1071,10 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     allowed_decline = {e.strip().lower() for e in (_decline_emails if isinstance(_decline_emails, list) else [])}
 
     # Decline button only shown when EVERY response has
-    # Remarks == "No" AND Results == "Not in Scope".
+    # Results == "No" AND Remarks == "Not in Scope".
     all_decline_eligible = all(
-        (resp.get("remarks") or "").strip().lower() == "no"
-        and (resp.get("results") or "").strip().lower() == "not in scope"
+        (resp.get("results") or "").strip().lower() == "no"
+        and (resp.get("remarks") or "").strip().lower() == "not in scope"
         for resp in responses
     ) if responses else False
 
