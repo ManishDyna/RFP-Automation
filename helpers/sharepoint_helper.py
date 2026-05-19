@@ -76,6 +76,34 @@ class GraphClient:
         url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{path}"
         return requests.get(url, headers=self.headers)
 
+    def get_folder_web_url(self, folder_path: str) -> str | None:
+        """Resolve the browser-openable SharePoint URL for a folder.
+
+        Returns the folder's `webUrl` if it exists, or None if the folder
+        is missing (HTTP 404). Raises on other errors.
+        """
+        self.ensure_token()
+        if not self.site_id or not self.drive_id:
+            self.resolve_site_and_drive()
+
+        folder_path = (folder_path or "").strip("/")
+        if not folder_path:
+            return None
+
+        url = (
+            f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}"
+            f"/root:/{folder_path}?$select=webUrl,folder,name"
+        )
+        res = requests.get(url, headers=self.headers)
+        if res.status_code == 404:
+            return None
+        if res.status_code != 200:
+            raise RuntimeError(
+                f"[ERROR] get_folder_web_url failed for '{folder_path}': "
+                f"{res.status_code} {res.text[:200]}"
+            )
+        return res.json().get("webUrl")
+
     def ensure_folder_path(self, folder_path):
         """Ensure nested folder path exists (e.g., 'RFP-logs/ALLRFPs/2025')."""
         segments = [seg.rstrip('.') for seg in folder_path.strip("/").split("/") if seg]

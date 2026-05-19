@@ -470,9 +470,13 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
             log_event("RFP", "Process File", "Fail", f"Column 'name' not found in file: {file_name}", rfp_id)
             files_failed += 1
             continue
-        
+
         # Find Description column for keyword matching
         col_desc = find_column_name(df.columns, "description")
+
+        # Fallback columns for material code extraction when Name has no 9-digit code
+        col_mat_num = find_column_name(df.columns, "materialnumber")
+        col_mat_code = find_column_name(df.columns, "materialcode")
 
         # Capture total line items for analytics
         rfp_file_stats.setdefault(rfp_id, {})["total_line_items"] = len(df)
@@ -536,15 +540,29 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
 
         RFP_End_Date = _get_rfp_end_date()
 
-        for idx, value in df[col_name].items():
-            if pd.isna(value):
-                continue
+        for idx in df.index:
+            name_raw = df.iloc[idx][col_name]
+            name_text = "" if pd.isna(name_raw) else str(name_raw)
+            description_text = ""
+            if col_desc and not pd.isna(df.iloc[idx][col_desc]):
+                description_text = str(df.iloc[idx][col_desc])
 
-            # Get Name and Description text for keyword matching
-            name_text = str(value) if not pd.isna(value) else ""
-            description_text = str(df.iloc[idx][col_desc]) if col_desc and not pd.isna(df.iloc[idx][col_desc]) else ""
-
+            # Try Name first; fall back to Material Number / Material Code on this row
             material_codes = re.findall(r'\d{9}', name_text)
+            if not material_codes:
+                for fb_col in (col_mat_num, col_mat_code):
+                    if not fb_col:
+                        continue
+                    fb_val = df.iloc[idx][fb_col]
+                    if pd.isna(fb_val):
+                        continue
+                    material_codes = re.findall(r'\d{9}', str(fb_val))
+                    if material_codes:
+                        break
+
+            # Skip truly empty rows (no name, no description, no fallback code)
+            if not material_codes and not name_text and not description_text:
+                continue
 
             if material_codes:
                 # --- Rows WITH 9-digit material codes ---

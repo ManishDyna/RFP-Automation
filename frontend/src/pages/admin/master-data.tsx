@@ -4,7 +4,7 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { ArrowDown, ArrowUp, Columns3, Database, Eye, Lock, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowUp, Columns3, Database, Download, Eye, Lock, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
 import { Card, CardContent } from '@/components/ui/card'
@@ -79,6 +79,32 @@ const columnSchema = z.object({
   is_required: z.boolean().optional(),
 })
 type ColumnForm = z.infer<typeof columnSchema>
+
+// ─── CSV Export Helper ───────────────────────────────────────────────────────
+
+function escapeCsvCell(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  const str = String(value)
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`
+  }
+  return str
+}
+
+function downloadCsv(filename: string, headers: string[], rows: (string | undefined)[][]) {
+  const headerLine = headers.map(escapeCsvCell).join(',')
+  const bodyLines = rows.map((row) => row.map(escapeCsvCell).join(','))
+  const csv = '﻿' + [headerLine, ...bodyLines].join('\r\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
 
 // ─── Import Dialog ────────────────────────────────────────────────────────────
 
@@ -230,6 +256,24 @@ function MaterialsTab() {
 
   const materials = data?.materials ?? []
 
+  const handleExportCsv = () => {
+    if (materials.length === 0) {
+      toast.error('Nothing to export')
+      return
+    }
+    const stamp = new Date().toISOString().slice(0, 10)
+    downloadCsv(
+      `material-codes-${stamp}.csv`,
+      ['Material Code', 'Description', 'Created Date'],
+      materials.map((item: any) => [
+        item.material_code ?? '',
+        item.description ?? '',
+        item.created_date ? String(item.created_date).slice(0, 10) : '',
+      ])
+    )
+    toast.success(`Exported ${materials.length} material${materials.length !== 1 ? 's' : ''}`)
+  }
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -243,6 +287,14 @@ function MaterialsTab() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <Button
+          variant="outline"
+          onClick={handleExportCsv}
+          disabled={isLoading || materials.length === 0}
+        >
+          <Download className="h-4 w-4 mr-2" />
+          Export CSV
+        </Button>
         {canCreate && (
           <>
             <Button variant="outline" onClick={() => setImportOpen(true)}>
@@ -469,6 +521,23 @@ function KeywordsTab() {
 
   const keywords = data?.keywords ?? []
 
+  const handleExportCsv = () => {
+    if (keywords.length === 0) {
+      toast.error('Nothing to export')
+      return
+    }
+    const stamp = new Date().toISOString().slice(0, 10)
+    downloadCsv(
+      `keywords-${stamp}.csv`,
+      ['Keyword', 'Created Date'],
+      keywords.map((item: any) => [
+        item.keyword ?? '',
+        item.created_date ? String(item.created_date).slice(0, 10) : '',
+      ])
+    )
+    toast.success(`Exported ${keywords.length} keyword${keywords.length !== 1 ? 's' : ''}`)
+  }
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -482,6 +551,14 @@ function KeywordsTab() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <Button
+          variant="outline"
+          onClick={handleExportCsv}
+          disabled={isLoading || keywords.length === 0}
+        >
+          <Download className="h-4 w-4 mr-2" />
+          Export CSV
+        </Button>
         {canCreate && (
           <>
             <Button variant="outline" onClick={() => setImportOpen(true)}>

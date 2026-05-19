@@ -187,6 +187,10 @@ export const ENDPOINTS = {
   CONFIG: {
     COMPANY_OPTIONS: `${API_PREFIX}/company-options`,
   },
+  // ==================== SHAREPOINT (routes/sharepoint.py) ====================
+  SHAREPOINT: {
+    RFP_FOLDER: `${API_PREFIX}/sharepoint/rfp-folder`,
+  },
   // ==================== SYSTEM SETTINGS (routes/system_settings_routes.py) ====================
   SYSTEM_SETTINGS: {
     LIST: `${API_PREFIX}/system-settings/list`,

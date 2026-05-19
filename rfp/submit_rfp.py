@@ -879,7 +879,7 @@ async def submit_rfp(page, data: List[Dict[str, str]], rfp_id: str, graph_client
                 # Update participation status to "saved_draft"
                 try:
                     from helpers.core_helper import update_rfp_participation_status
-                    status_updated = update_rfp_participation_status(rfp_id, "saved_draft")
+                    status_updated = update_rfp_participation_status(rfp_id, "saved_draft", category="submit", log_change=True)
                     if not status_updated:
                         print(f"⚠️ Could not update participation status for RFP: {rfp_id}")
                 except Exception as status_err:

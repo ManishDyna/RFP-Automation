@@ -55,6 +55,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { api } from '@/lib/api'
+import { SharePointButton } from '@/components/shared/sharepoint-button'
 
 const statusOptions = [
   { value: '', label: 'All Statuses' },
@@ -97,6 +98,7 @@ const AVAILABLE_COLUMNS = {
 
 export default function RfpInsightsPage() {
   const canDownloadRfp = useHasPermission('rfp.download')
+  const canSharePointRfp = useHasPermission('rfp.sharepoint.view')
   const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState({
     status: searchParams.get('status') || '',
@@ -731,6 +733,13 @@ export default function RfpInsightsPage() {
                                 Portal
                               </a>
                             </Button>
+                          )}
+                          {canSharePointRfp && (
+                            <SharePointButton
+                              rfpId={rfp.RFP_ID}
+                              company={rfp.Company_Name}
+                              variant="labeled"
+                            />
                           )}
                           {canDownloadRfp && (
                             <Button

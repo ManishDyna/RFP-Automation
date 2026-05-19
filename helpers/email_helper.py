@@ -926,7 +926,17 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
 
     # --- Build Adaptive Card with filled response table + Decline button ---
     from services.rfp_team_columns_service import get_all_columns as _get_all_cols
+    from helpers.core_helper import get_sharepoint_rfp_path
+    from urllib.parse import quote as _url_quote
     columns = _get_all_cols()
+
+    # SharePoint folder URL for this RFP — used by the per-row "View Files"
+    # button shown next to responders who uploaded at least one file.
+    _sp_folder_rel = get_sharepoint_rfp_path(rfp_id, company_name)
+    rfp_folder_url = (
+        f"https://{_sp_hostname}{_site_path}/Shared%20Documents/"
+        f"{_url_quote(_sp_folder_rel, safe='/')}"
+    )
 
     # --- Build ColumnSet-based table ---
     header_cols = []
@@ -958,15 +968,36 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
             key = col["column_key"]
             col_width = 2 if key == "email" else 1
             if col.get("column_type") == "button":
-                btn_url = _resolve_button_url(col.get("dropdown_options", "") or "", row_ctx, rfp_id) or "https://example.com"
-                item = {
-                    "type": "ActionSet",
-                    "actions": [{
-                        "type": "Action.OpenUrl",
-                        "title": col.get("column_label", key),
-                        "url": btn_url,
-                    }],
-                }
+                url_template = col.get("dropdown_options", "") or ""
+                is_upload_btn = "{upload_url}" in url_template
+                if is_upload_btn:
+                    # Upload column in the consolidated email: show a
+                    # "View Files" button only for responders who uploaded
+                    # something. Everyone else gets a plain dash — the
+                    # upload window is over by this point.
+                    if resp.get("_has_uploads"):
+                        item = {
+                            "type": "ActionSet",
+                            "actions": [{
+                                "type": "Action.OpenUrl",
+                                "title": "View Files",
+                                "url": rfp_folder_url,
+                            }],
+                        }
+                    else:
+                        item = {"type": "TextBlock", "text": "—",
+                                "color": "Default", "wrap": True,
+                                "size": "Small", "isSubtle": True}
+                else:
+                    btn_url = _resolve_button_url(url_template, row_ctx, rfp_id) or "https://example.com"
+                    item = {
+                        "type": "ActionSet",
+                        "actions": [{
+                            "type": "Action.OpenUrl",
+                            "title": col.get("column_label", key),
+                            "url": btn_url,
+                        }],
+                    }
                 row_cols.append({
                     "type": "Column", "width": col_width, "padding": "None",
                     "items": [item],
@@ -1039,9 +1070,11 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
     # Normalise allowed emails to lowercase for comparison
     allowed_decline = {e.strip().lower() for e in (_decline_emails if isinstance(_decline_emails, list) else [])}
 
-    # New condition: Decline button only shown when ALL results are "No"
-    all_results_no = all(
-        (resp.get("results") or "").strip().lower() == "no"
+    # Decline button only shown when EVERY response has
+    # Remarks == "No" AND Results == "Not in Scope".
+    all_decline_eligible = all(
+        (resp.get("remarks") or "").strip().lower() == "no"
+        and (resp.get("results") or "").strip().lower() == "not in scope"
         for resp in responses
     ) if responses else False
 
@@ -1059,7 +1092,7 @@ def send_consolidated_response_email(rfp_id: str, responses: list, company_name:
         # Build card: include Decline button only for allowed emails AND all results are "No"
         show_decline = (
             recipient_email.strip().lower() in allowed_decline
-            and all_results_no
+            and all_decline_eligible
         )
         card = {
             "originator": _originator_id,

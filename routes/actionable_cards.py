@@ -265,6 +265,35 @@ def _uploaded_products_globally(rfp_responses: list) -> set:
     return uploaded
 
 
+def _uploads_by_responder(rfp_responses: list) -> set:
+    """Set of (email_lower, product) pairs that have at least one uploaded file.
+
+    Used by the consolidated email to render the per-row 'View Files' button
+    only next to the specific responder who uploaded — not for every row of
+    the same product.
+    """
+    uploaded = set()
+    for r in rfp_responses:
+        email = (r.get("cr673_email") or "").strip().lower()
+        if not email:
+            continue
+        raw_json = r.get("cr673_response_data") or r.get("response_data", "")
+        if not raw_json:
+            continue
+        try:
+            parsed = json.loads(raw_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        files = parsed.get("uploaded_files")
+        if isinstance(files, list):
+            for entry in files:
+                if isinstance(entry, dict) and entry.get("product"):
+                    uploaded.add((email, entry["product"]))
+    return uploaded
+
+
 def _build_refresh_card(
     rfp_id: str,
     company_name: str,
@@ -588,16 +617,20 @@ def _maybe_fire_consolidated_email(rfp_id: str, rfp_team: list, all_responses: l
             row_lookup.get(rid, {}).get("name", ""),
         ),
     )
+    uploads_by_responder = _uploads_by_responder(all_responses)
     responses_for_email = []
     for rid in ordered_row_ids:
         win = winners_by_row.get(rid)
         team_row = row_lookup.get(rid, {})
         if not win:
             continue
+        product = team_row.get("product", win.get("product", ""))
+        win_email = (win.get("email", "") or "").strip().lower()
         responses_for_email.append({
-            "product": team_row.get("product", win.get("product", "")),
+            "product": product,
             "name": win.get("name") or team_row.get("name", ""),
             "email": win.get("email", ""),
+            "_has_uploads": (win_email, product) in uploads_by_responder,
             **{
                 k: v for k, v in win.items()
                 if k not in ("name", "email", "submitted_at", "product", "responsibility_id")

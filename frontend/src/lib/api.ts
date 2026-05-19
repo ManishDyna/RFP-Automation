@@ -198,6 +198,16 @@ export const api = {
     return handleResponse(response)
   },
 
+  getRfpSharePointUrl: async (rfpId: string, company?: string) => {
+    const params = new URLSearchParams({ rfp_id: rfpId })
+    if (company) params.append('company', company)
+    const response = await fetch(
+      `${ENDPOINTS.SHAREPOINT.RFP_FOLDER}?${params.toString()}`,
+      { credentials: 'include' }
+    )
+    return handleResponse<{ ok: boolean; url: string; company: string }>(response)
+  },
+
   validateRfp: async (rfpId: string) => {
     const response = await fetch(
       `${ENDPOINTS.DASHBOARD.VALIDATE_RFP}?rfp_id=${encodeURIComponent(rfpId)}`,

@@ -1122,6 +1122,112 @@ async def api_view_logs(request: Request, page: int = Query(1), page_size: int =
 
 # ==================== ERROR FILE ENDPOINTS ====================
 
+def _get_error_logs_graph_client():
+    """Build an authenticated GraphClient for the error-logs SharePoint folder.
+    Returns None on any auth/init failure — callers should fall back to local-only behavior."""
+    try:
+        from helpers.sharepoint_helper import GraphClient
+        gc = GraphClient(
+            get_setting("CLIENT_ID", ""),
+            get_setting("CLIENT_SECRET", ""),
+            get_setting("TENANT_ID", ""),
+            get_setting("SHAREPOINT_HOSTNAME", "bahracables.sharepoint.com"),
+            get_setting("SITE_PATH", "/sites/LiveSite/RFPAutomation"),
+            get_setting("DRIVE_NAME", "Documents"),
+        )
+        gc.auth()
+        gc.resolve_site_and_drive()
+        return gc
+    except Exception as e:
+        print(f"[WARN] Could not init SharePoint client for error files: {e}")
+        return None
+
+
+def _sp_error_base() -> str:
+    return get_setting("SP_FAILURE_LOGS_FOLDER", "RFP-logs/automation-error-logs")
+
+
+def _list_sharepoint_error_files(graph_client, run_id: str | None, rfp_id: str | None) -> list[dict]:
+    """List error files on SharePoint for a given run_id (or rfp_id fallback).
+    Returns a list of dicts shaped like the local listing so callers can merge results.
+    Subfolders are listed recursively to a depth of 1 (folder/file.ext)."""
+    if graph_client is None:
+        return []
+    base = _sp_error_base()
+
+    try:
+        import requests  # local import to avoid module-level dep at file top
+        url = f"https://graph.microsoft.com/v1.0/sites/{graph_client.site_id}/drives/{graph_client.drive_id}/root:/{base}:/children?$top=999&$select=name,size,lastModifiedDateTime,folder,file"
+        resp = requests.get(url, headers=graph_client.headers)
+        if resp.status_code != 200:
+            print(f"[WARN] SharePoint listing failed at {base}: {resp.status_code}")
+            return []
+        children = resp.json().get("value", [])
+    except Exception as e:
+        print(f"[WARN] SharePoint listing exception: {e}")
+        return []
+
+    # Filter folders by run_id / rfp_id match (same predicate as local _matches)
+    def _name_matches(name: str) -> bool:
+        if run_id:
+            return f"run_{run_id}".lower() in name.lower()
+        if rfp_id:
+            safe = rfp_id.replace(" ", "_").replace("/", "_").replace("\\", "_")
+            return safe.lower() in name.lower() or rfp_id.lower() in name.lower()
+        return False  # never list ALL SharePoint error folders — too expensive
+
+    results: list[dict] = []
+    for entry in children:
+        name = entry.get("name", "")
+        if "folder" in entry:
+            if not _name_matches(name):
+                continue
+            # List files inside this folder
+            try:
+                import requests
+                folder_url = f"https://graph.microsoft.com/v1.0/sites/{graph_client.site_id}/drives/{graph_client.drive_id}/root:/{base}/{name}:/children?$top=999"
+                fresp = requests.get(folder_url, headers=graph_client.headers)
+                if fresp.status_code != 200:
+                    continue
+                for sub in fresp.json().get("value", []):
+                    sname = sub.get("name", "")
+                    if "file" not in sub:
+                        continue
+                    if not sname.endswith((".json", ".txt", ".png")):
+                        continue
+                    results.append({
+                        "filename": f"{name}/{sname}",
+                        "size": sub.get("size", 0),
+                        # convert ISO datetime to epoch-ish ordering value (string fine for sort)
+                        "modified": sub.get("lastModifiedDateTime", ""),
+                        "type": "screenshot" if sname.endswith(".png") else
+                                "report" if sname.endswith(".txt") else "json",
+                        "source": "sharepoint",
+                    })
+            except Exception as e:
+                print(f"[WARN] SharePoint sub-listing failed for {name}: {e}")
+    return results
+
+
+def _fetch_sharepoint_error_file_bytes(graph_client, sp_relative: str) -> bytes | None:
+    """Download a single file from the error-logs SharePoint folder. Returns raw bytes or None."""
+    if graph_client is None:
+        return None
+    try:
+        import requests
+        base = _sp_error_base()
+        full_path = f"{base}/{sp_relative}"
+        url = f"https://graph.microsoft.com/v1.0/sites/{graph_client.site_id}/drives/{graph_client.drive_id}/root:/{full_path}:/content"
+        resp = requests.get(url, headers=graph_client.headers)
+        if resp.status_code != 200:
+            print(f"[WARN] SharePoint fetch failed for {full_path}: {resp.status_code}")
+            return None
+        return resp.content
+    except Exception as e:
+        print(f"[WARN] SharePoint fetch exception for {sp_relative}: {e}")
+        return None
+
+
 @router.get("/error-files/list")
 async def api_list_error_files(
     request: Request,
@@ -1187,8 +1293,17 @@ async def api_list_error_files(
                             "report" if sub_file.endswith(".txt") else "json",
                 })
 
-    # Sort by modified time descending
-    files.sort(key=lambda f: f["modified"], reverse=True)
+    # Fall back to SharePoint when local turned up nothing (files may live on a
+    # different server, or local LOGS may have been cleaned up). Only fetch when
+    # the caller scoped the request to a specific run/RFP — otherwise this would
+    # list the entire SharePoint error archive on every page load.
+    if not files and (run_id or rfp_id):
+        gc = _get_error_logs_graph_client()
+        sp_files = _list_sharepoint_error_files(gc, run_id, rfp_id)
+        files.extend(sp_files)
+
+    # Sort by modified time descending (mixed int + ISO-string sort: cast both to str)
+    files.sort(key=lambda f: str(f["modified"]), reverse=True)
     return JSONResponse({"files": files})
 
 
@@ -1211,37 +1326,65 @@ def _resolve_log_file_path(filename: str) -> str | None:
 
 @router.get("/error-files/content/{filename:path}")
 async def api_get_error_file_content(request: Request, filename: str):
-    """Get content of a text/json error file from LOGS directory (supports subfolder/file)"""
+    """Get content of a text/json error file from LOGS directory (supports subfolder/file).
+    Falls back to SharePoint when the file is not present locally."""
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    fpath = _resolve_log_file_path(filename)
-    if not fpath or not os.path.isfile(fpath):
-        raise HTTPException(status_code=404, detail="File not found")
+    if not filename.endswith((".json", ".txt")):
+        raise HTTPException(status_code=400, detail="Unsupported file type")
 
-    if fpath.endswith(".json"):
-        with open(fpath, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return JSONResponse({"filename": filename, "type": "json", "content": data})
-    elif fpath.endswith(".txt"):
+    fpath = _resolve_log_file_path(filename)
+    if fpath and os.path.isfile(fpath):
+        if fpath.endswith(".json"):
+            with open(fpath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return JSONResponse({"filename": filename, "type": "json", "content": data})
         with open(fpath, "r", encoding="utf-8") as f:
             text = f.read()
         return JSONResponse({"filename": filename, "type": "text", "content": text})
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    # SharePoint fallback — only meaningful for subfolder/file paths
+    gc = _get_error_logs_graph_client()
+    blob = _fetch_sharepoint_error_file_bytes(gc, filename)
+    if blob is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    try:
+        text = blob.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Could not decode file as text")
+
+    if filename.endswith(".json"):
+        try:
+            return JSONResponse({"filename": filename, "type": "json", "content": json.loads(text)})
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON in SharePoint file")
+    return JSONResponse({"filename": filename, "type": "text", "content": text})
 
 
 @router.get("/error-files/screenshot/{filename:path}")
 async def api_get_screenshot(request: Request, filename: str):
-    """Serve a screenshot image from LOGS directory (supports subfolder/screenshot.png)"""
+    """Serve a screenshot image from LOGS directory (supports subfolder/screenshot.png).
+    Falls back to SharePoint when the file is not present locally."""
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    fpath = _resolve_log_file_path(filename)
-    if not fpath or not os.path.isfile(fpath) or not fpath.endswith(".png"):
+    if not filename.endswith(".png"):
         raise HTTPException(status_code=404, detail="Screenshot not found")
 
-    return FileResponse(fpath, media_type="image/png")
+    fpath = _resolve_log_file_path(filename)
+    if fpath and os.path.isfile(fpath):
+        return FileResponse(fpath, media_type="image/png")
+
+    # SharePoint fallback
+    gc = _get_error_logs_graph_client()
+    blob = _fetch_sharepoint_error_file_bytes(gc, filename)
+    if blob is None:
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+
+    from fastapi.responses import Response
+    return Response(content=blob, media_type="image/png")
 
 
 # ==================== PROFILE ENDPOINTS ====================

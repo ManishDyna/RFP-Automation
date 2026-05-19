@@ -165,10 +165,10 @@ def _render_error_page(message: str, status: int = 400) -> HTMLResponse:
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Upload Error</title>
 <style>
-body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #f5f6fa; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }}
-.card {{ background: #fff; padding: 32px 36px; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.08); max-width: 480px; }}
-h1 {{ color: #dc2626; font-size: 20px; margin: 0 0 12px; }}
-p {{ color: #374151; font-size: 14px; line-height: 1.5; }}
+body {{ font-family: 'Inter', 'Segoe UI', Arial, sans-serif; background: linear-gradient(135deg, #1a1f24 0%, #32373c 50%, #3d1a1a 100%); display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 24px; }}
+.card {{ background: #fff; padding: 32px 36px; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); max-width: 480px; border-top: 3px solid #cf2e2e; }}
+h1 {{ color: #cf2e2e; font-size: 20px; margin: 0 0 12px; font-weight: 600; }}
+p {{ color: #32373c; font-size: 14px; line-height: 1.5; }}
 </style></head>
 <body><div class="card"><h1>Upload Error</h1><p>{message}</p></div></body></html>"""
     return HTMLResponse(html, status_code=status)
@@ -196,10 +196,11 @@ async def upload_page(token: str = ""):
     company_name = claims.get("company_name", "")
 
     preview_banner = (
-        '<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;'
-        'padding:10px 14px;margin:0 0 16px;border-radius:6px;font-size:13px;'
-        'font-weight:600;">'
-        '⚠ PREVIEW MODE — This is a demo. Files you upload here are saved to '
+        '<div style="background:linear-gradient(135deg,#fff8e6 0%,#fef0cc 100%);'
+        'border-left:4px solid #ff6900;color:#7c2d12;'
+        'padding:12px 16px;margin:0 0 18px;border-radius:8px;font-size:13px;'
+        'font-weight:500;line-height:1.5;box-shadow:0 2px 8px rgba(255,105,0,0.12);">'
+        '<span style="font-weight:700;color:#c2410c;">⚠ PREVIEW MODE</span> — This is a demo. Files you upload here are saved to '
         'the demo folder (not a real RFP) so you can verify the upload flow works.'
         '</div>'
     ) if is_preview else ""
@@ -211,23 +212,36 @@ async def upload_page(token: str = ""):
 <title>Upload RFP Files - {rfp_id}</title>
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-body {{ min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Segoe UI', Arial, sans-serif; padding: 24px; display: flex; align-items: center; justify-content: center; }}
-.card {{ background: #fff; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); width: 100%; max-width: 520px; overflow: hidden; }}
-.card-header {{ background: #4f46e5; color: #fff; padding: 24px 32px; }}
-.card-header h1 {{ font-size: 20px; font-weight: 600; margin: 0 0 4px; }}
+body {{ min-height: 100vh; background: linear-gradient(135deg, #f8fafc 0%, #fcf0f0 50%, #f1f5f9 100%); font-family: 'Inter', 'Segoe UI', Arial, sans-serif; padding: 24px; display: flex; align-items: center; justify-content: center; position: relative; }}
+body::before {{ content: ''; position: fixed; inset: 0; background-image: radial-gradient(circle at 20% 20%, rgba(207,46,46,0.08) 0%, transparent 45%), radial-gradient(circle at 80% 80%, rgba(255,105,0,0.06) 0%, transparent 45%); pointer-events: none; z-index: 0; }}
+.card {{ background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(50,55,60,0.18), 0 4px 12px rgba(207,46,46,0.08); width: 100%; max-width: 520px; overflow: hidden; border: 1px solid rgba(50,55,60,0.08); position: relative; z-index: 1; }}
+.card-header {{ background: linear-gradient(135deg, #32373c 0%, #1a1f24 100%); color: #fff; padding: 24px 32px; border-bottom: 3px solid #cf2e2e; position: relative; }}
+.card-header::after {{ content: ''; position: absolute; top: 0; right: 0; width: 120px; height: 100%; background: linear-gradient(90deg, transparent, rgba(207,46,46,0.18)); pointer-events: none; }}
+.card-header h1 {{ font-size: 20px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }}
 .card-header .sub {{ font-size: 13px; opacity: 0.85; }}
 .card-body {{ padding: 28px 32px 32px; }}
-.meta {{ background: #f3f4f6; border-radius: 8px; padding: 14px 16px; font-size: 13px; margin-bottom: 22px; }}
-.meta .row {{ display: flex; margin: 3px 0; color: #374151; gap: 8px; }}
+.meta {{ background: #f8fafc; border: 1px solid rgba(207,46,46,0.12); border-radius: 8px; padding: 14px 16px; font-size: 13px; margin-bottom: 22px; }}
+.meta .row {{ display: flex; margin: 3px 0; color: #32373c; gap: 8px; }}
 .meta .row .k {{ color: #6b7280; flex: 0 0 86px; }}
 .meta .row .v {{ color: #1f2937; font-weight: 600; word-break: break-word; overflow-wrap: anywhere; flex: 1; }}
 .field {{ margin-bottom: 18px; }}
-.field label {{ display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }}
-.field input[type=file] {{ width: 100%; padding: 10px 12px; border: 1.5px dashed #c7d2fe; border-radius: 8px; font-size: 13px; background: #fafbff; cursor: pointer; }}
+.field > label {{ display: block; font-size: 13px; font-weight: 600; color: #32373c; margin-bottom: 6px; }}
+.field .file-input-hidden {{ position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }}
+.file-picker {{ display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1.5px dashed rgba(207,46,46,0.35); border-radius: 8px; background: #fef9f9; flex-wrap: wrap; transition: border-color 0.15s, background 0.15s; }}
+.file-picker:hover {{ border-color: #cf2e2e; background: #fef2f2; }}
+.file-picker-btn {{ display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%); color: #fff; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 6px rgba(207,46,46,0.25); }}
+.file-picker-btn:hover {{ background: linear-gradient(135deg, #e85555 0%, #cf2e2e 100%); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(207,46,46,0.35); }}
+.file-picker-count {{ font-size: 12px; color: #6b7280; }}
+.file-tags {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }}
+.file-tag {{ display: inline-flex; align-items: center; gap: 6px; background: #fef2f2; color: #a82424; padding: 5px 6px 5px 10px; border-radius: 999px; font-size: 12px; max-width: 100%; border: 1px solid rgba(207,46,46,0.25); }}
+.file-tag .name {{ max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+.file-tag .size {{ color: #cf2e2e; opacity: 0.7; font-size: 11px; }}
+.file-tag .x {{ display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: rgba(207,46,46,0.15); color: #cf2e2e; cursor: pointer; font-size: 14px; line-height: 1; border: none; padding: 0; transition: all 0.15s; }}
+.file-tag .x:hover {{ background: #cf2e2e; color: #fff; }}
 .field .hint {{ font-size: 11px; color: #6b7280; margin-top: 4px; }}
-.btn {{ width: 100%; padding: 13px; background: #4f46e5; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 6px; }}
-.btn:hover {{ background: #4338ca; }}
-.btn:disabled {{ background: #a5b4fc; cursor: not-allowed; }}
+.btn {{ width: 100%; padding: 13px; background: linear-gradient(135deg, #cf2e2e 0%, #a82424 100%); color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 6px; transition: all 0.3s ease; box-shadow: 0 4px 14px rgba(207,46,46,0.3); }}
+.btn:hover {{ background: linear-gradient(135deg, #e85555 0%, #cf2e2e 100%); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(207,46,46,0.4); }}
+.btn:disabled {{ background: #abb8c3; cursor: not-allowed; transform: none; box-shadow: none; }}
 .alert {{ padding: 14px 16px; border-radius: 8px; font-size: 13px; margin-top: 16px; display: none; line-height: 1.45; word-break: break-word; overflow-wrap: anywhere; }}
 .alert.err {{ background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }}
 .alert.ok {{ background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }}
@@ -258,14 +272,24 @@ body {{ min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764b
     <form id="upForm">
       <input type="hidden" name="token" value="{token}">
       <div class="field">
-        <label for="tir">TIR Files <span style="color:#dc2626">*</span></label>
-        <input type="file" id="tir" name="tir_files" required multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip">
-        <div class="hint">Select one or more files. Max 25 MB each. Accepted: PDF, Word, Excel, images, ZIP.</div>
+        <label>TIR Files <span style="color:#dc2626">*</span></label>
+        <div class="file-picker">
+          <input type="file" id="tir" class="file-input-hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip">
+          <label for="tir" class="file-picker-btn">Choose Files</label>
+          <span class="file-picker-count" id="tir-count">No files chosen</span>
+        </div>
+        <div class="file-tags" id="tir-tags"></div>
+        <div class="hint">Select one or more files. Max 150 MB each. Accepted: PDF, Word, Excel, images, ZIP.</div>
       </div>
       <div class="field">
-        <label for="pricing">Pricing Files <span style="color:#dc2626">*</span></label>
-        <input type="file" id="pricing" name="pricing_files" required multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip">
-        <div class="hint">Select one or more files. Max 25 MB each.</div>
+        <label>Pricing Files <span style="color:#dc2626">*</span></label>
+        <div class="file-picker">
+          <input type="file" id="pricing" class="file-input-hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip">
+          <label for="pricing" class="file-picker-btn">Choose Files</label>
+          <span class="file-picker-count" id="pricing-count">No files chosen</span>
+        </div>
+        <div class="file-tags" id="pricing-tags"></div>
+        <div class="hint">Select one or more files. Max 150 MB each.</div>
       </div>
       <button type="submit" class="btn" id="submitBtn">Upload Files</button>
       <div class="alert err" id="errAlert"></div>
@@ -279,15 +303,75 @@ body {{ min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764b
   const btn = document.getElementById('submitBtn');
   const errAlert = document.getElementById('errAlert');
   const okAlert = document.getElementById('okAlert');
-  const MAX_BYTES = 25 * 1024 * 1024;
+  const MAX_BYTES = 150 * 1024 * 1024;
+
+  const state = {{ tir: [], pricing: [] }};
+
+  function fmtSize(b) {{
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+    return (b / (1024 * 1024)).toFixed(2) + ' MB';
+  }}
+  function escHtml(s) {{
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }}
+  function fileKey(f) {{ return f.name + '|' + f.size + '|' + (f.lastModified || 0); }}
+
+  function renderTags(kind) {{
+    const tagsEl = document.getElementById(kind + '-tags');
+    const countEl = document.getElementById(kind + '-count');
+    const list = state[kind];
+    countEl.textContent = list.length === 0
+      ? 'No files chosen'
+      : list.length + ' file' + (list.length === 1 ? '' : 's') + ' selected';
+    tagsEl.innerHTML = list.map(function(f, i) {{
+      return '<span class="file-tag">'
+        + '<span class="name" title="' + escHtml(f.name) + '">' + escHtml(f.name) + '</span>'
+        + '<span class="size">(' + fmtSize(f.size) + ')</span>'
+        + '<button type="button" class="x" data-kind="' + kind + '" data-i="' + i + '" aria-label="Remove">&times;</button>'
+        + '</span>';
+    }}).join('');
+  }}
+
+  function addFiles(kind, fileList) {{
+    const list = state[kind];
+    const seen = new Set(list.map(fileKey));
+    Array.from(fileList).forEach(function(f) {{
+      const k = fileKey(f);
+      if (!seen.has(k)) {{ list.push(f); seen.add(k); }}
+    }});
+    renderTags(kind);
+  }}
+
+  function removeFile(kind, idx) {{
+    state[kind].splice(idx, 1);
+    renderTags(kind);
+  }}
+
+  ['tir', 'pricing'].forEach(function(kind) {{
+    const input = document.getElementById(kind);
+    input.addEventListener('change', function(e) {{
+      addFiles(kind, e.target.files);
+      input.value = '';
+    }});
+    document.getElementById(kind + '-tags').addEventListener('click', function(e) {{
+      const target = e.target.closest('.x');
+      if (!target) return;
+      removeFile(target.dataset.kind, Number(target.dataset.i));
+    }});
+  }});
+  renderTags('tir');
+  renderTags('pricing');
 
   form.addEventListener('submit', async function(e){{
     e.preventDefault();
     errAlert.style.display = 'none';
     okAlert.style.display = 'none';
 
-    const tirFiles = Array.from(document.getElementById('tir').files);
-    const pricingFiles = Array.from(document.getElementById('pricing').files);
+    const tirFiles = state.tir.slice();
+    const pricingFiles = state.pricing.slice();
     if (tirFiles.length === 0 || pricingFiles.length === 0) {{
       errAlert.textContent = 'Please select at least one TIR file and one Pricing file.';
       errAlert.style.display = 'block';
@@ -295,7 +379,7 @@ body {{ min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764b
     }}
     for (const f of tirFiles.concat(pricingFiles)) {{
       if (f.size > MAX_BYTES) {{
-        errAlert.textContent = 'File too large: ' + f.name + ' (max 25 MB).';
+        errAlert.textContent = 'File too large: ' + f.name + ' (max 150 MB).';
         errAlert.style.display = 'block';
         return;
       }}
@@ -391,9 +475,14 @@ async def submit_upload(
                 ext = os.path.splitext(original)[1] or ""
                 dest_filename = f"{rfp_title}__{safe_product}__{kind}__{original}"
 
+                size_bytes = 0
                 with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-                    content = await upload.read()
-                    tmp.write(content)
+                    while True:
+                        chunk = await upload.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        tmp.write(chunk)
+                        size_bytes += len(chunk)
                     tmp_path = tmp.name
                 temp_paths.append(tmp_path)
 
@@ -411,7 +500,7 @@ async def submit_upload(
                     "sp_path": f"{dest_folder}/{dest_filename}",
                     "product": product,
                     "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "size_bytes": len(content),
+                    "size_bytes": size_bytes,
                 })
 
         if not is_preview:

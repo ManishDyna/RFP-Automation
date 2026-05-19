@@ -36,6 +36,7 @@ from routes.master_data_routes import router as master_data_router
 from routes.system_settings_routes import router as system_settings_router
 from routes.open_rfp import router as open_rfp_router
 from routes.rfp_upload import router as rfp_upload_router
+from routes.sharepoint import router as sharepoint_router
 from config.config import SESSION_TIMEOUT_SECONDS
 import os
 import uuid
@@ -105,6 +106,9 @@ app.include_router(open_rfp_router)
 
 # Per-RFP file upload (TIR + Pricing) reached from Adaptive Card button
 app.include_router(rfp_upload_router)
+
+# SharePoint folder URL resolver (deep-link UI buttons to per-RFP folders)
+app.include_router(sharepoint_router)
 
 
 # ==================== GLOBAL ERROR HANDLER ====================

@@ -303,7 +303,7 @@ async def decline_rfps(page, data, company_name: str, rfp_id=""):
                 # Update participation status to "declined"
                 try:
                     from helpers.core_helper import update_rfp_participation_status
-                    status_updated = update_rfp_participation_status(rfp_id, "declined")
+                    status_updated = update_rfp_participation_status(rfp_id, "declined", category="decline", log_change=True)
                     if not status_updated:
                         print(f"[WARN] Could not update participation status for RFP: {rfp_id}")
                 except Exception as status_err:

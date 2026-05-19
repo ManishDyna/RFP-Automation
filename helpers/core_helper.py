@@ -338,12 +338,11 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
                 # Map common category names to potential choice labels
                 category_mapping = {
                     "draft saved": "submit",
-                    "saved draft": "submit", 
+                    "saved draft": "submit",
                     "submitted": "submit",
-                    "declined": "submit",
-                    "status change": "submit",
-                    "synced from portal": "submit",
-                    "initial status": "submit"
+                    "submit": "submit",
+                    "declined": "decline",
+                    "decline": "decline",
                 }
                 
                 # Try to find matching label
@@ -361,13 +360,11 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
                             break
                 
                 if category_value is None:
-                    # If no match found, try using the first option or default
-                    if label_to_value:
-                        # Use first available option as fallback
-                        category_value = list(label_to_value.values())[0]
-                        logger.warning(f"Category '{category}' not found in choice options, using first option: {category_value}")
-                    else:
-                        logger.warning("No choice options found for category field, will try without choice value")
+                    logger.error(
+                        f"Category '{category}' (search '{search_label}') not found in choice options "
+                        f"{list(label_to_value.keys())}. Skipping log row to avoid polluting dashboard counts."
+                    )
+                    return False
         except Exception as e:
             logger.warning(f"Could not get choice options for category field: {e}")
             # Continue without choice value - will try as string
@@ -483,11 +480,16 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
     Args:
         rfp_id: The RFP identifier
         status: New status to set
-        category: Optional category for the status change log. Only used when log_change=True.
+        category: Optional category for the history row. Only used when log_change=True.
+            If omitted, derived from `status` ('declined' -> 'decline', else 'submit').
         log_change: If True, also write a history row to cr673_bhara_rfp_status.
-            Defaults to False — automation callers (submit/decline/sync flows) must NOT log,
-            because those writes were polluting the dashboard's "by-system" counts. Only the
-            user-driven UI route should pass log_change=True.
+            Logging policy:
+              - Submit automation (rfp/submit_rfp.py)  -> log with category='submit'
+              - Decline automation (rfp/decline_rfp.py) -> log with category='decline'
+              - User-driven UI updates (routes/dashboard.py) -> log; category derived from status
+              - Sync from portal (automation_logic.py) -> MUST NOT log (sync reflects external
+                portal state, not actions taken by our system, so it would inflate the
+                dashboard's "by-system" counts)
 
     Returns:
         bool: True if update was successful, False otherwise
@@ -574,11 +576,11 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
 
             logger.info(f"Updated RFP {rfp_id} participation status to: {status}")
 
-            # Log status change only when explicitly requested (user-driven UI updates).
-            # Automation/sync paths intentionally skip this — see log_change docstring.
+            # Log status change only when explicitly requested. See log_change docstring
+            # for the policy (submit/decline automation + UI log; sync does NOT log).
             if log_change and old_status.lower() != status.lower():
                 if not category:
-                    category = "submit"
+                    category = "decline" if status.lower() == "declined" else "submit"
                 log_rfp_status_change(rfp_id, old_status, status, category)
 
             return True
@@ -830,6 +832,29 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
         # Use ALL rows — no intent filtering
         filtered = df
 
+    # Fallback columns: Material Number / Material Code (resolved once, reused per row).
+    # Used only when the Name column has no 9-digit code for that row.
+    mat_num_col = find_column_name(df.columns, "materialnumber")
+    mat_code_col = find_column_name(df.columns, "materialcode")
+
+    def _extract_row_codes(row) -> list:
+        """Try Name first; fall back to Material Number, then Material Code."""
+        name_val = row.get(name_col)
+        if name_val is not None and not pd.isna(name_val):
+            codes = re.findall(r"\d{9}", str(name_val))
+            if codes:
+                return codes
+        for fb_col in (mat_num_col, mat_code_col):
+            if not fb_col:
+                continue
+            fb_val = row.get(fb_col)
+            if fb_val is None or pd.isna(fb_val):
+                continue
+            codes = re.findall(r"\d{9}", str(fb_val))
+            if codes:
+                return codes
+        return []
+
     if include_details:
         # Return list of dicts with details
         desc_col = find_column_name(df.columns, "description")
@@ -845,8 +870,7 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
             if qty_value is None or pd.isna(qty_value):
                 qty_value = ""
 
-            # Extract 9-digit material codes
-            for mat_code in re.findall(r"\d{9}", name_value):
+            for mat_code in _extract_row_codes(row):
                 if mat_code not in seen_codes:
                     seen_codes.add(mat_code)
                     materials_data.append({
@@ -861,10 +885,8 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
     else:
         # Return set of material codes only
         materials = set()
-        for _, value in filtered[name_col].items():
-            if pd.isna(value):
-                continue
-            for mat in re.findall(r"\d{9}", str(value)):
+        for row in filtered.to_dict('records'):
+            for mat in _extract_row_codes(row):
                 materials.add(mat)
 
         print(f"Materials extracted (filter_by_intent={filter_by_intent}): {sorted(materials)}")

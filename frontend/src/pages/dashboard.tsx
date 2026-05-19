@@ -41,6 +41,7 @@ import { MaterialBreakdownDialog } from '@/components/dialogs/material-breakdown
 import { api } from '@/lib/api'
 import { cn, formatDateMDY } from '@/lib/utils'
 import { useHasPermission } from '@/hooks/use-auth'
+import { SharePointButton } from '@/components/shared/sharepoint-button'
 
 // Threshold for enabling virtualization (only virtualize when > this many rows)
 const VIRTUALIZATION_THRESHOLD = 50
@@ -268,9 +269,10 @@ interface RfpTableRowProps {
   onViewBreakdown?: (rfpId: string) => void
   canDownload?: boolean
   canSubmit?: boolean
+  canSharePoint?: boolean
 }
 
-const RfpTableRow = memo(function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchData, onViewBreakdown, canDownload = true, canSubmit = true }: RfpTableRowProps) {
+const RfpTableRow = memo(function RfpTableRow({ rfp, index, showActions, tableType, onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchData, onViewBreakdown, canDownload = true, canSubmit = true, canSharePoint = false }: RfpTableRowProps) {
   const isDownloading = downloadingRfpId === rfp.RFP_ID
   const pct = matchData?.match_percentage ?? null
   return (
@@ -321,6 +323,9 @@ const RfpTableRow = memo(function RfpTableRow({ rfp, index, showActions, tableTy
       </TableCell>
       <TableCell className="text-right">
         <div className="flex items-center justify-end gap-2">
+          {canSharePoint && (
+            <SharePointButton rfpId={rfp.RFP_ID} company={rfp.Company_Name} />
+          )}
           {canDownload && (
             <Button
               size="sm"
@@ -371,9 +376,10 @@ interface RfpTableProps {
   onViewBreakdown?: (rfpId: string) => void
   canDownload?: boolean
   canSubmit?: boolean
+  canSharePoint?: boolean
 }
 
-function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchPercentages = {}, onViewBreakdown, canDownload = true, canSubmit = true }: RfpTableProps) {
+function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onChangeStatus, onDownloadExcel, downloadingRfpId, matchPercentages = {}, onViewBreakdown, canDownload = true, canSubmit = true, canSharePoint = false }: RfpTableProps) {
   const parentRef = useRef<HTMLDivElement>(null)
 
   // Use virtualization only for large datasets
@@ -430,6 +436,7 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
               onViewBreakdown={onViewBreakdown}
               canDownload={canDownload}
               canSubmit={canSubmit}
+              canSharePoint={canSharePoint}
             />
           ))}
         </TableBody>
@@ -531,6 +538,9 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {canSharePoint && (
+                          <SharePointButton rfpId={rfp.RFP_ID} company={rfp.Company_Name} />
+                        )}
                         {canDownload && (
                           <Button
                             size="sm"
@@ -582,6 +592,7 @@ function RfpTable({ rfps, showActions = false, tableType = 'open', onSubmit, onC
 export default function DashboardPage() {
   const canDownloadRfp = useHasPermission('rfp.download')
   const canSubmitRfp = useHasPermission('rfp.submit')
+  const canSharePointRfp = useHasPermission('rfp.sharepoint.view')
   const { openSubmitRfpDialog } = useDialogs()
   const queryClient = useQueryClient()
   const { data, isLoading, refetch, isRefetching } = useQuery({
@@ -1091,6 +1102,7 @@ export default function DashboardPage() {
                               onViewBreakdown={handleViewBreakdown}
                               canDownload={canDownloadRfp}
                               canSubmit={canSubmitRfp}
+                              canSharePoint={canSharePointRfp}
                             />
                           </TabsContent>
                           <TabsContent value="submitted" className="mt-0">
@@ -1102,6 +1114,7 @@ export default function DashboardPage() {
                               onViewBreakdown={handleViewBreakdown}
                               canDownload={canDownloadRfp}
                               canSubmit={canSubmitRfp}
+                              canSharePoint={canSharePointRfp}
                             />
                           </TabsContent>
                           <TabsContent value="draft" className="mt-0">
@@ -1116,6 +1129,7 @@ export default function DashboardPage() {
                               onViewBreakdown={handleViewBreakdown}
                               canDownload={canDownloadRfp}
                               canSubmit={canSubmitRfp}
+                              canSharePoint={canSharePointRfp}
                             />
                           </TabsContent>
                           <TabsContent value="declined" className="mt-0">
@@ -1127,6 +1141,7 @@ export default function DashboardPage() {
                               onViewBreakdown={handleViewBreakdown}
                               canDownload={canDownloadRfp}
                               canSubmit={canSubmitRfp}
+                              canSharePoint={canSharePointRfp}
                             />
                           </TabsContent>
                         </div>
