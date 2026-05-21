@@ -218,7 +218,7 @@ RFP_TEAM_TABLE = _DEV_RFP_TEAM_TABLE
 
 # Emails authorized to see the "Decline RFP" button in actionable card emails
 DECLINE_BUTTON_EMAILS = [
-    "abdullah.rawah@bahra-cables.com",
+    "abdullah.rawah@bahra-cables.com","ksaGov.tenders@bahra-cables.com"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────

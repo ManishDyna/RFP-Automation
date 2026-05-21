@@ -271,7 +271,7 @@ export function Sidebar({
                     <NavItem
                       path="/admin/system-settings"
                       icon={SlidersHorizontal}
-                      label="System Settings"
+                      label="System Config"
                       active={location.pathname === '/admin/system-settings'}
                       collapsed={collapsed}
                     />

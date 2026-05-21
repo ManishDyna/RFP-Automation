@@ -7,8 +7,6 @@ import {
   Filter,
   Building2,
   RotateCcw,
-  CheckCircle2,
-  XCircle,
   Package,
   Tag,
   Layers,
@@ -17,6 +15,7 @@ import {
   ChevronDown,
   ChevronRight,
   Hash,
+  Download,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -63,6 +62,7 @@ export default function MaterialInsightsPage() {
 
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
+  const [isExporting, setIsExporting] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const ITEMS_PER_PAGE = 50
@@ -158,6 +158,75 @@ export default function MaterialInsightsPage() {
   }
 
   const hasActiveFilters = !!(filters.company || filters.participated || filters.search)
+
+  const csvEscape = (value: any): string => {
+    const str = String(value ?? '')
+    if (/[",\n\r]/.test(str)) {
+      return `"${str.replace(/"/g, '""')}"`
+    }
+    return str
+  }
+
+  const handleExportCSV = async () => {
+    if (isExporting) return
+    setIsExporting(true)
+    try {
+      const totalToFetch = totalFiltered || allItems.length
+      if (!totalToFetch) return
+
+      // Fetch the full filtered set in one call (backend has no upper cap on limit).
+      const response = await api.getMaterialInsightsGrouped({
+        tab: activeTab,
+        ...appliedFilters,
+        limit: totalToFetch,
+        offset: 0,
+      })
+      const items: any[] = response?.items || []
+      if (!items.length) return
+
+      let headers: string[] = []
+      let rows: (string | number)[][] = []
+
+      if (activeTab === 'materials') {
+        headers = ['Material Code', 'Description', 'RFP Count', 'Company Count', 'Companies', 'RFP IDs']
+        rows = items.map((item: any) => [
+          item.material_code ?? '',
+          item.material_description ?? '',
+          item.rfp_count ?? 0,
+          item.companies?.length ?? 0,
+          (item.companies || []).join('; '),
+          (item.rfps || []).map((r: any) => r.rfp_id).join('; '),
+        ])
+      } else {
+        headers = ['Keyword', 'RFP Count', 'Material Code Count', 'Material Codes', 'Company Count', 'Companies', 'RFP IDs']
+        rows = items.map((item: any) => [
+          item.keyword ?? '',
+          item.rfp_count ?? 0,
+          item.material_codes?.length ?? 0,
+          (item.material_codes || []).join('; '),
+          item.companies?.length ?? 0,
+          (item.companies || []).join('; '),
+          (item.rfps || []).map((r: any) => r.rfp_id).join('; '),
+        ])
+      }
+
+      const csvBody = [headers, ...rows]
+        .map((row) => row.map(csvEscape).join(','))
+        .join('\r\n')
+      const blob = new Blob(['﻿' + csvBody], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const today = new Date().toISOString().split('T')[0]
+      link.href = url
+      link.download = `material-insights-${activeTab}-${today}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   // Scroll detection for lazy loading
   const handleTableScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -414,7 +483,7 @@ export default function MaterialInsightsPage() {
               </div>
             </div>
 
-            <div className="mt-4 flex items-center justify-between">
+            <div className="mt-4 flex items-center justify-between flex-wrap gap-3">
               <p className="text-sm text-slate-500">
                 Showing <span className="font-semibold text-slate-700">{allItems.length}</span> of{' '}
                 <span className="font-semibold text-slate-700">{totalFiltered}</span> {activeTab}
@@ -422,20 +491,33 @@ export default function MaterialInsightsPage() {
                   <span className="text-slate-400"> ({totalAll} total)</span>
                 )}
               </p>
-              {hasNextPage && (
-                <div className="flex items-center gap-3">
-                  <p className="text-sm text-indigo-600 font-medium">Scroll down to load more...</p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => fetchNextPage()}
-                    disabled={isFetchingNextPage}
-                    className="text-xs h-7 px-3 border-indigo-200 text-indigo-600 hover:bg-indigo-50"
-                  >
-                    {isFetchingNextPage ? 'Loading...' : 'Load More'}
-                  </Button>
-                </div>
-              )}
+              <div className="flex items-center gap-3">
+                {hasNextPage && (
+                  <>
+                    <p className="text-sm text-indigo-600 font-medium">Scroll down to load more...</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fetchNextPage()}
+                      disabled={isFetchingNextPage}
+                      className="text-xs h-7 px-3 border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                    >
+                      {isFetchingNextPage ? 'Loading...' : 'Load More'}
+                    </Button>
+                  </>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportCSV}
+                  disabled={isExporting || !totalFiltered}
+                  className="text-xs h-7 px-3 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                  title={activeTab === 'materials' ? 'Export all filtered material codes to CSV' : 'Export all filtered keywords to CSV'}
+                >
+                  <Download className={`h-3.5 w-3.5 mr-1.5 ${isExporting ? 'animate-spin' : ''}`} />
+                  {isExporting ? 'Exporting...' : `Export CSV${totalFiltered ? ` (${totalFiltered})` : ''}`}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -482,7 +564,6 @@ export default function MaterialInsightsPage() {
                         <TableHead className="text-slate-600 font-semibold">Description</TableHead>
                         <TableHead className="text-slate-600 font-semibold">RFP Count</TableHead>
                         <TableHead className="text-slate-600 font-semibold">Companies</TableHead>
-                        <TableHead className="text-slate-600 font-semibold">Submitted</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -515,16 +596,6 @@ export default function MaterialInsightsPage() {
                             <TableCell className="text-slate-600">
                               {item.companies?.length || 0} {(item.companies?.length || 0) === 1 ? 'company' : 'companies'}
                             </TableCell>
-                            <TableCell>
-                              {item.submitted_count > 0 ? (
-                                <Badge className="gap-1 bg-emerald-100 text-emerald-700 border-emerald-200">
-                                  <Send className="h-3 w-3" />
-                                  {item.submitted_count}
-                                </Badge>
-                              ) : (
-                                <span className="text-slate-400 text-sm">0</span>
-                              )}
-                            </TableCell>
                           </TableRow>
 
                           {/* Expanded RFP rows */}
@@ -544,30 +615,13 @@ export default function MaterialInsightsPage() {
                                   {rfp.match_method === 'exact' ? 'Exact' : 'Keyword'}
                                 </Badge>
                               </TableCell>
-                              <TableCell>
-                                {['submitted', 'yes'].includes(rfp.participated) ? (
-                                  <Badge className="gap-1 bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">
-                                    <CheckCircle2 className="h-3 w-3" />
-                                    Submitted
-                                  </Badge>
-                                ) : rfp.participated === 'declined' ? (
-                                  <Badge variant="destructive" className="gap-1 text-xs">
-                                    <XCircle className="h-3 w-3" />
-                                    Declined
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="outline" className="gap-1 text-slate-500 text-xs">
-                                    Open
-                                  </Badge>
-                                )}
-                              </TableCell>
                             </TableRow>
                           ))}
                         </Fragment>
                       ))}
                       {isFetchingNextPage && (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8">
+                          <TableCell colSpan={5} className="text-center py-8">
                             <div className="flex items-center justify-center gap-2">
                               <div className="w-5 h-5 border-3 border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
                               <span className="text-sm text-slate-500">Loading more...</span>
@@ -624,7 +678,6 @@ export default function MaterialInsightsPage() {
                         <TableHead className="text-slate-600 font-semibold">RFP Count</TableHead>
                         <TableHead className="text-slate-600 font-semibold">Material Codes</TableHead>
                         <TableHead className="text-slate-600 font-semibold">Companies</TableHead>
-                        <TableHead className="text-slate-600 font-semibold">Submitted</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -660,16 +713,6 @@ export default function MaterialInsightsPage() {
                             <TableCell className="text-slate-600">
                               {item.companies?.length || 0} {(item.companies?.length || 0) === 1 ? 'company' : 'companies'}
                             </TableCell>
-                            <TableCell>
-                              {item.submitted_count > 0 ? (
-                                <Badge className="gap-1 bg-emerald-100 text-emerald-700 border-emerald-200">
-                                  <Send className="h-3 w-3" />
-                                  {item.submitted_count}
-                                </Badge>
-                              ) : (
-                                <span className="text-slate-400 text-sm">0</span>
-                              )}
-                            </TableCell>
                           </TableRow>
 
                           {/* Expanded RFP rows */}
@@ -689,30 +732,13 @@ export default function MaterialInsightsPage() {
                               <TableCell className="text-slate-500 text-sm max-w-[200px] truncate" title={rfp.material_description}>
                                 {rfp.material_description}
                               </TableCell>
-                              <TableCell>
-                                {['submitted', 'yes'].includes(rfp.participated) ? (
-                                  <Badge className="gap-1 bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">
-                                    <CheckCircle2 className="h-3 w-3" />
-                                    Submitted
-                                  </Badge>
-                                ) : rfp.participated === 'declined' ? (
-                                  <Badge variant="destructive" className="gap-1 text-xs">
-                                    <XCircle className="h-3 w-3" />
-                                    Declined
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="outline" className="gap-1 text-slate-500 text-xs">
-                                    Open
-                                  </Badge>
-                                )}
-                              </TableCell>
                             </TableRow>
                           ))}
                         </Fragment>
                       ))}
                       {isFetchingNextPage && (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8">
+                          <TableCell colSpan={5} className="text-center py-8">
                             <div className="flex items-center justify-center gap-2">
                               <div className="w-5 h-5 border-3 border-slate-200 border-t-amber-600 rounded-full animate-spin" />
                               <span className="text-sm text-slate-500">Loading more...</span>
