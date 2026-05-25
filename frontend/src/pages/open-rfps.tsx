@@ -299,7 +299,7 @@ export default function OpenRfpsPage() {
                     <TableRow key={r.rfp_id}>
                       <TableCell className="font-medium">{r.rfp_id}</TableCell>
                       <TableCell>{r.company_name || '-'}</TableCell>
-                      <TableCell>{formatDateMDY(r.rfp_end_date)}</TableCell>
+                      <TableCell>{r.rfp_end_date || '-'}</TableCell>
                       <TableCell>{formatDateMDY(r.email_sent_at)}</TableCell>
                       <TableCell>
                         <Badge variant={participatedBadgeVariant(r.participated)}>
@@ -430,7 +430,7 @@ function OpenRfpDetailModal({
           </DialogTitle>
           <DialogDescription>
             {rfp?.company_name ? `${rfp.company_name} · ` : ''}
-            Due {formatDateMDY(rfp?.rfp_end_date || '')}
+            Due {rfp?.rfp_end_date || '-'}
             {rfp?.email_sent_at ? ` · Email sent ${formatDateMDY(rfp.email_sent_at)}` : ''}
           </DialogDescription>
         </DialogHeader>

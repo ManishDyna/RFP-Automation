@@ -89,6 +89,7 @@ async def api_create_material(
     data = await request.json()
     code = (data.get("material_code") or "").strip()
     description = (data.get("description") or "").strip()
+    bahra_item_code = (data.get("bahra_item_code") or "").strip()
 
     if not code:
         raise HTTPException(status_code=400, detail="material_code is required")
@@ -96,7 +97,7 @@ async def api_create_material(
     if material_code_exists(code):
         raise HTTPException(status_code=409, detail=f"Material code '{code}' already exists")
 
-    ok = create_material(code, description)
+    ok = create_material(code, description, bahra_item_code)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to create material")
 
@@ -107,7 +108,11 @@ async def api_create_material(
         actor_name=user.get("name", ""),
         target_type="MaterialMaster",
         target_id=code,
-        details=json.dumps({"material_code": code, "description": description}),
+        details=json.dumps({
+            "material_code": code,
+            "description": description,
+            "bahra_item_code": bahra_item_code,
+        }),
         ip_address=get_request_ip(request),
     )
 
@@ -123,6 +128,7 @@ async def api_update_material(
     data = await request.json()
     code = (data.get("material_code") or "").strip()
     description = (data.get("description") or "").strip()
+    bahra_item_code = (data.get("bahra_item_code") or "").strip()
 
     if not code:
         raise HTTPException(status_code=400, detail="material_code is required")
@@ -134,7 +140,7 @@ async def api_update_material(
     if material_code_exists(code, exclude_record_id=record_id):
         raise HTTPException(status_code=409, detail=f"Material code '{code}' already exists")
 
-    ok = update_material(record_id, code, description)
+    ok = update_material(record_id, code, description, bahra_item_code)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to update material")
 
@@ -145,7 +151,11 @@ async def api_update_material(
         actor_name=user.get("name", ""),
         target_type="MaterialMaster",
         target_id=record_id,
-        details=json.dumps({"material_code": code, "description": description}),
+        details=json.dumps({
+            "material_code": code,
+            "description": description,
+            "bahra_item_code": bahra_item_code,
+        }),
         ip_address=get_request_ip(request),
     )
 

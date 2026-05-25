@@ -104,7 +104,7 @@ def list_materials(search: Optional[str] = None, page: int = 1, page_size: int =
     result = DATAVERSE.query_rows(
         table_api_name=get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'),
         filter_expr=filter_expr,
-        select="material_code,description,is_active,created_date,updated_date",
+        select="material_code,description,bahra_item_code,is_active,created_date,updated_date",
         top=page_size,
         skip=skip,
         order_by="created_date desc",
@@ -165,16 +165,17 @@ def material_code_exists(code: str, exclude_record_id: str = "") -> bool:
     rows = result.get("value", []) if isinstance(result, dict) else []
     pk_logical = f"{get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master')}id"
     for row in rows:
-        rid = row.get(pk_logical, "")
+        rid = _extract_record_id(row, pk_logical)
         if rid != exclude_record_id:
             return True
     return False
 
 
-def create_material(code: str, description: str = "") -> bool:
+def create_material(code: str, description: str = "", bahra_item_code: str = "") -> bool:
     data = {
         "material_code": code.strip(),
         "description": description.strip(),
+        "bahra_item_code": bahra_item_code.strip(),
         "is_active": "true",
         "created_date": _now_iso(),
         "updated_date": _now_iso(),
@@ -189,10 +190,11 @@ def create_material(code: str, description: str = "") -> bool:
     return result
 
 
-def update_material(record_id: str, code: str, description: str = "") -> bool:
+def update_material(record_id: str, code: str, description: str = "", bahra_item_code: str = "") -> bool:
     data = {
         "material_code": code.strip(),
         "description": description.strip(),
+        "bahra_item_code": bahra_item_code.strip(),
         "updated_date": _now_iso(),
     }
     result = DATAVERSE.update_row(
@@ -223,6 +225,7 @@ def bulk_import_materials(rows: List[Dict]) -> dict:
     for row in rows:
         code = str(row.get("material_code") or "").strip()
         desc = str(row.get("description") or "").strip()
+        bahra_code = str(row.get("bahra_item_code") or "").strip()
 
         if not code:
             skipped += 1
@@ -233,7 +236,7 @@ def bulk_import_materials(rows: List[Dict]) -> dict:
             continue
 
         try:
-            ok = create_material(code, desc)
+            ok = create_material(code, desc, bahra_code)
             if ok:
                 created += 1
             else:
@@ -347,7 +350,7 @@ def keyword_exists(kw: str, exclude_record_id: str = "") -> bool:
     rows = result.get("value", []) if isinstance(result, dict) else []
     pk_logical = f"{get_setting('KEYWORDS_TABLE_LOGICAL', 'cr673_bahra_keywords')}id"
     for row in rows:
-        rid = row.get(pk_logical, "")
+        rid = _extract_record_id(row, pk_logical)
         if rid != exclude_record_id:
             return True
     return False

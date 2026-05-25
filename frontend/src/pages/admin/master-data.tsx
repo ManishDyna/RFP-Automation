@@ -57,6 +57,7 @@ import { useHasPermission } from '@/hooks/use-auth'
 const materialSchema = z.object({
   material_code: z.string().min(1, 'Material code is required').max(100),
   description: z.string().max(2000).optional(),
+  bahra_item_code: z.string().max(200).optional(),
 })
 type MaterialForm = z.infer<typeof materialSchema>
 
@@ -134,7 +135,7 @@ function ImportDialog({ open, onClose, type, onImport, isPending }: ImportDialog
 
   const hint =
     type === 'materials'
-      ? 'Required column: material_code. Optional: description.'
+      ? 'Required column: material_code. Optional: description, bahra_item_code.'
       : type === 'keywords'
         ? 'Required column: keyword (or the first column is used).'
         : 'Required columns: product, name, email.'
@@ -210,13 +211,17 @@ function MaterialsTab() {
 
   const openAdd = () => {
     setEditingItem(null)
-    reset({ material_code: '', description: '' })
+    reset({ material_code: '', description: '', bahra_item_code: '' })
     setDialogOpen(true)
   }
 
   const openEdit = (item: any) => {
     setEditingItem(item)
-    reset({ material_code: item.material_code ?? '', description: item.description ?? '' })
+    reset({
+      material_code: item.material_code ?? '',
+      description: item.description ?? '',
+      bahra_item_code: item.bahra_item_code ?? '',
+    })
     setDialogOpen(true)
   }
 
@@ -264,10 +269,11 @@ function MaterialsTab() {
     const stamp = new Date().toISOString().slice(0, 10)
     downloadCsv(
       `material-codes-${stamp}.csv`,
-      ['Material Code', 'Description', 'Created Date'],
+      ['Material Code', 'Description', 'Bahra Item Code', 'Created Date'],
       materials.map((item: any) => [
         item.material_code ?? '',
         item.description ?? '',
+        item.bahra_item_code ?? '',
         item.created_date ? String(item.created_date).slice(0, 10) : '',
       ])
     )
@@ -333,6 +339,7 @@ function MaterialsTab() {
               <TableRow>
                 <TableHead className="w-[200px]">Material Code</TableHead>
                 <TableHead>Description</TableHead>
+                <TableHead className="w-[180px]">Bahra Item Code</TableHead>
                 <TableHead className="w-[160px]">Created</TableHead>
                 {(canEdit || canDelete) && <TableHead className="text-right w-[100px]">Actions</TableHead>}
               </TableRow>
@@ -343,6 +350,9 @@ function MaterialsTab() {
                   <TableCell className="font-mono font-medium">{item.material_code}</TableCell>
                   <TableCell className="text-muted-foreground max-w-[400px] truncate">
                     {item.description || <span className="italic opacity-50">—</span>}
+                  </TableCell>
+                  <TableCell className="font-mono text-sm">
+                    {item.bahra_item_code || <span className="italic opacity-50">—</span>}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {item.created_date ? item.created_date.slice(0, 10) : '—'}
@@ -395,6 +405,17 @@ function MaterialsTab() {
             <div className="space-y-1">
               <Label>Description</Label>
               <Input {...register('description')} placeholder="Optional description" />
+            </div>
+            <div className="space-y-1">
+              <Label>Bahra Item Code</Label>
+              <Input
+                {...register('bahra_item_code')}
+                placeholder="e.g. 71050004, FCS00645, or BEL908202053-SEC"
+                className="font-mono"
+              />
+              {errors.bahra_item_code && (
+                <p className="text-xs text-destructive">{errors.bahra_item_code.message}</p>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>

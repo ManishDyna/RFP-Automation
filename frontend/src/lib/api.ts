@@ -756,7 +756,7 @@ export const api = {
     return handleResponse<{ ok: boolean; materials: any[]; page: number; page_size: number }>(response)
   },
 
-  createMaterial: async (data: { material_code: string; description?: string }) => {
+  createMaterial: async (data: { material_code: string; description?: string; bahra_item_code?: string }) => {
     const response = await fetch(ENDPOINTS.MASTER_DATA.MATERIALS.CREATE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -766,7 +766,7 @@ export const api = {
     return handleResponse(response)
   },
 
-  updateMaterial: async (id: string, data: { material_code: string; description?: string }) => {
+  updateMaterial: async (id: string, data: { material_code: string; description?: string; bahra_item_code?: string }) => {
     const response = await fetch(ENDPOINTS.MASTER_DATA.MATERIALS.UPDATE(id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

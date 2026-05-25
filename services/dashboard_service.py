@@ -391,8 +391,7 @@ def get_dashboard_data():
                     companies_rfps[cn] = {"open": [], "submitted": [], "saved_draft": [], "declined": []}
 
                 for row in rfp_df.to_dict('records'):
-                    end_dt = row.get("_RFP_End_Date_dt")
-                    end_str = _ist_to_utc_iso(end_dt) if pd.notna(end_dt) else str(row.get("RFP_End_Date", ""))
+                    end_str = str(row.get("RFP_End_Date", "") or "")
 
                     rfp_link = row.get("Link", "") or row.get("link", "")
                     if not rfp_link:
@@ -409,7 +408,7 @@ def get_dashboard_data():
                         "RFP_End_Date": end_str,
                         "Company_Name": company_name,
                         "Owner_Name": row.get("owner_name", ""),
-                        "Publish_Time": format_publish_time(row.get("publish_time", "")),
+                        "Publish_Time": str(row.get("publish_time", "") or ""),
                         "participated": row.get("participated", ""),
                         "Link": rfp_link,
                         "Material_Matched": mat_flag,
@@ -676,8 +675,7 @@ def get_all_rfp_data():
 
                 # Use to_dict('records') for building list (faster than iterrows, safer than itertuples)
                 for row in rfp_df.to_dict('records'):
-                    end_dt = row.get("_RFP_End_Date_dt")
-                    end_str = _ist_to_utc_iso(end_dt) if pd.notna(end_dt) else str(row.get("RFP_End_Date", ""))
+                    end_str = str(row.get("RFP_End_Date", "") or "")
 
                     rfp_link = row.get("Link", "") or row.get("link", "")
                     if not rfp_link:
@@ -692,7 +690,7 @@ def get_all_rfp_data():
                         "RFP_End_Date": end_str,
                         "Company_Name": row.get("Company_Name", "") or "Saudi Energy",
                         "Owner_Name": row.get("owner_name", ""),
-                        "Publish_Time": format_publish_time(row.get("publish_time", "")),
+                        "Publish_Time": str(row.get("publish_time", "") or ""),
                         "participated": row.get("participated", ""),
                         "Link": rfp_link,
                         "Material_Matched": material_matched_raw,

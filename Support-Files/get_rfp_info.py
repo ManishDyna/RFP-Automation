@@ -15,10 +15,17 @@ Uses TWO input files (identical format to download_from_csv.py):
       Path: ALLRFPs/Portal-Rfps/All-RFPs.xls
 
 Usage:
+    python get_rfp_info.py                                      # uses default input file
+    python get_rfp_info.py --headless
     python get_rfp_info.py --file rfps.csv
     python get_rfp_info.py --file rfps.xlsx
     python get_rfp_info.py --file rfps.xlsx --username user@example.com --password MyPass
     python get_rfp_info.py --file rfps.xlsx --headless
+
+Default input file (when --file is omitted):
+    Support-Files/Analysis-Files/original-files.xlsx
+Output file is saved next to the input file as:
+    RFP_Info_<input_basename>.xlsx
 
 Credentials (priority order):
     1. --username / --password CLI flags
@@ -27,7 +34,7 @@ Credentials (priority order):
 Output:
     Prints a table to stdout with columns:
         RFP_ID | Company | Owner | Publish_Date
-    Also saves a CSV: RFP_Info_<timestamp>.csv in the current directory.
+    Also saves an Excel file: RFP_Info_<input_basename>.xlsx in the script directory.
 """
 
 import os
@@ -49,11 +56,15 @@ MASTER_LINKS_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "ALLRFPs", "Portal-Rfps", "All-RFPs.xls",
 )
+DEFAULT_INPUT_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "Analysis-Files", "original-files.xlsx",
+)
 LOGIN_MAX_RETRIES = 3
 
 # ─── Hardcoded credentials (override with CLI flags or env vars if needed) ───
 DEFAULT_USERNAME = "Loai.Albar@bahra-cables.com"
-DEFAULT_PASSWORD = "Bahra@2026"
+DEFAULT_PASSWORD = "Bahra&2026"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -738,54 +749,63 @@ async def run(input_file: str, username: str, password: str, headless: bool):
     else:
         _log("[WARN] Master links file not loaded — links from input file only.")
 
-    # ── Output CSV: named after the input file so resume always uses same file ─
+    # ── Output XLSX: named after the input file so resume always uses same file ─
+    import openpyxl
+    from openpyxl.styles import Font
+
     input_basename = os.path.splitext(os.path.basename(input_file))[0]
-    csv_path   = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              f"RFP_Info_{input_basename}.csv")
+    xlsx_path  = os.path.join(os.path.dirname(os.path.abspath(input_file)),
+                              f"RFP_Info_{input_basename}.xlsx")
     fieldnames = [
         "RFP_ID", "Company_Name", "Link",
         "Owner", "Publish_Date", "End_Date",
         "Event_Type", "Status", "Participated",
         "Description", "Note",
     ]
+    COL_WIDTHS = [30, 20, 50, 25, 22, 22, 18, 18, 14, 40, 18]
 
-    # ── Resume: load already-processed RFP IDs ────────────────────────────────
+    # ── Resume: load already-processed RFP IDs from existing workbook ─────────
     done_ids = set()
-    if os.path.isfile(csv_path):
-        with open(csv_path, newline="", encoding="utf-8-sig") as fh:
-            for row in csv.DictReader(fh):
-                rid = row.get("RFP_ID", "").strip()
-                if rid:
-                    done_ids.add(rid)
+    if os.path.isfile(xlsx_path):
+        wb = openpyxl.load_workbook(xlsx_path)
+        ws = wb.active
+        for row in ws.iter_rows(min_row=2, max_col=1, values_only=True):
+            rid = (str(row[0]) if row[0] is not None else "").strip()
+            if rid:
+                done_ids.add(rid)
         _log(f"Resume mode — {len(done_ids)} RFP(s) already done, will skip them.")
-        csv_fh = open(csv_path, "a", newline="", encoding="utf-8-sig")  # append
-        csv_writer = csv.DictWriter(csv_fh, fieldnames=fieldnames)
     else:
-        csv_fh = open(csv_path, "w", newline="", encoding="utf-8-sig")  # fresh
-        csv_writer = csv.DictWriter(csv_fh, fieldnames=fieldnames)
-        csv_writer.writeheader()
-        csv_fh.flush()
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "RFP Info"
+        ws.append(fieldnames)
+        bold = Font(bold=True)
+        for col_idx, width in enumerate(COL_WIDTHS, start=1):
+            ws.cell(row=1, column=col_idx).font = bold
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
+        ws.freeze_panes = "A2"
+        wb.save(xlsx_path)
 
-    _log(f"Live output file: {csv_path}")
+    _log(f"Live output file: {xlsx_path}")
 
     def _append_row(r: dict):
         note = r.get('error') or ("" if r.get('owner') or r.get('publish_time') else "Not found")
         # End_Date: prefer scraped value, fall back to master-links value
         end_date = r.get('end_date') or r.get('end_time') or ""
-        csv_writer.writerow({
-            "RFP_ID":       r['rfp_id'],
-            "Company_Name": r.get('company_name', ''),
-            "Link":         r.get('link', ''),
-            "Owner":        r.get('owner') or "",
-            "Publish_Date": r.get('publish_time') or "",
-            "End_Date":     end_date,
-            "Event_Type":   r.get('event_type') or "",
-            "Status":       r.get('status') or "",
-            "Participated": r.get('participated') or "",
-            "Description":  r.get('description') or "",
-            "Note":         note,
-        })
-        csv_fh.flush()  # write to disk immediately
+        ws.append([
+            r['rfp_id'],
+            r.get('company_name', ''),
+            r.get('link', ''),
+            r.get('owner') or "",
+            r.get('publish_time') or "",
+            end_date,
+            r.get('event_type') or "",
+            r.get('status') or "",
+            r.get('participated') or "",
+            r.get('description') or "",
+            note,
+        ])
+        wb.save(xlsx_path)  # equivalent of the old csv_fh.flush()
 
     no_link = [r for r in rows if not r["link"]]
     to_process = [r for r in rows if r["link"]]
@@ -815,9 +835,8 @@ async def run(input_file: str, username: str, password: str, headless: bool):
         print()
 
     if not pending and not no_link_pending:
-        csv_fh.close()
         _log("All RFPs already processed. Nothing to do.")
-        _log(f"Results file: {csv_path}")
+        _log(f"Results file: {xlsx_path}")
         return
 
     results = []
@@ -834,7 +853,6 @@ async def run(input_file: str, username: str, password: str, headless: bool):
             _log("Logging in to portal …")
             if not await do_login(page, username, password):
                 await browser.close()
-                csv_fh.close()
                 _die("Login failed. Check your credentials.")
 
             for idx, row in enumerate(pending, start=1):
@@ -901,11 +919,9 @@ async def run(input_file: str, username: str, password: str, headless: bool):
         results.append(entry)
         _append_row(entry)
 
-    csv_fh.close()
-
     if results:
         _print_table(results)
-    print(f"  Saved to: {csv_path}")
+    print(f"  Saved to: {xlsx_path}")
     print()
 
 
@@ -926,12 +942,19 @@ When Link is blank    → looks up the master All-RFPs.xls file for a URL.
 If still no link      → RFP is skipped (reported as 'No portal link').
 
 Examples:
+  python get_rfp_info.py                                      # uses default input file
+  python get_rfp_info.py --headless
   python get_rfp_info.py --file my_rfps.xlsx
   python get_rfp_info.py --file my_rfps.csv  --headless
   python get_rfp_info.py --file my_rfps.xlsx --username me@co.com --password secret
+
+Default input file:  Support-Files/Analysis-Files/original-files.xlsx
+Output file        :  saved next to the input as RFP_Info_<input_basename>.xlsx
         """,
     )
-    parser.add_argument("--file",     required=True, help="Path to input CSV or Excel file")
+    parser.add_argument("--file",     default=None,
+                        help="Path to input CSV or Excel file "
+                             "(default: Analysis-Files/original-files.xlsx)")
     parser.add_argument("--username", default=None,  help="Portal username (or BAHRA_SAP_USERNAME env var)")
     parser.add_argument("--password", default=None,  help="Portal password (or BAHRA_SAP_PASSWORD env var)")
     parser.add_argument("--headless", action="store_true", default=False, help="Run browser in headless mode")
@@ -953,7 +976,9 @@ Examples:
             "  BAHRA_SAP_USERNAME and BAHRA_SAP_PASSWORD environment variables."
         )
 
-    asyncio.run(run(args.file, username, password, args.headless))
+    input_file = args.file or DEFAULT_INPUT_FILE
+
+    asyncio.run(run(input_file, username, password, args.headless))
 
 
 if __name__ == "__main__":
