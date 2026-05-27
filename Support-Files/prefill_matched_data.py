@@ -1,18 +1,28 @@
 """
-Script to pre-fill Matched_Data JSON for RFPs missing it in cr673_bahra_rfps_v2.
+Script to pre-fill / backfill Matched_Data JSON for RFPs in cr673_bahra_rfps_v2.
 
 Loads materials & keywords from Dataverse (falls back to SharePoint CSV).
 Downloads RFP Excel from SharePoint if not found locally.
-Skips RFPs that already have Matched_Data.
+
+Processes:
+  - RFPs with empty Matched_Data (initial fill).
+  - RFPs whose existing Matched_Data items are missing 'quantity' or
+    'unit_of_measurement' (backfill — re-runs the matcher and overwrites the JSON).
 
 Uses the EXACT same matching logic as the download flow (download_rfp.py)
 and outputs the CATEGORIZED JSON format:
   { summary, exact_matches, keyword_matches, not_matched }
 
+Resumability:
+  The script writes a checkpoint to .prefill_matched_data_progress.json after
+  each successful Dataverse update. If interrupted, re-running picks up where
+  it left off automatically. Pass --restart to wipe the checkpoint and start
+  fresh.
+
 Usage:
   python -m Support-Files.prefill_matched_data
-
-Safe to re-run — only updates RFPs with empty Matched_Data.
+  python -m Support-Files.prefill_matched_data --dry-run
+  python -m Support-Files.prefill_matched_data --restart
 """
 
 import os
@@ -20,8 +30,15 @@ import re
 import json
 import math
 import sys
+import time
+import warnings
 import pandas as pd
 from datetime import datetime
+from pathlib import Path
+
+# Silence openpyxl's noisy "Workbook contains no default style" warnings that
+# fire on every Aramco-style RFP and drown out the progress output.
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
 # ---------------------------------------------------------------------------
@@ -29,6 +46,82 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 TABLE_LOGICAL = "cr673_bahra_rfps_v2"
 TABLE_API = "cr673_bahra_rfps_v2s"
+
+
+# ---------------------------------------------------------------------------
+# Resume / progress checkpoint
+# ---------------------------------------------------------------------------
+HERE = Path(__file__).resolve().parent
+PROGRESS_FILE = HERE / ".prefill_matched_data_progress.json"
+
+
+def _load_progress() -> dict:
+    # Prefer the main file; fall back to a leftover .tmp if the main file is
+    # missing (last save died between tmp-write and replace on Windows).
+    source = None
+    if PROGRESS_FILE.exists():
+        source = PROGRESS_FILE
+    else:
+        tmp = PROGRESS_FILE.with_suffix(".json.tmp")
+        if tmp.exists():
+            source = tmp
+            print(f"[INFO] Recovering progress from leftover {tmp.name}")
+
+    if source is None:
+        return {"started_at": None, "last_run_at": None,
+                "completed": set(), "skipped": {}, "errored": {}}
+    try:
+        with open(source, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return {
+            "started_at":  data.get("started_at"),
+            "last_run_at": data.get("last_run_at"),
+            "completed":   set(data.get("completed", [])),
+            "skipped":     data.get("skipped", {}),
+            "errored":     data.get("errored", {}),
+        }
+    except Exception:
+        return {"started_at": None, "last_run_at": None,
+                "completed": set(), "skipped": {}, "errored": {}}
+
+
+def _save_progress(progress: dict) -> None:
+    payload = {
+        "started_at":  progress.get("started_at"),
+        "last_run_at": progress.get("last_run_at"),
+        "completed":   sorted(progress.get("completed", set())),
+        "skipped":     progress.get("skipped", {}),
+        "errored":     progress.get("errored", {}),
+    }
+    tmp = PROGRESS_FILE.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+
+    # Windows: antivirus / Explorer / OneDrive can briefly hold the file open
+    # between writes, causing os.replace to raise PermissionError (WinError 5).
+    # Retry a few times with backoff before giving up.
+    last_err = None
+    for delay in (0.1, 0.25, 0.5, 1.0, 2.0):
+        try:
+            os.replace(tmp, PROGRESS_FILE)
+            return
+        except PermissionError as e:
+            last_err = e
+            time.sleep(delay)
+    # Final attempt — let any exception propagate
+    try:
+        os.replace(tmp, PROGRESS_FILE)
+    except PermissionError:
+        # Last-resort fallback: keep the .tmp and warn. Progress is preserved
+        # in the .tmp file; next save will retry the replace.
+        print(f"[WARN] Could not replace {PROGRESS_FILE.name} ({last_err}); "
+              f"progress preserved in {tmp.name}")
+
+
+def _reset_progress() -> None:
+    if PROGRESS_FILE.exists():
+        PROGRESS_FILE.unlink()
+        print(f"[INFO] Progress file removed: {PROGRESS_FILE.name}")
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +287,23 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
     col_desc = find_column_name(df.columns, "description")
     desc_col_master = find_column_name(master.columns, "description") or find_column_name(master.columns, "material description")
 
+    col_qty = find_column_name(df.columns, "quantity")
+    col_uom = (find_column_name(df.columns, "unitofmeasure")
+               or find_column_name(df.columns, "unitofmeasurement")
+               or find_column_name(df.columns, "uom"))
+
+    def _cell(col, idx):
+        if not col:
+            return ""
+        val = df.iloc[idx][col]
+        if pd.isna(val):
+            return ""
+        # Convert numpy scalars (int64, float64, bool_) to native Python types
+        # so json.dumps() can serialize them.
+        if hasattr(val, "item"):
+            return val.item()
+        return val
+
     exact_matches = []
     keyword_matches = []
     not_matched = []
@@ -216,6 +326,8 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
                     "excel_description": description_text,
                     "row_number": idx + 2,
                     "column_name": col_name,
+                    "quantity": _cell(col_qty, idx),
+                    "unit_of_measurement": _cell(col_uom, idx),
                 }
 
                 # Method 1: Exact Material Code Match
@@ -268,6 +380,8 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
                     "excel_description": description_text,
                     "row_number": idx + 2,
                     "column_name": col_name,
+                    "quantity": _cell(col_qty, idx),
+                    "unit_of_measurement": _cell(col_uom, idx),
                     "matched_keyword": matched_keyword,
                     "material_description": mat_desc,
                 }
@@ -296,6 +410,29 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
 
 
 # ---------------------------------------------------------------------------
+# Backfill helpers
+# ---------------------------------------------------------------------------
+def _items_have_qty_uom(matched_data_str):
+    """Return True iff every item in the categorized JSON already carries
+    both 'quantity' and 'unit_of_measurement' keys. Empty/invalid JSON → False."""
+    if not matched_data_str or not matched_data_str.strip():
+        return False
+    try:
+        data = json.loads(matched_data_str)
+    except Exception:
+        return False
+    buckets = ("exact_matches", "keyword_matches", "not_matched")
+    total = 0
+    for b in buckets:
+        items = data.get(b) or []
+        total += len(items)
+        for item in items:
+            if "quantity" not in item or "unit_of_measurement" not in item:
+                return False
+    return total > 0
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
@@ -310,8 +447,16 @@ def main():
     from helpers.dataverse_helper import DataverseClient
     from helpers.sharepoint_helper import GraphClient
 
+    dry_run = "--dry-run" in sys.argv
+    restart = "--restart" in sys.argv
+
+    if restart:
+        _reset_progress()
+
     print("=" * 60)
     print("  Pre-fill Matched_Data for ALL RFPs (Categorized Format)")
+    if dry_run:
+        print("  [DRY-RUN] No Dataverse writes will be performed.")
     print("=" * 60)
 
     # 1. Init clients
@@ -410,23 +555,49 @@ def main():
     _pk_logical = f"{TABLE_LOGICAL}id"
     _pk_display = _logical_to_display.get(_pk_logical)
 
-    # 4. Process each RFP (only those missing Matched_Data)
+    # 4. Load progress checkpoint and filter to remaining work
+    progress = _load_progress()
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    if not progress.get("started_at"):
+        progress["started_at"] = now_iso
+    progress["last_run_at"] = now_iso
+
+    remaining = [r for r in all_rfps
+                 if (r.get("RFP_ID") or "").strip() not in progress["completed"]]
+    already_done = len(all_rfps) - len(remaining)
+    print(f"       Already completed in earlier runs: {already_done}")
+    print(f"       Remaining to process:              {len(remaining)}\n")
+
+    # 5. Process each RFP — initial fill OR qty/uom backfill
     print("[2/3] Processing RFPs...\n")
     updated = 0
     skipped_has_data = 0
     skipped_no_excel = 0
     skipped_no_materials = 0
     failed = 0
+    total_remaining = len(remaining)
 
-    for i, row in enumerate(all_rfps, 1):
+    def _progress_line(i, rfp_id, action):
+        pct = (i / total_remaining * 100) if total_remaining else 0
+        print(f"  [{i}/{total_remaining}] ({pct:5.1f}%) {action} {rfp_id}  "
+              f"— this run: {updated} updated, "
+              f"{skipped_no_excel + skipped_no_materials} skipped, "
+              f"{failed} failed")
+
+    for i, row in enumerate(remaining, 1):
         rfp_id = (row.get("RFP_ID") or "").strip()
         if not rfp_id:
             continue
 
-        # Skip RFPs that already have Matched_Data
+        # Skip only if existing Matched_Data already carries qty + uom on every item.
+        # Otherwise re-run the matcher so the regenerated JSON includes them.
         existing = (row.get("Matched_Data") or "").strip()
-        if existing:
+        if existing and _items_have_qty_uom(existing):
             skipped_has_data += 1
+            progress["completed"].add(rfp_id)
+            progress["skipped"].pop(rfp_id, None)
+            progress["errored"].pop(rfp_id, None)
+            _save_progress(progress)
             continue
 
         company = (row.get("Company_Name") or "").strip()
@@ -435,12 +606,16 @@ def main():
 
         if not record_id:
             failed += 1
+            progress["errored"][rfp_id] = "missing record_id"
+            _save_progress(progress)
             continue
 
-        # Find Excel file
+        # Find Excel file (local first, SharePoint fallback)
         excel_path, resolved_company = find_excel_file(rfp_id, company, graph_client)
         if not excel_path or not os.path.exists(excel_path):
             skipped_no_excel += 1
+            progress["skipped"][rfp_id] = "no_excel"
+            _save_progress(progress)
             continue
 
         # Run matching
@@ -451,37 +626,57 @@ def main():
             )
         except Exception as e:
             failed += 1
-            print(f"  [{i}/{len(all_rfps)}] FAILED {rfp_id}: {e}")
+            progress["errored"][rfp_id] = f"match failed: {e}"
+            _save_progress(progress)
+            print(f"  [{i}/{total_remaining}] FAILED {rfp_id}: {e}")
             continue
 
         if result is None or result["total_items"] == 0:
             skipped_no_materials += 1
+            progress["skipped"][rfp_id] = "no_items"
+            _save_progress(progress)
             continue
 
         # Serialize and update Dataverse
         try:
             matched_data_json = json.dumps(result)
-            dv_client.update_row(
-                TABLE_API,
-                record_id,
-                {"Matched_Data": matched_data_json},
-                table_logical_name=TABLE_LOGICAL
-            )
-            updated += 1
-            if updated % 10 == 0:
-                print(f"  [{i}/{len(all_rfps)}] Updated {updated} RFPs so far...")
+            if dry_run:
+                updated += 1
+                print(f"  [{i}/{total_remaining}] [DRY-RUN] Would update {rfp_id} "
+                      f"({result['total_items']} items)")
+            else:
+                dv_client.update_row(
+                    TABLE_API,
+                    record_id,
+                    {"Matched_Data": matched_data_json},
+                    table_logical_name=TABLE_LOGICAL
+                )
+                updated += 1
+                progress["completed"].add(rfp_id)
+                progress["skipped"].pop(rfp_id, None)
+                progress["errored"].pop(rfp_id, None)
+                _save_progress(progress)
+                if updated % 10 == 0:
+                    _progress_line(i, rfp_id, "Updated")
         except Exception as e:
             failed += 1
-            print(f"  [{i}/{len(all_rfps)}] Update FAILED {rfp_id}: {e}")
+            progress["errored"][rfp_id] = f"update failed: {e}"
+            _save_progress(progress)
+            print(f"  [{i}/{total_remaining}] Update FAILED {rfp_id}: {e}")
 
+    completed_lifetime = len(progress["completed"])
     print(f"\n{'=' * 60}")
-    print(f"  Pre-fill complete!")
-    print(f"  Updated:             {updated}")
-    print(f"  Already had data:    {skipped_has_data}")
-    print(f"  Skipped (no Excel):  {skipped_no_excel}")
-    print(f"  Skipped (no items):  {skipped_no_materials}")
-    print(f"  Failed:              {failed}")
-    print(f"  Total RFPs:          {len(all_rfps)}")
+    print(f"  Pre-fill complete!" + ("  [DRY-RUN]" if dry_run else ""))
+    print(f"  Processed this run           : {updated + skipped_has_data + skipped_no_excel + skipped_no_materials + failed}")
+    print(f"  Updated this run             : {updated}")
+    print(f"  Confirmed qty+uom present    : {skipped_has_data}")
+    print(f"  Skipped (no Excel)           : {skipped_no_excel}")
+    print(f"  Skipped (no items)           : {skipped_no_materials}")
+    print(f"  Failed                       : {failed}")
+    print(f"  Completed (lifetime)         : {completed_lifetime} / {len(all_rfps)}")
+    print(f"  Pending (soft-skip)          : {len(progress['skipped'])}  (re-tried on next run)")
+    print(f"  Errored                      : {len(progress['errored'])}  (re-tried on next run)")
+    print(f"  Progress file                : {PROGRESS_FILE}")
     print(f"{'=' * 60}")
 
 

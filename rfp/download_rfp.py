@@ -478,6 +478,24 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
         col_mat_num = find_column_name(df.columns, "materialnumber")
         col_mat_code = find_column_name(df.columns, "materialcode")
 
+        # Quantity & Unit of Measurement columns (captured per material into Matched_Data JSON)
+        col_qty = find_column_name(df.columns, "quantity")
+        col_uom = (find_column_name(df.columns, "unitofmeasure")
+                   or find_column_name(df.columns, "unitofmeasurement")
+                   or find_column_name(df.columns, "uom"))
+
+        def _cell(col, idx):
+            if not col:
+                return ""
+            val = df.iloc[idx][col]
+            if pd.isna(val):
+                return ""
+            # Convert numpy scalars (int64, float64, bool_) to native Python types
+            # so downstream json.dumps() in log_events.py can serialize them.
+            if hasattr(val, "item"):
+                return val.item()
+            return val
+
         # Capture total line items for analytics
         rfp_file_stats.setdefault(rfp_id, {})["total_line_items"] = len(df)
 
@@ -598,6 +616,8 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                                     "is_matched": True,
                                     "ExcelName": name_text,
                                     "ExcelDescription": description_text,
+                                    "Quantity": _cell(col_qty, idx),
+                                    "UnitOfMeasurement": _cell(col_uom, idx),
                                 })
                                 all_matches.append(_build_record(record, idx))
                         else:
@@ -617,6 +637,8 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                                 "is_matched": True,
                                 "ExcelName": name_text,
                                 "ExcelDescription": description_text,
+                                "Quantity": _cell(col_qty, idx),
+                                "UnitOfMeasurement": _cell(col_uom, idx),
                             })
                             all_matches.append(_build_record(record, idx))
                     else:
@@ -637,6 +659,8 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                             "is_matched": False,
                             "ExcelName": name_text,
                             "ExcelDescription": description_text,
+                            "Quantity": _cell(col_qty, idx),
+                            "UnitOfMeasurement": _cell(col_uom, idx),
                         })
                         all_matches.append(_build_record(record, idx))
 
@@ -662,6 +686,8 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                                 "is_matched": True,
                                 "ExcelName": name_text,
                                 "ExcelDescription": description_text,
+                                "Quantity": _cell(col_qty, idx),
+                                "UnitOfMeasurement": _cell(col_uom, idx),
                             })
                             all_matches.append(_build_record(record_data, idx))
                     else:
@@ -681,6 +707,8 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                             "is_matched": True,
                             "ExcelName": name_text,
                             "ExcelDescription": description_text,
+                            "Quantity": _cell(col_qty, idx),
+                            "UnitOfMeasurement": _cell(col_uom, idx),
                         })
                         all_matches.append(_build_record(record, idx))
                 # else: no code and no keyword match — skip (header/instruction row)

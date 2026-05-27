@@ -231,12 +231,24 @@ def _dataframe_to_categorized_json(df, rfp_id, rfp_end_date=None):
         row_num = row.get("RowNumber", 0)
         col_name = str(row.get("ColumnName", "") or "")
 
+        qty_raw = row.get("Quantity", "")
+        if isinstance(qty_raw, float) and math.isnan(qty_raw):
+            qty = ""
+        elif hasattr(qty_raw, "item"):
+            qty = qty_raw.item()  # numpy.int64/float64 → Python int/float
+        else:
+            qty = qty_raw
+        uom_raw = row.get("UnitOfMeasurement", "")
+        uom = "" if (isinstance(uom_raw, float) and math.isnan(uom_raw)) else str(uom_raw or "")
+
         item = {
             "material_code": mat_code,
             "excel_name": excel_name,
             "excel_description": excel_desc,
             "row_number": int(row_num) if not (isinstance(row_num, float) and math.isnan(row_num)) else 0,
             "column_name": col_name,
+            "quantity": qty,
+            "unit_of_measurement": uom,
         }
 
         if is_matched and match_method and str(match_method).lower() == "keyword":
