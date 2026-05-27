@@ -654,10 +654,10 @@ export default function RfpInsightsPage() {
                         <TableCell className="text-slate-600">{rfp.Owner_Name || '-'}</TableCell>
                       )}
                       {visibleColumns.published && (
-                        <TableCell className="text-slate-500 text-sm">{rfp.Publish_Time || '-'}</TableCell>
+                        <TableCell className="text-slate-500 text-sm">{formatDateMDY(rfp.Publish_Time)}</TableCell>
                       )}
                       {visibleColumns.deadline && (
-                        <TableCell className="text-slate-500 text-sm">{rfp.RFP_End_Date || '-'}</TableCell>
+                        <TableCell className="text-slate-500 text-sm">{formatDateMDY(rfp.RFP_End_Date)}</TableCell>
                       )}
                       {visibleColumns.materialMatch && (
                         <TableCell>

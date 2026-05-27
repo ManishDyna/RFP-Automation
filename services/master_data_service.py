@@ -23,15 +23,19 @@ from services.system_settings_service import get_setting
 # ---------------------------------------------------------------------------
 _MATERIALS_CACHE = {"data": None, "ts": 0, "key": None}
 _KEYWORDS_CACHE = {"data": None, "ts": 0, "key": None}
+_BAHRA_MAP_CACHE = {"data": None, "ts": 0}
 _CACHE_TTL = 300  # 5 minutes
 _MATERIALS_LOCK = threading.Lock()
 _KEYWORDS_LOCK = threading.Lock()
+_BAHRA_MAP_LOCK = threading.Lock()
 
 
 def _invalidate_materials_cache():
     _MATERIALS_CACHE["data"] = None
     _MATERIALS_CACHE["ts"] = 0
     _MATERIALS_CACHE["key"] = None
+    _BAHRA_MAP_CACHE["data"] = None
+    _BAHRA_MAP_CACHE["ts"] = 0
 
 
 def _invalidate_keywords_cache():
@@ -247,6 +251,46 @@ def bulk_import_materials(rows: List[Dict]) -> dict:
             errors.append(f"Error for code '{code}': {str(e)[:100]}")
 
     return {"created": created, "skipped": skipped, "failed": failed, "errors": errors}
+
+
+def get_material_code_to_bahra_code_map(force_refresh: bool = False) -> Dict[str, str]:
+    """
+    Return {material_code: bahra_item_code} for all active materials.
+    Empty bahra_item_code values are omitted so callers can use .get() with no default.
+    Cached for 5 minutes; invalidated alongside the materials cache.
+    """
+    from time import time as _now
+    now = _now()
+
+    if not force_refresh:
+        cached = _BAHRA_MAP_CACHE["data"]
+        if cached is not None and (now - _BAHRA_MAP_CACHE["ts"]) < _CACHE_TTL:
+            return cached
+
+    try:
+        rows = DATAVERSE.get_all_rows(
+            table_api_name=get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'),
+            select_columns=["material_code", "bahra_item_code", "is_active"],
+            table_logical_name=get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master'),
+            use_display_names=True,
+        )
+        mapping: Dict[str, str] = {}
+        for r in rows:
+            if str(r.get("is_active", "")).lower() != "true":
+                continue
+            code = str(r.get("material_code", "") or "").strip()
+            bahra = str(r.get("bahra_item_code", "") or "").strip()
+            if code and bahra:
+                mapping[code] = bahra
+    except Exception as e:
+        print(f"[MasterData] Could not fetch bahra map from Dataverse: {e}")
+        mapping = {}
+
+    with _BAHRA_MAP_LOCK:
+        _BAHRA_MAP_CACHE["data"] = mapping
+        _BAHRA_MAP_CACHE["ts"] = now
+
+    return mapping
 
 
 def get_all_materials_for_matching() -> List[str]:

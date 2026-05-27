@@ -922,13 +922,14 @@ def _get_keywords_list_cached():
     return _KEYWORDS_CACHE["data"]
 
 
-def _add_to_material_group(material_groups, material_code, material_desc, rfp_id, company, rfp_end_date, participated, match_method, extracted=""):
+def _add_to_material_group(material_groups, material_code, material_desc, rfp_id, company, rfp_end_date, participated, match_method, extracted="", bahra_item_code=""):
     """Helper: add a material entry to material_groups dict."""
     if not material_code:
         return
     if material_code not in material_groups:
         material_groups[material_code] = {
             "material_code": material_code,
+            "bahra_item_code": bahra_item_code,
             "material_description": material_desc,
             "rfp_count": 0,
             "rfps": [],
@@ -936,6 +937,8 @@ def _add_to_material_group(material_groups, material_code, material_desc, rfp_id
             "submitted_count": 0,
         }
     group = material_groups[material_code]
+    if bahra_item_code and not group.get("bahra_item_code"):
+        group["bahra_item_code"] = bahra_item_code
     existing_rfp_ids = {r["rfp_id"] for r in group["rfps"]}
     if rfp_id not in existing_rfp_ids:
         group["rfps"].append({
@@ -953,7 +956,7 @@ def _add_to_material_group(material_groups, material_code, material_desc, rfp_id
             group["submitted_count"] += 1
 
 
-def _add_to_keyword_group(keyword_groups, kw, rfp_id, company, rfp_end_date, participated, material_code, material_desc):
+def _add_to_keyword_group(keyword_groups, kw, rfp_id, company, rfp_end_date, participated, material_code, material_desc, bahra_item_code=""):
     """Helper: add a keyword entry to keyword_groups dict."""
     kw = kw.strip()
     if not kw:
@@ -966,6 +969,7 @@ def _add_to_keyword_group(keyword_groups, kw, rfp_id, company, rfp_end_date, par
             "companies": set(),
             "submitted_count": 0,
             "material_codes": set(),
+            "bahra_item_codes": set(),
         }
     kw_group = keyword_groups[kw]
     existing_kw_rfps = {r["rfp_id"] for r in kw_group["rfps"]}
@@ -976,6 +980,7 @@ def _add_to_keyword_group(keyword_groups, kw, rfp_id, company, rfp_end_date, par
             "rfp_end_date": str(rfp_end_date),
             "participated": participated,
             "material_code": material_code,
+            "bahra_item_code": bahra_item_code,
             "material_description": material_desc,
         })
         kw_group["rfp_count"] += 1
@@ -985,6 +990,8 @@ def _add_to_keyword_group(keyword_groups, kw, rfp_id, company, rfp_end_date, par
             kw_group["submitted_count"] += 1
     if material_code:
         kw_group["material_codes"].add(material_code)
+    if bahra_item_code:
+        kw_group["bahra_item_codes"].add(bahra_item_code)
 
 
 def get_material_insights_grouped_data():
@@ -1003,6 +1010,9 @@ def get_material_insights_grouped_data():
         return {"materials": [], "keywords": [], "stats": {}, "top_materials_chart": [], "keyword_chart": []}
 
     keywords_list = _get_keywords_list_cached()
+
+    from services.master_data_service import get_material_code_to_bahra_code_map
+    bahra_map = get_material_code_to_bahra_code_map()
 
     material_groups = {}  # material_code -> group dict
     keyword_groups = {}   # keyword -> group dict
@@ -1031,10 +1041,13 @@ def get_material_insights_grouped_data():
             else:
                 match_method = "exact"
 
+            direct_bahra_code = bahra_map.get(direct_material_code, "")
+
             # Material grouping
             _add_to_material_group(
                 material_groups, direct_material_code, direct_material_desc,
-                rfp_id, company, rfp_end_date, participated, match_method
+                rfp_id, company, rfp_end_date, participated, match_method,
+                bahra_item_code=direct_bahra_code,
             )
 
             # Keyword grouping from Matched_Keywords column (comma-separated)
@@ -1042,7 +1055,8 @@ def get_material_insights_grouped_data():
                 for kw in direct_matched_keywords.split(","):
                     _add_to_keyword_group(
                         keyword_groups, kw, rfp_id, company, rfp_end_date,
-                        participated, direct_material_code, direct_material_desc
+                        participated, direct_material_code, direct_material_desc,
+                        bahra_item_code=direct_bahra_code,
                     )
 
         else:
@@ -1099,11 +1113,13 @@ def get_material_insights_grouped_data():
                 material_code = mi["material_code"]
                 material_desc = mi["material_desc"]
                 match_method = mi["match_method"]
+                item_bahra_code = bahra_map.get(material_code, "")
 
                 # Material grouping
                 _add_to_material_group(
                     material_groups, material_code, material_desc,
-                    rfp_id, company, rfp_end_date, participated, match_method, material_code
+                    rfp_id, company, rfp_end_date, participated, match_method, material_code,
+                    bahra_item_code=item_bahra_code,
                 )
 
                 # Keyword grouping
@@ -1112,7 +1128,8 @@ def get_material_insights_grouped_data():
                     if mi["matched_keyword"]:
                         _add_to_keyword_group(
                             keyword_groups, mi["matched_keyword"], rfp_id, company,
-                            rfp_end_date, participated, material_code, material_desc
+                            rfp_end_date, participated, material_code, material_desc,
+                            bahra_item_code=item_bahra_code,
                         )
                     else:
                         # Old format: cross-reference with keywords list
@@ -1121,7 +1138,8 @@ def get_material_insights_grouped_data():
                             if kw.upper() in search_text:
                                 _add_to_keyword_group(
                                     keyword_groups, kw, rfp_id, company, rfp_end_date,
-                                    participated, material_code, material_desc
+                                    participated, material_code, material_desc,
+                                    bahra_item_code=item_bahra_code,
                                 )
 
     # Convert sets to sorted lists for JSON serialization
@@ -1133,6 +1151,7 @@ def get_material_insights_grouped_data():
     for k in keywords_list_result:
         k["companies"] = sorted(list(k["companies"]))
         k["material_codes"] = sorted(list(k["material_codes"]))
+        k["bahra_item_codes"] = sorted(list(k.get("bahra_item_codes", [])))
 
     # Count submitted RFPs across all matched
     submitted_count = sum(

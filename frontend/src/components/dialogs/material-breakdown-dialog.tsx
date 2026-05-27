@@ -75,6 +75,7 @@ export function MaterialBreakdownDialog({
       const q = search.toLowerCase()
       return (
         (mat.material_code || '').toLowerCase().includes(q) ||
+        (mat.bahra_item_code || '').toLowerCase().includes(q) ||
         (mat.name || '').toLowerCase().includes(q) ||
         (mat.description || '').toLowerCase().includes(q) ||
         (mat.master_description || '').toLowerCase().includes(q)
@@ -193,6 +194,12 @@ export function MaterialBreakdownDialog({
                         Code
                       </span>
                     </TableHead>
+                    <TableHead className="text-slate-600 font-semibold w-[150px]">
+                      <span className="flex items-center gap-1">
+                        <Hash className="h-3.5 w-3.5" />
+                        Bahra Item Code
+                      </span>
+                    </TableHead>
                     <TableHead className="text-slate-600 font-semibold min-w-[350px]">
                       <span className="flex items-center gap-1">
                         <FileText className="h-3.5 w-3.5" />
@@ -211,7 +218,7 @@ export function MaterialBreakdownDialog({
                 <TableBody>
                   {filteredMaterials.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center py-8 text-slate-400">
+                      <TableCell colSpan={5} className="text-center py-8 text-slate-400">
                         No materials found
                       </TableCell>
                     </TableRow>
@@ -227,6 +234,9 @@ export function MaterialBreakdownDialog({
                       >
                         <TableCell className="font-mono text-sm font-medium text-slate-700">
                           {mat.material_code}
+                        </TableCell>
+                        <TableCell className="font-mono text-sm text-slate-700">
+                          {mat.bahra_item_code || <span className="text-slate-400">—</span>}
                         </TableCell>
                         <TableCell className="text-sm text-slate-600">
                           {mat.master_description || mat.description || '-'}

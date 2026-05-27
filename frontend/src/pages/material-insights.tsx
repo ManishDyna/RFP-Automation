@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, Fragment } from 'react'
+import { useState, useRef, useMemo, useEffect, Fragment } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -16,6 +16,9 @@ import {
   ChevronRight,
   Hash,
   Download,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -63,6 +66,7 @@ export default function MaterialInsightsPage() {
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
   const [isExporting, setIsExporting] = useState(false)
+  const [bahraSort, setBahraSort] = useState<'none' | 'asc' | 'desc'>('none')
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const ITEMS_PER_PAGE = 50
@@ -104,6 +108,36 @@ export default function MaterialInsightsPage() {
     if (!keywordChart.length) return []
     return keywordChart.slice(0, 10)
   }, [keywordChart])
+
+  // Client-side sort by Bahra Item Code (Materials tab only).
+  // 'asc'  → items WITH a bahra code first (A-Z), empty values last.
+  // 'desc' → items WITH a bahra code first (Z-A), empty values last.
+  const displayItems = useMemo(() => {
+    if (activeTab !== 'materials' || bahraSort === 'none') return allItems
+    const copy = [...allItems]
+    copy.sort((a: any, b: any) => {
+      const av = (a.bahra_item_code || '').toString()
+      const bv = (b.bahra_item_code || '').toString()
+      if (!av && !bv) return 0
+      if (!av) return 1
+      if (!bv) return -1
+      return bahraSort === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+    })
+    return copy
+  }, [allItems, bahraSort, activeTab])
+
+  const toggleBahraSort = () => {
+    setBahraSort((prev) => (prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none'))
+  }
+
+  // When Bahra sort is active, auto-load remaining pages so all bahra-coded
+  // items surface (otherwise sort only orders the first 50 of 973).
+  useEffect(() => {
+    if (activeTab !== 'materials' || bahraSort === 'none') return
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
+    }
+  }, [bahraSort, activeTab, hasNextPage, isFetchingNextPage, fetchNextPage, allItems.length])
 
   const handleFilterChange = (key: string, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
@@ -561,13 +595,29 @@ export default function MaterialInsightsPage() {
                       <TableRow className="border-slate-200 hover:bg-slate-50/95">
                         <TableHead className="w-10"></TableHead>
                         <TableHead className="text-slate-600 font-semibold">Material Code</TableHead>
+                        <TableHead
+                          className="text-slate-600 font-semibold cursor-pointer select-none hover:text-slate-900"
+                          onClick={toggleBahraSort}
+                          title="Click to sort by Bahra Item Code (items with a code first)"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            Bahra Item Code
+                            {bahraSort === 'asc' ? (
+                              <ArrowUp className="h-3.5 w-3.5 text-indigo-600" />
+                            ) : bahraSort === 'desc' ? (
+                              <ArrowDown className="h-3.5 w-3.5 text-indigo-600" />
+                            ) : (
+                              <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" />
+                            )}
+                          </span>
+                        </TableHead>
                         <TableHead className="text-slate-600 font-semibold">Description</TableHead>
                         <TableHead className="text-slate-600 font-semibold">RFP Count</TableHead>
                         <TableHead className="text-slate-600 font-semibold">Companies</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {allItems.map((item: any) => (
+                      {displayItems.map((item: any) => (
                         <Fragment key={item.material_code}>
                           {/* Parent material row */}
                           <TableRow
@@ -583,6 +633,9 @@ export default function MaterialInsightsPage() {
                             </TableCell>
                             <TableCell className="font-mono font-medium text-indigo-600">
                               {item.material_code}
+                            </TableCell>
+                            <TableCell className="font-mono text-slate-700">
+                              {item.bahra_item_code || <span className="text-slate-400">—</span>}
                             </TableCell>
                             <TableCell className="text-slate-600 max-w-[300px] truncate" title={item.material_description}>
                               {item.material_description}
@@ -608,6 +661,7 @@ export default function MaterialInsightsPage() {
                               <TableCell className="pl-6 font-medium text-slate-700">
                                 {rfp.rfp_id}
                               </TableCell>
+                              <TableCell></TableCell>
                               <TableCell className="text-slate-500">{rfp.company}</TableCell>
                               <TableCell className="text-slate-500 text-sm">{rfp.rfp_end_date}</TableCell>
                               <TableCell>
@@ -621,7 +675,7 @@ export default function MaterialInsightsPage() {
                       ))}
                       {isFetchingNextPage && (
                         <TableRow>
-                          <TableCell colSpan={5} className="text-center py-8">
+                          <TableCell colSpan={6} className="text-center py-8">
                             <div className="flex items-center justify-center gap-2">
                               <div className="w-5 h-5 border-3 border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
                               <span className="text-sm text-slate-500">Loading more...</span>
@@ -677,6 +731,7 @@ export default function MaterialInsightsPage() {
                         <TableHead className="text-slate-600 font-semibold">Keyword</TableHead>
                         <TableHead className="text-slate-600 font-semibold">RFP Count</TableHead>
                         <TableHead className="text-slate-600 font-semibold">Material Codes</TableHead>
+                        <TableHead className="text-slate-600 font-semibold">Bahra Item Code</TableHead>
                         <TableHead className="text-slate-600 font-semibold">Companies</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -711,6 +766,9 @@ export default function MaterialInsightsPage() {
                               {item.material_codes?.length || 0} codes
                             </TableCell>
                             <TableCell className="text-slate-600">
+                              {item.bahra_item_codes?.length || 0} codes
+                            </TableCell>
+                            <TableCell className="text-slate-600">
                               {item.companies?.length || 0} {(item.companies?.length || 0) === 1 ? 'company' : 'companies'}
                             </TableCell>
                           </TableRow>
@@ -729,6 +787,9 @@ export default function MaterialInsightsPage() {
                               <TableCell className="font-mono text-xs text-slate-500">
                                 {rfp.material_code}
                               </TableCell>
+                              <TableCell className="font-mono text-xs text-slate-500">
+                                {rfp.bahra_item_code || <span className="text-slate-400">—</span>}
+                              </TableCell>
                               <TableCell className="text-slate-500 text-sm max-w-[200px] truncate" title={rfp.material_description}>
                                 {rfp.material_description}
                               </TableCell>
@@ -738,7 +799,7 @@ export default function MaterialInsightsPage() {
                       ))}
                       {isFetchingNextPage && (
                         <TableRow>
-                          <TableCell colSpan={5} className="text-center py-8">
+                          <TableCell colSpan={6} className="text-center py-8">
                             <div className="flex items-center justify-center gap-2">
                               <div className="w-5 h-5 border-3 border-slate-200 border-t-amber-600 rounded-full animate-spin" />
                               <span className="text-sm text-slate-500">Loading more...</span>

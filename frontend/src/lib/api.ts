@@ -330,6 +330,7 @@ export const api = {
       match_percentage: number
       materials: Array<{
         material_code: string
+        bahra_item_code?: string | null
         name: string
         description: string
         is_matched: boolean

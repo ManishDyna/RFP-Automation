@@ -2161,6 +2161,9 @@ def _try_materials_from_dataverse(rfp_id: str):
     Returns dict (response body) if successful, None if fallback needed.
     """
     try:
+        from services.master_data_service import get_material_code_to_bahra_code_map
+        bahra_map = get_material_code_to_bahra_code_map()
+
         filter_val = rfp_id.replace("'", "''")
         result = DATAVERSE.query_rows(
             get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
@@ -2185,8 +2188,10 @@ def _try_materials_from_dataverse(rfp_id: str):
         # New categorized format (dict with summary)
         if isinstance(data, dict) and "summary" in data:
             for item in data.get("exact_matches", []):
+                code = item.get("material_code", "")
                 materials_list.append({
-                    "material_code": item.get("material_code", ""),
+                    "material_code": code,
+                    "bahra_item_code": bahra_map.get(code, ""),
                     "name": item.get("excel_name", ""),
                     "description": item.get("excel_description", ""),
                     "is_matched": True,
@@ -2197,8 +2202,10 @@ def _try_materials_from_dataverse(rfp_id: str):
                     "reason": "",
                 })
             for item in data.get("keyword_matches", []):
+                code = item.get("material_code", "")
                 materials_list.append({
-                    "material_code": item.get("material_code", ""),
+                    "material_code": code,
+                    "bahra_item_code": bahra_map.get(code, ""),
                     "name": item.get("excel_name", ""),
                     "description": item.get("excel_description", ""),
                     "is_matched": True,
@@ -2210,8 +2217,10 @@ def _try_materials_from_dataverse(rfp_id: str):
                     "reason": "",
                 })
             for item in data.get("not_matched", []):
+                code = item.get("material_code", "")
                 materials_list.append({
-                    "material_code": item.get("material_code", ""),
+                    "material_code": code,
+                    "bahra_item_code": bahra_map.get(code, ""),
                     "name": item.get("excel_name", ""),
                     "description": item.get("excel_description", ""),
                     "is_matched": False,
@@ -2250,8 +2259,10 @@ def _try_materials_from_dataverse(rfp_id: str):
                 else:
                     match_method = "exact_code"
 
+                code = str(item.get("ExtractedMaterial") or item.get("Material") or "").strip()
                 materials_list.append({
-                    "material_code": str(item.get("ExtractedMaterial") or item.get("Material") or "").strip(),
+                    "material_code": code,
+                    "bahra_item_code": bahra_map.get(code, ""),
                     "name": str(item.get("ExcelName") or item.get("ColumnName") or "").strip(),
                     "description": str(item.get("ExcelDescription") or "").strip(),
                     "is_matched": is_matched,
@@ -2360,6 +2371,10 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
                 detail="No 'material' column found in master CSV"
             )
 
+        # Load bahra item code map (used to annotate each material in the response)
+        from services.master_data_service import get_material_code_to_bahra_code_map
+        bahra_map = get_material_code_to_bahra_code_map()
+
         # Match materials using same logic as download time (exact code + keyword)
         materials_list = []
         for mat_data in materials_data:
@@ -2389,6 +2404,7 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
 
             material_info = {
                 "material_code": mat_code,
+                "bahra_item_code": bahra_map.get(mat_code, ""),
                 "name": name_text,
                 "description": description_text,
                 "is_matched": is_matched,
