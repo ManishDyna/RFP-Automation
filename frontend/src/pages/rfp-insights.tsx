@@ -220,6 +220,7 @@ export default function RfpInsightsPage() {
 
   const [downloadingRfpId, setDownloadingRfpId] = useState<string | null>(null)
   const [exportingFormat, setExportingFormat] = useState<string | null>(null)
+  const [exportingFullAnalysis, setExportingFullAnalysis] = useState(false)
 
   const handleExport = useCallback(async (format: 'csv' | 'excel') => {
     setExportingFormat(format)
@@ -232,6 +233,18 @@ export default function RfpInsightsPage() {
       setExportingFormat(null)
     }
   }, [filters])
+
+  const handleExportFullAnalysis = useCallback(async () => {
+    setExportingFullAnalysis(true)
+    try {
+      await api.exportFullAnalysis()
+      toast.success('Full analysis report exported successfully')
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to export full analysis report')
+    } finally {
+      setExportingFullAnalysis(false)
+    }
+  }, [])
 
   const handleDownloadExcel = useCallback(async (rfpId: string, company?: string) => {
     setDownloadingRfpId(rfpId)
@@ -528,6 +541,17 @@ export default function RfpInsightsPage() {
               >
                 <FileSpreadsheet className={`h-4 w-4 mr-2 ${exportingFormat === 'excel' ? 'animate-spin' : ''}`} />
                 {exportingFormat === 'excel' ? 'Exporting...' : 'Export Excel'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                disabled={exportingFullAnalysis}
+                onClick={handleExportFullAnalysis}
+                title="Export 3-sheet workbook: Material list, RFP list, and RFP count pivot (ignores current filters)"
+              >
+                <FileSpreadsheet className={`h-4 w-4 mr-2 ${exportingFullAnalysis ? 'animate-spin' : ''}`} />
+                {exportingFullAnalysis ? 'Exporting...' : 'Export full analysis report'}
               </Button>
               {/* Column Visibility Dropdown */}
               <DropdownMenu>

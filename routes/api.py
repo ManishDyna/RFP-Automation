@@ -10,7 +10,8 @@ from services.user_service import (
 )
 from services.dashboard_service import (
     get_dashboard_data_cached, get_all_rfp_data_cached, get_logs_data_cached,
-    get_material_insights_cached, get_material_insights_grouped_cached
+    get_material_insights_cached, get_material_insights_grouped_cached,
+    get_raw_rfp_data_cached,
 )
 from services.sap_service import create_sap_password_record, list_sap_password_records_cached
 from services.dynamic_role_service import get_user_permissions
@@ -871,6 +872,296 @@ async def api_rfp_details_export(
         iter([output.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=RFP_Data_Export.csv"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Full Analysis Export (3-sheet workbook: Material_List | RFP-List | RFP-Count)
+# ---------------------------------------------------------------------------
+
+def _format_end_time_for_analysis(val):
+    """Format any datetime input to 'MM/DD/YYYY HH:MM AM/PM' (e.g. '05/20/2026 11:45 PM')."""
+    if not val:
+        return ""
+    s = str(val).strip()
+    try:
+        import pandas as pd
+        dt = pd.to_datetime(s, errors="coerce")
+        if pd.isna(dt):
+            return s
+        if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
+            dt = dt.tz_localize(None)
+        h12 = dt.hour % 12 or 12
+        ampm = "PM" if dt.hour >= 12 else "AM"
+        return f"{dt.month:02d}/{dt.day:02d}/{dt.year} {h12:02d}:{dt.minute:02d} {ampm}"
+    except Exception:
+        return s
+
+
+def _participant_full_label(raw_status):
+    """Map Dataverse participation values → 'Participated' / 'Declined' / 'Not Participated'."""
+    v = (raw_status or "").strip().lower()
+    if v in ("submitted", "yes"):
+        return "Participated"
+    if v == "declined":
+        return "Declined"
+    return "Not Participated"
+
+
+def _build_full_analysis_data(raw_rows):
+    """Walk raw Dataverse rows + their Matched_Data JSON and produce the three
+    output structures used by the full-analysis export."""
+    import json as _json
+    from collections import OrderedDict
+
+    material_rows = []
+    rfp_rows = []
+
+    for row in raw_rows:
+        rfp_id = (row.get("RFP_ID") or "").strip()
+        if not rfp_id:
+            continue
+
+        company = (row.get("Company_Name") or "").strip() or "Saudi Energy"
+        end_time_fmt = _format_end_time_for_analysis(row.get("RFP_End_Date"))
+        participant_full = _participant_full_label(row.get("participated"))
+        participant_yn = "Yes" if participant_full == "Participated" else "No"
+
+        # Parse Matched_Data JSON (categorized format only — old flat format ignored)
+        matched_data_str = row.get("Matched_Data") or ""
+        parsed = None
+        if matched_data_str.strip():
+            try:
+                p = _json.loads(matched_data_str)
+                if isinstance(p, dict) and "summary" in p:
+                    parsed = p
+            except (ValueError, TypeError):
+                parsed = None
+
+        source_file = ""
+        exact_matches, keyword_matches, not_matched = [], [], []
+        if parsed:
+            source_file = parsed.get("source_file") or ""
+            exact_matches = parsed.get("exact_matches") or []
+            keyword_matches = parsed.get("keyword_matches") or []
+            not_matched = parsed.get("not_matched") or []
+
+        def _desc(item):
+            return (
+                item.get("material_description")
+                or item.get("excel_description")
+                or item.get("excel_name")
+                or ""
+            )
+
+        def _push(item, *, material_matched, keyword_matched, matched_kw=""):
+            material_rows.append({
+                "Company_Name": company,
+                "RFP_Title": rfp_id,
+                "RFP_ID": rfp_id,
+                "End_Time": end_time_fmt,
+                "Excel_File": source_file,
+                "Material_Code": item.get("material_code") or "",
+                "Material_Description": _desc(item),
+                "Material_Matched": material_matched,
+                "Matched_Keywords": matched_kw or "",
+                "Keyword_Matched": keyword_matched,
+                "Participant": participant_yn,
+                "Quantity": item.get("quantity", ""),
+                "Unit of Measurement": item.get("unit_of_measurement", ""),
+            })
+
+        for it in exact_matches:
+            _push(it, material_matched="Yes", keyword_matched="No")
+        for it in keyword_matches:
+            _push(it, material_matched="No", keyword_matched="Yes",
+                  matched_kw=it.get("matched_keyword", ""))
+        for it in not_matched:
+            _push(it, material_matched="No", keyword_matched="No")
+
+        exact_count = len(exact_matches)
+        keyword_count = len(keyword_matches)
+        rfp_rows.append({
+            "Company_Name": company,
+            "RFP_Title": rfp_id,
+            "RFP_ID": rfp_id,
+            "End_Time": end_time_fmt,
+            "Participant": participant_full,
+            "is_material_match": "Material matched" if exact_count > 0 else "Material not matched",
+            "is_keyword_match": "Keyword matched" if keyword_count > 0 else "Keyword not matched",
+            "no_of_matched_materials": exact_count,
+            "no_of_matched_keywords": keyword_count,
+        })
+
+    # ----- Build the RFP-Count hierarchical pivot -----
+    # Hierarchy: Company → is_material_match → is_keyword_match → Participant
+    pivot = OrderedDict()
+    for r in rfp_rows:
+        c = r["Company_Name"]
+        m = r["is_material_match"]
+        k = r["is_keyword_match"]
+        p = r["Participant"]
+        company_d = pivot.setdefault(c, OrderedDict())
+        mat_d = company_d.setdefault(m, OrderedDict())
+        kw_d = mat_d.setdefault(k, OrderedDict())
+        agg = kw_d.setdefault(p, {"count": 0, "sum_materials": 0, "sum_keywords": 0})
+        agg["count"] += 1
+        agg["sum_materials"] += int(r["no_of_matched_materials"] or 0)
+        agg["sum_keywords"] += int(r["no_of_matched_keywords"] or 0)
+
+    # Flatten pivot into the same row layout as the reference workbook.
+    # Companies sorted A→Z; within each: "Material matched" before "Material not matched";
+    # keyword likewise; participants ordered Declined → Not Participated → Participated.
+    def _sorted_match(keys, matched_first_value):
+        return sorted(keys, key=lambda x: 0 if x == matched_first_value else 1)
+
+    participant_order = {"Declined": 0, "Not Participated": 1, "Participated": 2}
+
+    count_rows = []
+    grand = {"count": 0, "sum_materials": 0, "sum_keywords": 0}
+    for company in sorted(pivot.keys()):
+        count_rows.append({"label": company, "count": None, "sum_materials": None, "sum_keywords": None})
+        for m in _sorted_match(pivot[company].keys(), "Material matched"):
+            count_rows.append({"label": m, "count": None, "sum_materials": None, "sum_keywords": None})
+            for k in _sorted_match(pivot[company][m].keys(), "Keyword matched"):
+                count_rows.append({"label": k, "count": None, "sum_materials": None, "sum_keywords": None})
+                for p in sorted(pivot[company][m][k].keys(), key=lambda x: participant_order.get(x, 99)):
+                    agg = pivot[company][m][k][p]
+                    count_rows.append({
+                        "label": p,
+                        "count": agg["count"],
+                        "sum_materials": agg["sum_materials"],
+                        "sum_keywords": agg["sum_keywords"],
+                    })
+                    grand["count"] += agg["count"]
+                    grand["sum_materials"] += agg["sum_materials"]
+                    grand["sum_keywords"] += agg["sum_keywords"]
+    count_rows.append({
+        "label": "Grand Total",
+        "count": grand["count"],
+        "sum_materials": grand["sum_materials"],
+        "sum_keywords": grand["sum_keywords"],
+    })
+
+    return material_rows, rfp_rows, count_rows
+
+
+@router.get("/dashboard/rfp-details/export-full-analysis")
+async def api_rfp_details_export_full_analysis(
+    request: Request,
+    refresh: int = Query(0),
+    user: dict = Depends(require_permission("rfp.view")),
+):
+    """Export the full 3-sheet analysis workbook (Material_List | RFP-List | RFP-Count).
+
+    Always exports ALL RFPs — filters on the page are intentionally ignored so the
+    output is a single canonical 'full analysis report' regardless of UI state.
+    Data source: cr673_bahra_rfps_v2.Matched_Data JSON (categorized format)."""
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from datetime import datetime as _dt
+
+    raw_rows = get_raw_rfp_data_cached(force_refresh=bool(refresh)) or []
+    material_rows, rfp_rows, count_rows = _build_full_analysis_data(raw_rows)
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin", color="D1D5DB"),
+        right=Side(style="thin", color="D1D5DB"),
+        top=Side(style="thin", color="D1D5DB"),
+        bottom=Side(style="thin", color="D1D5DB"),
+    )
+    grand_total_font = Font(bold=True, color="111827")
+    grand_total_fill = PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid")
+
+    def _write_table(ws, headers, rows_iter, cell_value_fn):
+        for col_idx, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = thin_border
+
+        for row_idx, item in enumerate(rows_iter, 2):
+            for col_idx, header in enumerate(headers, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=cell_value_fn(item, header))
+                cell.border = thin_border
+
+        # Auto-fit column widths (cap at 50)
+        for col_idx, header in enumerate(headers, 1):
+            max_len = len(str(header))
+            for r in range(2, ws.max_row + 1):
+                v = ws.cell(row=r, column=col_idx).value
+                if v is not None and len(str(v)) > max_len:
+                    max_len = len(str(v))
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = min(max_len + 3, 50)
+
+        ws.freeze_panes = "A2"
+
+    # ----- Sheet 1: RFP-Material_List -----
+    ws1 = wb.create_sheet("RFP-Material_List")
+    headers1 = [
+        "Company_Name", "RFP_Title", "RFP_ID", "End_Time", "Excel_File",
+        "Material_Code", "Material_Description", "Material_Matched",
+        "Matched_Keywords", "Keyword_Matched", "Participant",
+        "Quantity", "Unit of Measurement",
+    ]
+    _write_table(ws1, headers1, material_rows, lambda item, h: item.get(h, ""))
+
+    # ----- Sheet 2: RFP-List -----
+    ws2 = wb.create_sheet("RFP-List")
+    headers2 = [
+        "Company_Name", "RFP_Title", "RFP_ID", "End_Time", "Participant",
+        "is_material_match", "is_keyword_match",
+        "no_of_matched_materials", "no_of_matched_keywords",
+    ]
+    _write_table(ws2, headers2, rfp_rows, lambda item, h: item.get(h, ""))
+
+    # ----- Sheet 3: RFP-Count -----
+    ws3 = wb.create_sheet("RFP-Count")
+    headers3 = ["Row Labels", "Count of RFP_Title",
+                "Sum of no_of_matched_materials", "Sum of no_of_matched_keywords"]
+    for col_idx, header in enumerate(headers3, 1):
+        cell = ws3.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = thin_border
+
+    for row_idx, item in enumerate(count_rows, 2):
+        label = item["label"]
+        is_grand = label == "Grand Total"
+        c1 = ws3.cell(row=row_idx, column=1, value=label)
+        c2 = ws3.cell(row=row_idx, column=2, value=item["count"])
+        c3 = ws3.cell(row=row_idx, column=3, value=item["sum_materials"])
+        c4 = ws3.cell(row=row_idx, column=4, value=item["sum_keywords"])
+        for c in (c1, c2, c3, c4):
+            c.border = thin_border
+            if is_grand:
+                c.font = grand_total_font
+                c.fill = grand_total_fill
+
+    ws3.column_dimensions["A"].width = 48
+    ws3.column_dimensions["B"].width = 20
+    ws3.column_dimensions["C"].width = 32
+    ws3.column_dimensions["D"].width = 32
+    ws3.freeze_panes = "A2"
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    stamp = _dt.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"RFP-Analysis-Overall_with_UoM_{stamp}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 

@@ -68,6 +68,7 @@ export const ENDPOINTS = {
     DATA: `${API_PREFIX}/dashboard/data`,
     RFP_DETAILS: `${API_PREFIX}/dashboard/rfp-details`,
     RFP_EXPORT: `${API_PREFIX}/dashboard/rfp-details/export`,
+    RFP_EXPORT_FULL_ANALYSIS: `${API_PREFIX}/dashboard/rfp-details/export-full-analysis`,
     SUBMIT_RFP: `${API_PREFIX}/dashboard/submit-rfp`,
     LIST_TDS_FILES: `${API_PREFIX}/dashboard/list-tds-files`,
     VALIDATE_RFP: `${API_PREFIX}/validate-rfp`,

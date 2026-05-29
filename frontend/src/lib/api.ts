@@ -153,6 +153,32 @@ export const api = {
     window.URL.revokeObjectURL(url)
   },
 
+  exportFullAnalysis: async () => {
+    const response = await fetch(ENDPOINTS.DASHBOARD.RFP_EXPORT_FULL_ANALYSIS, {
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      let message = 'Full analysis export failed'
+      try {
+        const data = await response.json()
+        message = data.detail || data.message || message
+      } catch {}
+      throw { message, status: response.status }
+    }
+    const blob = await response.blob()
+    const disposition = response.headers.get('Content-Disposition') || ''
+    const filenameMatch = disposition.match(/filename=(.+)/)
+    const filename = filenameMatch ? filenameMatch[1] : 'RFP-Analysis-Overall_with_UoM.xlsx'
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  },
+
   // ==================== Automation ====================
   getAutomationStatus: async () => {
     const response = await fetch(ENDPOINTS.AUTOMATION.STATUS, {
