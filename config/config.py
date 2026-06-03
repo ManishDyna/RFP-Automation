@@ -271,7 +271,7 @@ os.makedirs(FAILURE_LOGS_DIR, exist_ok=True)
 # 10. HELPER FUNCTIONS
 # ─────────────────────────────────────────────────────────────────────────────
 
-
+    
 def resolve_company_name(name: str) -> str:
     """Resolve company name, defaulting to COMPANY_NAME if empty."""
     if not name:

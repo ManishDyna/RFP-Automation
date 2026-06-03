@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartRFP — Product Film & Live Tour</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #0A0D13; overflow: hidden; }
+  #root { position: fixed; inset: 0; }
+</style>
+</head>
+<body style="font-size: 15px">
+<div id="root"></div>
+
+<script>window.__PROD_REACT = new URLSearchParams(location.search).get('render') === '1';</script>
+<script>
+  // Production React when rendering (much faster per-frame); dev build for interactive preview debugging.
+  (function () {
+    var base = 'https://unpkg.com/';
+    var rv = window.__PROD_REACT ? 'react@18.3.1/umd/react.production.min.js' : 'react@18.3.1/umd/react.development.js';
+    var rdv = window.__PROD_REACT ? 'react-dom@18.3.1/umd/react-dom.production.min.js' : 'react-dom@18.3.1/umd/react-dom.development.js';
+    document.write('<scr' + 'ipt src="' + base + rv + '" crossorigin="anonymous"></scr' + 'ipt>');
+    document.write('<scr' + 'ipt src="' + base + rdv + '" crossorigin="anonymous"></scr' + 'ipt>');
+  })();
+</script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="animations.jsx"></script>
+<script type="text/babel" src="smartrfp-kit.jsx"></script>
+<script type="text/babel" src="sc-open.jsx"></script>
+<script type="text/babel" src="sc-flow.jsx"></script>
+<script type="text/babel" src="sc-ingest.jsx"></script>
+<script type="text/babel" src="sc-app.jsx"></script>
+<script type="text/babel" src="sc-emails.jsx"></script>
+<script type="text/babel" src="sc-comms.jsx"></script>
+<script type="text/babel" src="sc-insight.jsx"></script>
+<script type="text/babel" src="sc-admin.jsx"></script>
+<script type="text/babel" src="sc-value.jsx"></script>
+<script type="text/babel" src="sc-tour.jsx"></script>
+
+<script type="text/babel">
+// ─────────────────────────────────────────────────────────────────────────────
+// PART 1 — THE FILM  (cinematic story + value)
+// ─────────────────────────────────────────────────────────────────────────────
+const FILM = [
+  { id: 'title',     label: 'SmartRFP',            dur: 15, render: (p) => <SceneTitle {...p} /> },
+  { id: 'problem',   label: 'The Problem',         dur: 34, render: (p) => <SceneProblem {...p} /> },
+  { id: 'flow',      label: 'Flow Overview',       dur: 50, render: (p) => <SceneFlow {...p} /> },
+  { id: 'ingest',    label: 'Discover & Ingest',   dur: 40, render: (p) => <SceneIngest {...p} /> },
+  { id: 'match',     label: 'Auto-Match',          dur: 42, render: (p) => <SceneMatch {...p} /> },
+  { id: 'dashboard', label: 'Login & Dashboard',   dur: 46, render: (p) => <SceneDashboard {...p} /> },
+  { id: 'rfp',       label: 'RFP Insights',        dur: 50, render: (p) => <SceneRFP {...p} /> },
+  { id: 'email',     label: 'Actionable Email',    dur: 34, render: (p) => <SceneEmailReal {...p} /> },
+  { id: 'reminders', label: 'Open RFP & Reminders',dur: 26, render: (p) => <SceneRemindersReal {...p} /> },
+  { id: 'analytics', label: 'Analytics',           dur: 40, render: (p) => <SceneAnalytics {...p} /> },
+  { id: 'admin',     label: 'Admin & Governance',  dur: 46, render: (p) => <SceneAdmin {...p} /> },
+  { id: 'value',     label: 'Business Value',      dur: 36, render: (p) => <SceneValue {...p} /> },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PART 2 — THE LIVE TOUR  (real screenshots)
+// ─────────────────────────────────────────────────────────────────────────────
+const TOUR_STEPS = [
+  { img: 'Login-Screen.png', url: 'app · /login', chapter: 'Getting Started', title: 'Secure Sign-In', dur: 7,
+    focus: { x: 0.5, y: 0.5 }, from: 1.06, to: 1.16,
+    vo: [{ at: 0.6, text: 'Every session starts at a secure, role-based sign-in.' }] },
+  { img: 'Dashboard.png', url: 'app · /dashboard', chapter: 'Dashboard', title: 'Pipeline at a Glance', dur: 12,
+    focus: { x: 0.5, y: 0.32 }, from: 1.03, to: 1.13,
+    vo: [{ at: 0.6, text: 'The dashboard opens on the whole pipeline — downloaded, open, submitted, declined and not-participated.' },
+         { at: 6.2, text: 'RFPs are grouped by portal, each with its match %, status and quick Excel or Submit actions.' }] },
+  { img: 'Download-RFP-Button-Page.png', url: 'app · /dashboard', chapter: 'Discover & Download', title: 'Download Open RFPs', dur: 9,
+    focus: { x: 0.5, y: 0.46 }, from: 1.04, to: 1.15,
+    vo: [{ at: 0.6, text: 'Pick a supplier portal — or all of them — and SmartRFP scrapes the open RFPs and downloads every BOQ.' }] },
+  { img: 'Schedule-Automation-page.png', url: 'app · /settings', chapter: 'Discover & Download', title: 'Schedule Automation', dur: 8,
+    focus: { x: 0.49, y: 0.5 }, from: 1.05, to: 1.16,
+    vo: [{ at: 0.6, text: 'Better still — schedule it. Set an interval and start time, and the automation runs unattended.' }] },
+  { img: 'Activity-log-page.png', url: 'app · /activity-logs', chapter: 'Activity Logs', title: 'Every Run, Tracked', dur: 9,
+    focus: { x: 0.5, y: 0.3 }, from: 1.03, to: 1.12,
+    vo: [{ at: 0.6, text: 'Activity logs record every run — total, completed, failed and running — with its full step pipeline.' }] },
+  { img: 'Material-Matching-screen.png', url: 'app · /dashboard', chapter: 'Material Matching', title: 'BOQ → Material Master', dur: 10,
+    focus: { x: 0.5, y: 0.42 }, from: 1.04, to: 1.15,
+    vo: [{ at: 0.6, text: 'For any RFP, the material breakdown shows how its BOQ lines mapped to your material master.' },
+         { at: 5.2, text: 'Each line is labelled by method — exact SAP code or keyword — so a human sees exactly why it matched.' }] },
+  { img: 'RFP-insight-screen.png', url: 'app · /rfp-insights', chapter: 'RFP Insights', title: 'Filter & Analyse', dur: 10,
+    focus: { x: 0.5, y: 0.3 }, from: 1.03, to: 1.12,
+    vo: [{ at: 0.6, text: 'RFP Insights is the master list — filter by status, company, date, material or keyword match.' },
+         { at: 5.5, text: 'Export to CSV, Excel or a full report, and jump straight to the portal, files or response sheet.' }] },
+  { img: 'Material-insights-page1.png', url: 'app · /material-insights', chapter: 'Material Insights', title: 'Top Keywords', dur: 8,
+    focus: { x: 0.5, y: 0.46 }, from: 1.04, to: 1.14,
+    vo: [{ at: 0.6, text: 'Material Insights reveals demand — unique codes, keywords, and the RFPs that match them.' }] },
+  { img: 'open-rfps-page.png', url: 'app · /open-rfps', chapter: 'Open RFP & Reminders', title: 'Who Responded?', dur: 9,
+    focus: { x: 0.5, y: 0.4 }, from: 1.03, to: 1.13,
+    vo: [{ at: 0.6, text: 'The Open RFP board tracks responded-versus-pending counts and the deadline for every live RFP.' }] },
+  { img: 'open-rfps-view-button-page.png', url: 'app · /open-rfps', chapter: 'Open RFP & Reminders', title: 'Remind & Delegate', dur: 9,
+    focus: { x: 0.5, y: 0.45 }, from: 1.04, to: 1.14,
+    vo: [{ at: 0.6, text: 'Open a row to nudge a single non-responder, remind everyone pending, or delegate a line — with full history.' }] },
+  { img: 'Submit-RFP-page.png', url: 'app · /submit', chapter: 'Bidding', title: 'Submit a Response', dur: 9,
+    focus: { x: 0.5, y: 0.5 }, from: 1.04, to: 1.15,
+    vo: [{ at: 0.6, text: 'When it is time to bid, upload the filled Excel and technical PDFs — they go to SharePoint and back to the portal.' }] },
+  { img: 'Decline-RFP-page.png', url: 'app · /decline', chapter: 'Bidding', title: 'Decline Participation', dur: 7,
+    focus: { x: 0.5, y: 0.45 }, from: 1.05, to: 1.17,
+    vo: [{ at: 0.6, text: 'Not a fit? Decline in one click — the choice is recorded and the customer is notified.' }] },
+  { img: 'Analytics-Dashboard-Page.png', url: 'app · /analytics', chapter: 'Analytics', title: 'Outcomes & Win-Rate', dur: 10,
+    focus: { x: 0.5, y: 0.32 }, from: 1.03, to: 1.12,
+    vo: [{ at: 0.6, text: 'For managers, Analytics turns the pipeline into evidence — totals, submissions and match rates.' },
+         { at: 5.5, text: 'See the status mix, top companies by RFP count, and participation per company.' }] },
+  { img: 'User-page.png', url: 'app · /admin/users', chapter: 'Administration', title: 'User Management', dur: 8,
+    focus: { x: 0.5, y: 0.4 }, from: 1.04, to: 1.14,
+    vo: [{ at: 0.6, text: 'On the admin side: manage users, each with a single role and an active status.' }] },
+  { img: 'Role-Management-Create-Role-Page.png', url: 'app · /admin/roles', chapter: 'Administration', title: 'Create a Role', dur: 9,
+    focus: { x: 0.5, y: 0.5 }, from: 1.04, to: 1.15,
+    vo: [{ at: 0.6, text: 'Build a role by ticking exactly the permissions it needs — no developer required, configured right in the portal.' }] },
+  { img: 'Material-Master-data-Page.png', url: 'app · /admin/master-data', chapter: 'Master Data', title: 'Material Codes', dur: 8,
+    focus: { x: 0.5, y: 0.5 }, from: 1.04, to: 1.14,
+    vo: [{ at: 0.6, text: 'Master Data powers matching — material codes map SAP numbers to Bahra items; import, export, or edit inline.' }] },
+  { img: 'audit-log-page.png', url: 'app · /admin/audit-logs', chapter: 'Governance', title: 'Audit Trail', dur: 8,
+    focus: { x: 0.5, y: 0.42 }, from: 1.04, to: 1.14,
+    vo: [{ at: 0.6, text: 'An append-only audit trail logs every event — timestamp, actor, action, target and IP.' }] },
+  { img: 'System-Settting-page.png', url: 'app · /admin/system-config', chapter: 'Governance', title: 'System Settings', dur: 9,
+    focus: { x: 0.5, y: 0.45 }, from: 1.03, to: 1.12,
+    vo: [{ at: 0.6, text: 'System Settings centralise who is notified for every scenario — edited live, with no redeploy.' }] },
+];
+const TOUR_INTRO = 7, TOUR_OUTRO = 12;
+
+// ── Master timeline assembly ────────────────────────────────────────────────
+const SEG = [];   // flat list of {label, part, t0, dur, render}
+let acc = 0;
+const push = (s) => { SEG.push({ ...s, t0: acc }); acc += s.dur; };
+
+for (const f of FILM) push({ label: f.label, part: 'The Story', dur: f.dur, render: f.render });
+const FILM_END = acc;
+push({ label: 'Live Product Tour', part: 'Live Tour', dur: TOUR_INTRO, render: (p) => <TourIntro {...p} /> });
+for (const s of TOUR_STEPS) push({ label: s.title, part: 'Live Tour', dur: s.dur, render: (p) => <ShotScene step={s} {...p} /> });
+push({ label: 'SmartRFP', part: 'Live Tour', dur: TOUR_OUTRO, render: (p) => <TourOutro {...p} /> });
+const TOTAL = acc;
+
+// ── Narration (absolute seconds) — also the voiceover script ─────────────────
+const T = {};
+for (const s of SEG) { /* index lookup helper below */ }
+const film_t0 = {};
+{ let a = 0; for (const f of FILM) { film_t0[f.id] = a; a += f.dur; } }
+const F0 = (id) => film_t0[id];
+
+const NARRATION = [
+  // Title
+  { t: F0('title') + 1.4, text: 'This is SmartRFP — an automation platform that takes a tender from arrival all the way to a submitted quote.' },
+  { t: F0('title') + 6.0, text: 'It discovers RFPs, parses the Bill of Quantities, matches it to your materials, routes it to bidders, and keeps a full audit trail.' },
+  { t: F0('title') + 11.5, text: "Here's how it works — and what it's worth to your team." },
+  // Problem
+  { t: F0('problem') + 1.0, text: 'Today, a single RFP is spread across five disconnected tools.' },
+  { t: F0('problem') + 5.5, text: 'The BOQ is re-keyed by hand from a PDF. Excel versions multiply. Each material code is looked up in SAP one at a time.' },
+  { t: F0('problem') + 11.0, text: 'Hand-offs happen over email, deadlines slip, and there is no record of who quoted what, when.' },
+  { t: F0('problem') + 16.5, text: 'That costs about two and a half hours of data entry per RFP.' },
+  { t: F0('problem') + 21.0, text: 'Roughly five tenders a month are missed purely on coordination — with no auditable history to learn from.' },
+  { t: F0('problem') + 30.0, text: "The real work is pricing. Everything else is plumbing — and that's exactly what SmartRFP removes." },
+  // Flow
+  { t: F0('flow') + 1.0, text: 'Here is the whole pipeline. Six stages, and not a single manual re-entry between them.' },
+  { t: F0('flow') + 5.5, text: 'It starts by discovering RFPs — a scheduled scrape of your supplier portals: Ariba, SEC, Aramco, HADEED.' },
+  { t: F0('flow') + 12.0, text: 'It downloads and parses the BOQ, pulling out SAP material codes and description keywords.' },
+  { t: F0('flow') + 18.5, text: 'It auto-matches each line against your material master, then routes the RFP to the right bidders.' },
+  { t: F0('flow') + 25.0, text: 'Bidders return prices and lead times, and the package is submitted back to the customer.' },
+  { t: F0('flow') + 31.0, text: 'Underneath, every action is written to Microsoft Dataverse — attributed, timestamped, and governed by role-based access.' },
+  { t: F0('flow') + 44.0, text: "Receipt to bidder in minutes, not hours. Let's walk each stage on the real product." },
+  // Ingest
+  { t: F0('ingest') + 0.6, text: 'Stage one: discovery. An operator can trigger a sync, or leave it to the schedule.' },
+  { t: F0('ingest') + 4.0, text: 'SmartRFP logs into each supplier portal, finds the new events, and downloads every BOQ.' },
+  { t: F0('ingest') + 9.5, text: 'Files land in SharePoint, records are written to Dataverse — seven new RFPs, ready to work, in under a minute.' },
+  { t: F0('ingest') + 16.0, text: 'No analyst had to remember to poll. The cron runs Sunday to Thursday, every morning.' },
+  { t: F0('ingest') + 34.0, text: 'Now those raw BOQs need to become matched line items.' },
+  // Match
+  { t: F0('match') + 0.8, text: 'Stage two: matching. Every BOQ line is checked against your SAP material master in two tiers.' },
+  { t: F0('match') + 6.0, text: 'First, an exact match on the nine-digit SAP code. If that misses, keywords from the description take over.' },
+  { t: F0('match') + 12.0, text: 'Each result carries a confidence score — green is a clean match, amber is a keyword hit, red needs a look.' },
+  { t: F0('match') + 18.0, text: 'On a typical RFP, about three quarters of lines match with no human lookup at all.' },
+  { t: F0('match') + 24.0, text: 'And the rest are never silently wrong — they are flagged for a single-click review.' },
+  // Dashboard
+  { t: F0('dashboard') + 0.6, text: 'Your team signs in to one portal — secured, role-based, browser-only.' },
+  { t: F0('dashboard') + 6.5, text: 'The dashboard opens on the numbers that matter: new RFPs, work in progress, submissions, and cycle time.' },
+  { t: F0('dashboard') + 13.0, text: 'Every tile is live from Dataverse, and the recent-RFP table shows match rates and deadlines at a glance.' },
+  { t: F0('dashboard') + 22.0, text: 'Throughput is up over two times versus the manual baseline — the whole team works from one source of truth.' },
+  { t: F0('dashboard') + 32.0, text: "Let's open a single RFP and price it." },
+  // RFP
+  { t: F0('rfp') + 0.8, text: 'This is the RFP detail — customer, scope, deadline, and the fully matched Bill of Quantities.' },
+  { t: F0('rfp') + 7.0, text: 'The bidder simply prices the matched lines. No re-keying, no hunting through SAP.' },
+  { t: F0('rfp') + 12.5, text: 'A lead time, a note, and Submit — the status flips to Submitted and the whole action is logged.' },
+  { t: F0('rfp') + 20.0, text: 'Receipt to a priced, submitted response — in minutes.' },
+  // Email (real templates)
+  { t: F0('email') + 0.8, text: 'Bidders who live in Outlook never have to leave it.' },
+  { t: F0('email') + 4.0, text: 'Each product line arrives as an actionable card — set the result, add a remark, attach a file.' },
+  { t: F0('email') + 9.5, text: 'The moment they answer, the response is written straight to Dataverse.' },
+  { t: F0('email') + 17.5, text: 'And every teammate sees exactly who has answered — here, three of five responsibilities are in, the rest still pending.' },
+  { t: F0('email') + 26.0, text: 'A built-in Refresh Status keeps the whole team aligned without a single follow-up call.' },
+  // Reminders (real urgent email)
+  { t: F0('reminders') + 0.8, text: 'Deadlines are guarded automatically.' },
+  { t: F0('reminders') + 4.0, text: 'A reminder fires three days before the due date, and again one day before.' },
+  { t: F0('reminders') + 8.5, text: 'Hours from the deadline, an urgent notice lists every at-risk RFP and exactly how long is left.' },
+  { t: F0('reminders') + 14.0, text: 'Sent-flags nudge each bidder once per window — no spam. Since go-live, zero RFPs missed on coordination.' },
+  // Analytics
+  { t: F0('analytics') + 0.8, text: 'For managers, analytics turn the pipeline into evidence.' },
+  { t: F0('analytics') + 6.0, text: 'Win rate, cycle time, volume by customer, and outcomes — exportable to a board pack in one click.' },
+  { t: F0('analytics') + 14.0, text: 'Material insights show what customers ask for most — and exactly where matching can improve.' },
+  { t: F0('analytics') + 24.0, text: 'Low-scoring families tell admins which keyword alias to add next, so the system keeps getting smarter.' },
+  // Admin
+  { t: F0('admin') + 0.8, text: 'Behind it all is real governance. Admins provision users, each with a single role.' },
+  { t: F0('admin') + 9.0, text: 'Roles and permissions are fully granular — created and granted with no developer involvement.' },
+  { t: F0('admin') + 18.0, text: 'Master data — materials and keyword aliases — is editable in-app, improving every future match.' },
+  { t: F0('admin') + 27.0, text: 'Every change lands in an append-only audit log: who did what, when, kept for seven years.' },
+  { t: F0('admin') + 36.0, text: 'Even the SAP service password is rotated under permission and logged — settings change without a redeploy.' },
+  // Value
+  { t: F0('value') + 0.8, text: "So what's it worth? The same work, measured before and after." },
+  { t: F0('value') + 5.0, text: 'Receipt to bidder drops from hours to minutes. Submission from days to under a day. Missed tenders to zero.' },
+  { t: F0('value') + 12.0, text: 'That is roughly eight hundred engineering hours back every year — about ten FTE-months.' },
+  { t: F0('value') + 19.0, text: 'Payback in six to nine months, plus the deals you simply stop losing to slipped deadlines.' },
+  { t: F0('value') + 29.0, text: 'Your engineers stop being data-entry clerks and start winning more bids.' },
+];
+
+// Tour intro + per-step narration + outro
+const TOUR_T0 = FILM_END;
+NARRATION.push({ t: TOUR_T0 + 1.6, text: 'Now the real thing — a quick tour of the actual portal, screen by screen.' });
+{ let a = TOUR_T0 + TOUR_INTRO;
+  for (const s of TOUR_STEPS) { for (const v of (s.vo || [])) NARRATION.push({ t: a + v.at, text: v.text }); a += s.dur; }
+  NARRATION.push({ t: a + 1.4, text: 'That is the full lifecycle — discover, match, route, bid, submit and audit, in one governed portal.' });
+  NARRATION.push({ t: a + 7.5, text: 'SmartRFP. Thank you for watching.' });
+}
+
+// ── Picture-in-picture "real product" proof during 3 film scenes ─────────────
+function FilmRealInset({ t0, dur, src, label }) {
+  const time = useTime(); const lt = time - t0;
+  if (lt < -0.4 || lt > dur + 0.4) return null;
+  const op = clamp(lt / 0.5, 0, 1) * (1 - clamp((lt - (dur - 0.5)) / 0.5, 0, 1));
+  const sc = lerp(1.05, 1.12, clamp(lt / dur, 0, 1));
+  return (
+    <div style={{ position: 'absolute', right: 40, bottom: 120, width: 392, opacity: op, zIndex: 40,
+      transform: `translateY(${(1 - clamp(lt / 0.5, 0, 1)) * 16}px)` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 99, background: C.red, boxShadow: `0 0 0 4px ${C.redSoft}` }} />
+        <span style={{ fontFamily: F.mono, fontSize: 11, fontWeight: 700, color: C.inv, letterSpacing: '0.1em' }}>LIVE PRODUCT · {label}</span>
+      </div>
+      <div style={{ borderRadius: 12, overflow: 'hidden', height: 220, border: `1px solid ${C.hair2}`, boxShadow: '0 30px 70px rgba(0,0,0,0.6)', background: C.card }}>
+        <img src={'assets/shots/' + src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', transform: `scale(${sc})`, transformOrigin: 'top center' }} />
+      </div>
+    </div>
+  );
+}
+
+// ── Combined chrome (single progress bar + section label + watermark) ────────
+function Chrome() {
+  const time = useTime();
+  let cur = SEG[0];
+  for (const s of SEG) if (time >= s.t0) cur = s;
+  const idx = SEG.indexOf(cur);
+  return (
+    <>
+      {cur.part !== 'Live Tour' && (
+        <div style={{ position: 'absolute', top: 24, left: 28, zIndex: 60, display: 'flex', alignItems: 'center', gap: 10,
+          padding: '7px 13px 7px 9px', borderRadius: 9, background: 'rgba(8,11,16,0.6)', border: `1px solid ${C.hair}`, backdropFilter: 'blur(8px)' }}>
+          <span style={{ fontFamily: F.mono, fontSize: 10.5, fontWeight: 700, color: C.red, background: C.redSoft, borderRadius: 5, padding: '3px 7px', letterSpacing: '0.06em' }}>PART 1</span>
+          <span style={{ fontFamily: F.ui, fontSize: 13.5, fontWeight: 600, color: C.inv, letterSpacing: '-0.01em' }}>{cur.label}</span>
+        </div>
+      )}
+      <div style={{ position: 'absolute', top: 22, right: 28, zIndex: 60, opacity: 0.92 }}><Logo size={26} /></div>
+      {/* single progress bar */}
+      <div style={{ position: 'absolute', bottom: 18, left: 28, right: 28, zIndex: 60 }}>
+        <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.12)', overflow: 'hidden' }}>
+          <div style={{ width: `${(time / TOTAL) * 100}%`, height: '100%', background: C.red }} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Movie ────────────────────────────────────────────────────────────────────
+const SHOW_INSETS = true;
+function Movie() {
+  return (
+    <>
+      {SEG.map((s, i) => <React.Fragment key={i}>{s.render({ t0: s.t0, dur: s.dur })}</React.Fragment>)}
+      {SHOW_INSETS && <>
+        <FilmRealInset t0={F0('match') + 33} dur={7} src="Material-Matching-screen.png" label="Material Matching" />
+        <FilmRealInset t0={F0('dashboard') + 37} dur={7} src="Dashboard.png" label="Dashboard" />
+        <FilmRealInset t0={F0('analytics') + 31} dur={7} src="Analytics-Dashboard-Page.png" label="Analytics" />
+      </>}
+      <Chrome />
+      <CaptionBar script={NARRATION} />
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Render harness: ?render=1 → deterministic, externally-driven timeline.
+// Otherwise → normal interactive Stage with scrubber.
+// ─────────────────────────────────────────────────────────────────────────────
+const RENDER = new URLSearchParams(location.search).get('render') === '1';
+
+function RenderStage() {
+  const [t, setT] = React.useState(0);
+  const tRef = React.useRef(0);
+  React.useEffect(() => {
+    window.__setTime = (x) => { tRef.current = x; setT(x); };
+    window.__duration = TOTAL;
+    window.__ready = true;
+    // real-time autoplay path (for fast video-recording capture): window.__play()
+    window.__play = () => {
+      let last = null, raf;
+      const step = (ts) => {
+        if (last == null) last = ts;
+        const dt = (ts - last) / 1000; last = ts;
+        let nx = tRef.current + dt;
+        if (nx >= TOTAL) { nx = TOTAL; window.__setTime(nx); window.__done = true; return; }
+        window.__setTime(nx);
+        raf = requestAnimationFrame(step);
+      };
+      window.__done = false;
+      raf = requestAnimationFrame(step);
+    };
+  }, []);
+  const ctx = React.useMemo(() => ({ time: t, duration: TOTAL, playing: false, setTime: setT, setPlaying: () => {} }), [t]);
+  return (
+    <div id="rfp-canvas" style={{ position: 'fixed', top: 0, left: 0, width: 1280, height: 720,
+      background: C.bg, overflow: 'hidden', fontFamily: F.ui, color: C.inv }}>
+      <TimelineContext.Provider value={ctx}><Movie /></TimelineContext.Provider>
+    </div>
+  );
+}
+
+if (RENDER) {
+  ReactDOM.createRoot(document.getElementById('root')).render(<RenderStage />);
+} else {
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    <Stage width={1280} height={720} duration={TOTAL} background={C.bg} persistKey="smartrfp-combined">
+      <Movie />
+    </Stage>
+  );
+}
+window.__TOTAL = TOTAL;
+</script>
+</body>
+</html>
