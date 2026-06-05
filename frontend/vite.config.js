@@ -28,6 +28,10 @@ export default defineConfig({
                     }
                 },
             },
+            '/upload': {
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+            },
         },
     },
 });

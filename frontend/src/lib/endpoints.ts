@@ -67,7 +67,10 @@ export const ENDPOINTS = {
   DASHBOARD: {
     DATA: `${API_PREFIX}/dashboard/data`,
     RFP_DETAILS: `${API_PREFIX}/dashboard/rfp-details`,
+    RFP_EXPORT: `${API_PREFIX}/dashboard/rfp-details/export`,
+    RFP_EXPORT_FULL_ANALYSIS: `${API_PREFIX}/dashboard/rfp-details/export-full-analysis`,
     SUBMIT_RFP: `${API_PREFIX}/dashboard/submit-rfp`,
+    LIST_TDS_FILES: `${API_PREFIX}/dashboard/list-tds-files`,
     VALIDATE_RFP: `${API_PREFIX}/validate-rfp`,
     VIEW_LOGS: `${API_PREFIX}/dashboard/view-logs`,
     MATERIAL_INSIGHTS: `${API_PREFIX}/dashboard/material-insights`,
@@ -123,6 +126,8 @@ export const ENDPOINTS = {
     CREATE: `${API_PREFIX}/roles/create`,
     UPDATE: (id: string) => `${API_PREFIX}/roles/update/${id}`,
     DELETE: (id: string) => `${API_PREFIX}/roles/delete/${id}`,
+    TOGGLE_STATUS: (id: string) => `${API_PREFIX}/roles/toggle-status/${id}`,
+    HARD_DELETE: (id: string) => `${API_PREFIX}/roles/hard-delete/${id}`,
     GET: (id: string) => `${API_PREFIX}/roles/${id}`,
     GET_PERMISSIONS: (id: string) => `${API_PREFIX}/roles/${id}/permissions`,
     SET_PERMISSIONS: (id: string) => `${API_PREFIX}/roles/${id}/permissions`,
@@ -137,6 +142,14 @@ export const ENDPOINTS = {
   // ==================== AUDIT LOGS (routes/api.py) ====================
   AUDIT_LOGS: {
     LIST: `${API_PREFIX}/audit-logs`,
+  },
+
+  // ==================== OPEN RFP (routes/open_rfp.py) ====================
+  OPEN_RFP: {
+    LIST:     `${API_PREFIX}/open-rfp/list`,
+    STATUS:   (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/status`,
+    REMIND:   (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/remind`,
+    DELEGATE: (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/delegate`,
   },
 
   // ==================== MASTER DATA (routes/master_data_routes.py) ====================
@@ -170,6 +183,22 @@ export const ENDPOINTS = {
       DELETE:  (id: string) => `${API_PREFIX}/master-data/rfp-team-columns/delete/${id}`,
       REORDER: `${API_PREFIX}/master-data/rfp-team-columns/reorder`,
     },
+  },
+  // ==================== CONFIG (routes/api.py) ====================
+  CONFIG: {
+    COMPANY_OPTIONS: `${API_PREFIX}/company-options`,
+  },
+  // ==================== SHAREPOINT (routes/sharepoint.py) ====================
+  SHAREPOINT: {
+    RFP_FOLDER: `${API_PREFIX}/sharepoint/rfp-folder`,
+  },
+  // ==================== SYSTEM SETTINGS (routes/system_settings_routes.py) ====================
+  SYSTEM_SETTINGS: {
+    LIST: `${API_PREFIX}/system-settings/list`,
+    REVEAL: (key: string) => `${API_PREFIX}/system-settings/${encodeURIComponent(key)}/reveal`,
+    UPDATE: (key: string) => `${API_PREFIX}/system-settings/${encodeURIComponent(key)}`,
+    RELOAD_CACHE: `${API_PREFIX}/system-settings/reload-cache`,
+    SEED: `${API_PREFIX}/system-settings/seed`,
   },
 } as const
 

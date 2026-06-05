@@ -12,6 +12,9 @@ import {
   Search,
   ChevronDown,
   ChevronRight,
+  ToggleLeft,
+  ToggleRight,
+  AlertTriangle,
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -73,7 +76,7 @@ export default function RoleManagementPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingRole, setEditingRole] = useState<any>(null)
-  const [deleteRole, setDeleteRole] = useState<any>(null)
+  const [hardDeleteRole, setHardDeleteRole] = useState<any>(null)
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([])
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
 
@@ -125,14 +128,23 @@ export default function RoleManagementPage() {
     },
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.deleteRole(id),
-    onSuccess: () => {
-      toast.success('Role deleted successfully')
+  const toggleStatusMutation = useMutation({
+    mutationFn: (id: string) => api.toggleRoleStatus(id),
+    onSuccess: (data: any) => {
+      toast.success(data.message || 'Role status updated')
       queryClient.invalidateQueries({ queryKey: ['roles'] })
-      setDeleteRole(null)
     },
-    onError: (err: any) => toast.error(err.message || 'Failed to delete role'),
+    onError: (err: any) => toast.error(err.message || 'Failed to toggle role status'),
+  })
+
+  const hardDeleteMutation = useMutation({
+    mutationFn: (id: string) => api.hardDeleteRole(id),
+    onSuccess: () => {
+      toast.success('Role permanently deleted')
+      queryClient.invalidateQueries({ queryKey: ['roles'] })
+      setHardDeleteRole(null)
+    },
+    onError: (err: any) => toast.error(err.message || 'Failed to permanently delete role'),
   })
 
   function closeDialog() {
@@ -281,6 +293,7 @@ export default function RoleManagementPage() {
                       const isSystem =
                         String(role.is_system || '').toLowerCase() === 'true' ||
                         role.is_system === true
+                      const isAdmin = (role.name || '').toLowerCase() === 'admin'
                       const isActive =
                         String(role.is_active || 'true').toLowerCase() !== 'false'
                       return (
@@ -317,16 +330,30 @@ export default function RoleManagementPage() {
                                     size="icon"
                                     onClick={() => openEditDialog(role)}
                                     className="h-8 w-8"
+                                    title="Edit role"
                                   >
                                     <Pencil className="h-4 w-4" />
                                   </Button>
                                 )}
-                                {canDelete && !isSystem && (
+                                {canEdit && !isAdmin && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => setDeleteRole(role)}
+                                    onClick={() => toggleStatusMutation.mutate(role.record_id)}
+                                    className={`h-8 w-8 ${isActive ? 'text-amber-500 hover:text-amber-600' : 'text-green-500 hover:text-green-600'}`}
+                                    title={isActive ? 'Deactivate role' : 'Activate role'}
+                                    disabled={toggleStatusMutation.isPending}
+                                  >
+                                    {isActive ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                                  </Button>
+                                )}
+                                {canDelete && !isAdmin && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setHardDeleteRole(role)}
                                     className="h-8 w-8 text-red-500 hover:text-red-600"
+                                    title="Permanently delete role"
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
@@ -463,23 +490,31 @@ export default function RoleManagementPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
-      <AlertDialog open={!!deleteRole} onOpenChange={(open) => !open && setDeleteRole(null)}>
+      {/* Hard Delete Confirmation */}
+      <AlertDialog open={!!hardDeleteRole} onOpenChange={(open) => !open && setHardDeleteRole(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Role</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete the role "{deleteRole?.name}"? This will deactivate the
-              role. Users with this role may lose access.
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              Permanently Delete Role
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                Are you sure you want to permanently delete the role <strong>"{hardDeleteRole?.name}"</strong>?
+              </span>
+              <span className="block text-red-600 font-medium">
+                This action cannot be undone. The role and all its permission mappings will be permanently removed.
+                Users with this role will lose all access.
+              </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deleteRole && deleteMutation.mutate(deleteRole.record_id)}
+              onClick={() => hardDeleteRole && hardDeleteMutation.mutate(hardDeleteRole.record_id)}
               className="bg-red-600 hover:bg-red-700"
             >
-              Delete
+              Delete Permanently
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

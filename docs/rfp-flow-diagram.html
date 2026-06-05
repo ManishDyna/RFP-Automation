@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>RFP Automation — Flow Diagrams</title>
+<style>
+  :root {
+    --bg: #f4f6fb;
+    --panel: #ffffff;
+    --ink: #1a2332;
+    --muted: #6b7a90;
+    --line: #d9e0ec;
+    --soft: #eef2f9;
+    --bot: #2f7df0;
+    --bot-soft: #e7f0fe;
+    --user: #16a37a;
+    --user-soft: #e0f5ec;
+    --system: #8b5cf6;
+    --system-soft: #efe9fe;
+    --warn: #c98a00;
+    --warn-soft: #fff5dc;
+    --active: #ffd84d;
+    --code-bg: #0f172a;
+    --code-ink: #e2e8f0;
+    --download: #2f7df0;
+    --submit: #16a37a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+  }
+
+  /* ───── Header + flow tabs ───── */
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    padding: 20px 28px 0;
+  }
+  header h1 { margin: 0 0 4px; font-size: 22px; }
+  header p { margin: 0 0 16px; color: var(--muted); font-size: 13px; max-width: 800px; }
+
+  .flow-tabs {
+    display: flex;
+    gap: 4px;
+  }
+  .flow-tab {
+    padding: 12px 22px;
+    border: 1px solid var(--line);
+    border-bottom: none;
+    background: var(--bg);
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .flow-tab:hover { background: var(--soft); }
+  .flow-tab.active { background: var(--panel); color: var(--ink); }
+  .flow-tab[data-flow="download"].active { box-shadow: 0 -3px 0 var(--download) inset; }
+  .flow-tab[data-flow="submit"].active   { box-shadow: 0 -3px 0 var(--submit) inset; }
+  .flow-tab .ico { font-size: 18px; }
+
+  /* ───── Pipeline ribbon ───── */
+  .pipeline {
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    padding: 18px 28px;
+    overflow-x: auto;
+  }
+  .pipeline-inner {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    min-width: max-content;
+    justify-content: center;
+  }
+  .pipe-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    padding: 8px 16px;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    transition: all 0.15s ease;
+    text-align: center;
+    min-width: 130px;
+  }
+  .pipe-step:hover { background: var(--soft); }
+  .pipe-step.active {
+    background: var(--active);
+    border-color: var(--ink);
+    transform: scale(1.05);
+  }
+  .pipe-icon { font-size: 26px; }
+  .pipe-num {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 4px;
+    font-weight: 600;
+  }
+  .pipe-title { font-size: 13px; font-weight: 600; margin-top: 2px; }
+  .pipe-arrow { font-size: 22px; color: var(--muted); padding: 0 4px; margin-top: 22px; }
+  .pipe-controls {
+    margin-top: 12px;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+  }
+  .pipe-btn {
+    padding: 6px 14px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--ink);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .pipe-btn:hover { background: var(--soft); }
+  .pipe-btn.primary { background: var(--ink); color: white; border-color: var(--ink); }
+
+  /* ───── Main content ───── */
+  main { padding: 20px 28px 60px; max-width: 1100px; margin: 0 auto; }
+  .flow-wrap { display: none; }
+  .flow-wrap.active { display: block; }
+
+  .flow-summary {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--download);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+  }
+  .flow-wrap#flow-submit .flow-summary { border-left-color: var(--submit); }
+  .flow-summary h2 { margin: 0 0 4px; font-size: 16px; }
+  .flow-summary p { margin: 0; font-size: 13px; color: var(--muted); }
+
+  /* Phase card */
+  .phase {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+  }
+  .phase.active {
+    border-color: var(--ink);
+    box-shadow: 0 6px 22px rgba(15, 23, 42, 0.1);
+  }
+  .phase-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 20px;
+    cursor: pointer;
+  }
+  .phase-header:hover { background: var(--soft); }
+  .phase.open .phase-header { border-bottom: 1px solid var(--line); }
+
+  .phase-num {
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .phase-num.bot    { background: var(--bot-soft);    color: var(--bot); }
+  .phase-num.user   { background: var(--user-soft);   color: var(--user); }
+  .phase-num.system { background: var(--system-soft); color: var(--system); }
+  .phase-icon { font-size: 26px; }
+  .phase-meta { flex: 1; }
+  .phase-meta h2 {
+    margin: 0;
+    font-size: 17px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .phase-tag {
+    font-size: 10px;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .phase-tag.bot    { background: var(--bot-soft);    color: var(--bot); }
+  .phase-tag.user   { background: var(--user-soft);   color: var(--user); }
+  .phase-tag.system { background: var(--system-soft); color: var(--system); }
+  .phase-meta p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+  .phase-chevron {
+    color: var(--muted);
+    font-size: 18px;
+    transition: transform 0.2s ease;
+  }
+  .phase.open .phase-chevron { transform: rotate(90deg); }
+
+  /* Step list */
+  .step-list { max-height: 0; overflow: hidden; transition: max-height 0.4s ease; }
+  .phase.open .step-list { max-height: 5000px; }
+  .step-list-inner { padding: 8px 20px 20px 72px; }
+
+  .step {
+    position: relative;
+    padding: 14px 14px 14px 22px;
+    border-left: 2px solid var(--line);
+    margin-left: 8px;
+  }
+  .step:last-child { border-left-color: transparent; }
+  .step::before {
+    content: "";
+    position: absolute;
+    left: -7px; top: 22px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--panel);
+    border: 2px solid var(--bot);
+  }
+  .phase.user-phase .step::before   { border-color: var(--user); }
+  .phase.system-phase .step::before { border-color: var(--system); }
+
+  .step-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .step-head:hover .step-title { color: var(--bot); }
+  .phase.user-phase .step-head:hover .step-title { color: var(--user); }
+  .phase.system-phase .step-head:hover .step-title { color: var(--system); }
+
+  .step-id {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 600;
+    font-family: "SF Mono", Consolas, monospace;
+    flex-shrink: 0;
+    min-width: 32px;
+  }
+  .step-body { flex: 1; }
+  .step-title { font-size: 14px; font-weight: 600; margin: 0; transition: color 0.15s; }
+  .step-desc { margin: 3px 0 0; font-size: 13px; color: var(--muted); }
+  .step-chevron {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 2px;
+    transition: transform 0.2s;
+  }
+  .step.open .step-chevron { transform: rotate(90deg); }
+
+  /* Sub-detail */
+  .sub { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
+  .step.open .sub { max-height: 1500px; }
+  .sub-inner { padding: 12px 0 4px; }
+
+  .sub-card {
+    background: var(--soft);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-top: 8px;
+    border-left: 3px solid var(--bot);
+  }
+  .phase.user-phase .sub-card   { border-left-color: var(--user); }
+  .phase.system-phase .sub-card { border-left-color: var(--system); }
+  .sub-card.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .sub-card .kicker {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: var(--muted);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .sub-card .text { font-size: 13px; margin: 0; }
+  .sub-card .text code {
+    background: rgba(15, 23, 42, 0.08);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+
+  .example {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 11.5px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 8px;
+  }
+
+  .branch {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  .branch-item {
+    flex: 1;
+    min-width: 200px;
+    background: var(--panel);
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    font-size: 12px;
+  }
+  .branch-item b { display: block; margin-bottom: 4px; font-size: 11px; }
+  .branch-item.yes b { color: var(--user); }
+  .branch-item.no  b { color: #c0392b; }
+
+  .hint {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 20px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>RFP Automation — Flow Diagrams</h1>
+  <p>Two independent automated flows. Switch tabs to see each. Click any phase to drill into its steps, then click any step for the real example.</p>
+  <div class="flow-tabs">
+    <button class="flow-tab active" data-flow="download" onclick="switchFlow('download')">
+      <span class="ico">📥</span> Download RFP Flow
+    </button>
+    <button class="flow-tab" data-flow="submit" onclick="switchFlow('submit')">
+      <span class="ico">📤</span> Submit RFP Flow
+    </button>
+  </div>
+</header>
+
+<!-- Pipeline ribbon (changes per flow) -->
+<div class="pipeline">
+  <!-- DOWNLOAD pipeline -->
+  <div class="pipeline-inner" id="pipeline-download">
+    <div class="pipe-step" data-phase="1" onclick="goToPhase('download', 1)">
+      <div class="pipe-icon">🔐</div><div class="pipe-num">Phase 1</div><div class="pipe-title">Login &amp; Setup</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step" data-phase="2" onclick="goToPhase('download', 2)">
+      <div class="pipe-icon">🔍</div><div class="pipe-num">Phase 2</div><div class="pipe-title">Scrape &amp; Download</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step" data-phase="3" onclick="goToPhase('download', 3)">
+      <div class="pipe-icon">💾</div><div class="pipe-num">Phase 3</div><div class="pipe-title">Store</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step" data-phase="4" onclick="goToPhase('download', 4)">
+      <div class="pipe-icon">🧩</div><div class="pipe-num">Phase 4</div><div class="pipe-title">Match Materials</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step" data-phase="5" onclick="goToPhase('download', 5)">
+      <div class="pipe-icon">📧</div><div class="pipe-num">Phase 5</div><div class="pipe-title">Notify Bidder</div>
+    </div>
+  </div>
+
+  <!-- SUBMIT pipeline -->
+  <div class="pipeline-inner" id="pipeline-submit" style="display:none">
+    <div class="pipe-step" data-phase="1" onclick="goToPhase('submit', 1)">
+      <div class="pipe-icon">👤</div><div class="pipe-num">Phase 1</div><div class="pipe-title">User Triggers</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step" data-phase="2" onclick="goToPhase('submit', 2)">
+      <div class="pipe-icon">🌐</div><div class="pipe-num">Phase 2</div><div class="pipe-title">Open Ariba</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step" data-phase="3" onclick="goToPhase('submit', 3)">
+      <div class="pipe-icon">🧭</div><div class="pipe-num">Phase 3</div><div class="pipe-title">Navigate Wizard</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step" data-phase="4" onclick="goToPhase('submit', 4)">
+      <div class="pipe-icon">📂</div><div class="pipe-num">Phase 4</div><div class="pipe-title">Import Excel</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step" data-phase="5" onclick="goToPhase('submit', 5)">
+      <div class="pipe-icon">💾</div><div class="pipe-num">Phase 5</div><div class="pipe-title">Attach &amp; Save</div>
+    </div>
+  </div>
+
+  <div class="pipe-controls">
+    <button class="pipe-btn" onclick="expandAll()">Expand all</button>
+    <button class="pipe-btn" onclick="collapseAll()">Collapse all</button>
+    <button class="pipe-btn primary" onclick="playThrough()" id="playBtn">▶ Walk me through</button>
+  </div>
+</div>
+
+<main>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- ══════════════════ DOWNLOAD RFP FLOW ════════════════════════ -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="flow-wrap active" id="flow-download">
+
+    <div class="flow-summary">
+      <h2>📥 Download RFP — what this flow does</h2>
+      <p>Runs on a schedule. Bot logs into Ariba, walks every active company, downloads any new RFP Excel, matches its materials against your master list, and emails matched ones to the bidder.</p>
+    </div>
+
+    <!-- PHASE 1: Login & Setup -->
+    <div class="phase" data-phase="1" id="d-phase-1">
+      <div class="phase-header" onclick="togglePhase('download', 1)">
+        <div class="phase-num bot">1</div>
+        <div class="phase-icon">🔐</div>
+        <div class="phase-meta">
+          <h2>Login &amp; Setup <span class="phase-tag bot">Bot · Automated</span></h2>
+          <p>Headless browser logs into Ariba and loads the list of companies to process.</p>
+        </div>
+        <div class="phase-chevron">▶</div>
+      </div>
+      <div class="step-list"><div class="step-list-inner">
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">1.1</span>
+            <div class="step-body">
+              <h3 class="step-title">🔐 Launch browser + login to Ariba</h3>
+              <p class="step-desc">Playwright opens Chromium, fills credentials, handles any 2FA challenge.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">async with async_playwright() as p:
+    browser = await p.chromium.launch(headless=True)
+    page    = await browser.new_page()
+    await page.goto(ARIBA_LOGIN_URL)
+    await page.fill("#UserName", ARIBA_USER)
+    await page.fill("#Password", ARIBA_PWD)
+    await page.click("button[type='submit']")</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">1.2</span>
+            <div class="step-body">
+              <h3 class="step-title">🏢 Load enabled companies</h3>
+              <p class="step-desc">Read company list from config / Dataverse settings — loop one by one.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="sub-card">
+              <div class="kicker">Why looped</div>
+              <p class="text">Each company has its own Ariba account + RFP listing page. The bot processes them sequentially so login state is clean.</p>
+            </div>
+            <div class="example">for company in ["BAHRA", "BMS", "DYNATECH"]:
+    print(f"▶ Processing: {company}")
+    rfps = await scrape_rfp_listing(page, company)
+    await download_rfp_files(page, rfps, company)</div>
+          </div></div>
+        </div>
+
+      </div></div>
+    </div>
+
+    <!-- PHASE 2: Scrape & Download -->
+    <div class="phase" data-phase="2" id="d-phase-2">
+      <div class="phase-header" onclick="togglePhase('download', 2)">
+        <div class="phase-num bot">2</div>
+        <div class="phase-icon">🔍</div>
+        <div class="phase-meta">
+          <h2>Scrape Listing &amp; Download Each RFP <span class="phase-tag bot">Bot · Automated</span></h2>
+          <p>Scrape the RFP table, skip ones we've already emailed, download the rest.</p>
+        </div>
+        <div class="phase-chevron">▶</div>
+      </div>
+      <div class="step-list"><div class="step-list-inner">
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">2.1</span>
+            <div class="step-body">
+              <h3 class="step-title">📋 Scrape RFP listing table</h3>
+              <p class="step-desc">Read every visible row → Title, Link, End Date, Status.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">rfps = [
+  { "Title": "RFP_2026_Pumps",  "Link": "...Doc12345", "Status": "Open",
+    "RFP_End_Date": "5/28/2026 5:00 PM", "Event Type": "RFP" },
+  { "Title": "RFP_2026_Valves", "Link": "...Doc12346", "Status": "Open", ... }
+]</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">2.2</span>
+            <div class="step-body">
+              <h3 class="step-title">🔎 Check Dataverse — already processed?</h3>
+              <p class="step-desc">Query <code>cr673_bahra_rfp_activity_log</code>. If <code>Email_Status = "Sent"</code> → skip this RFP.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="branch">
+              <div class="branch-item yes">
+                <b>✅ Email already sent</b>
+                Skip download entirely — move to next row.
+              </div>
+              <div class="branch-item no">
+                <b>❌ No record / pending</b>
+                Proceed to open + download (2.3).
+              </div>
+            </div>
+            <div class="example">filter: RFP_ID eq 'RFP_2026_Pumps'
+        and Company_Name eq 'BAHRA'
+result: { Email_Status: "Sent" }
+→ return "skipped"</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">2.3</span>
+            <div class="step-body">
+              <h3 class="step-title">🌐 Open RFP detail page + extract metadata</h3>
+              <p class="step-desc">Navigate to the RFP link, scrape Owner Name + Publish Time from the page table (with one retry).</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">await page.goto(link, wait_until="domcontentloaded")
+
+Selector tried: div.wideLabels table td
+→ owner        = "Khalid Al-Rashid"
+→ publish_time = "5/21/2026 3:13 PM"</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">2.4</span>
+            <div class="step-body">
+              <h3 class="step-title">📥 Click "Download Content" → save Excel</h3>
+              <p class="step-desc">Wait until button is clickable, trigger download, save under <code>ALLRFPs/&lt;company&gt;/&lt;rfp&gt;/downloaded-rfp/</code>.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="sub-card warn">
+              <div class="kicker">Fallback</div>
+              <p class="text">If Playwright's <code>expect_download</code> times out, the bot polls the OS Downloads folder for up to 30s and grabs the latest matching file.</p>
+            </div>
+            <div class="example">async with page.expect_download() as dl:
+    await btn.click(no_wait_after=True)
+download = await dl.value
+await download.save_as(
+  "ALLRFPs/BAHRA/RFP_2026_Pumps/downloaded-rfp/RFP_2026_Pumps.xls"
+)</div>
+          </div></div>
+        </div>
+
+      </div></div>
+    </div>
+
+    <!-- PHASE 3: Store -->
+    <div class="phase system-phase" data-phase="3" id="d-phase-3">
+      <div class="phase-header" onclick="togglePhase('download', 3)">
+        <div class="phase-num system">3</div>
+        <div class="phase-icon">💾</div>
+        <div class="phase-meta">
+          <h2>Store in SharePoint + Dataverse <span class="phase-tag system">System · Storage</span></h2>
+          <p>Mirror the file to SharePoint and write the activity row that drives every dashboard.</p>
+        </div>
+        <div class="phase-chevron">▶</div>
+      </div>
+      <div class="step-list"><div class="step-list-inner">
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">3.1</span>
+            <div class="step-body">
+              <h3 class="step-title">☁️ Upload Excel to SharePoint</h3>
+              <p class="step-desc">Pre-check via <code>_get_item_by_path</code>; only upload if file is missing.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">sp_path = "/sites/RFPs/ALLRFPs/BAHRA/RFP_2026_Pumps/downloaded-rfp/"
+check   = graph_client._get_item_by_path(sp_path + filename)
+if check.status_code != 200:
+    graph_client.upload_file_as(local_path, sp_path, filename)</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">3.2</span>
+            <div class="step-body">
+              <h3 class="step-title">🗄️ Insert activity row in Dataverse</h3>
+              <p class="step-desc">Single row in <code>cr673_bahra_rfp_activity_log</code> tracks the RFP's whole lifecycle.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">{
+  RFP_ID:       "RFP_2026_Pumps",
+  Company:      "BAHRA",
+  Owner:        "Khalid Al-Rashid",
+  Publish:      "5/21/2026 3:13 PM",
+  RFP_End_Date: "5/28/2026 5:00 PM",
+  Downloaded:   "2026-05-21 16:02:11",
+  Email_Status: "Pending"
+}</div>
+          </div></div>
+        </div>
+
+      </div></div>
+    </div>
+
+    <!-- PHASE 4: Match Materials -->
+    <div class="phase" data-phase="4" id="d-phase-4">
+      <div class="phase-header" onclick="togglePhase('download', 4)">
+        <div class="phase-num bot">4</div>
+        <div class="phase-icon">🧩</div>
+        <div class="phase-meta">
+          <h2>Match Materials Against Master <span class="phase-tag bot">Bot · Automated</span></h2>
+          <p>Parse the Excel, find which line-items we actually sell, write a per-RFP matched CSV.</p>
+        </div>
+        <div class="phase-chevron">▶</div>
+      </div>
+      <div class="step-list"><div class="step-list-inner">
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">4.1</span>
+            <div class="step-body">
+              <h3 class="step-title">📑 Read Excel → extract codes + qty + UoM</h3>
+              <p class="step-desc">Open sheet "Other Content"; scan each row for 9-digit codes, Name, Description, Quantity, UoM.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">Row: "Centrifugal Pump - Code 100234567 - Qty 5 - UoM EA"
+→ material_codes = re.findall(r'\d{9}', name_text) = ["100234567"]
+→ quantity       = 5
+→ uom            = "EA"</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">4.2</span>
+            <div class="step-body">
+              <h3 class="step-title">🔍 Two-pass matching</h3>
+              <p class="step-desc">Method 1: exact 9-digit code match. Method 2: keyword fallback when no code is found.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="branch">
+              <div class="branch-item yes">
+                <b>Method 1 — Exact</b>
+                Code from Excel matches a row in master_material table.
+              </div>
+              <div class="branch-item yes">
+                <b>Method 2 — Keyword</b>
+                Keywords from Name + Description overlap with master keywords.
+              </div>
+            </div>
+            <div class="example">matched ✅: 100234567 → "Centrifugal Pump 5HP"  (method=exact)
+matched ✅: (no code)  → "Stainless Valve 2in"   (method=keyword)
+missed  ❌: 999888777 → no entry in master</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">4.3</span>
+            <div class="step-body">
+              <h3 class="step-title">🚦 Any matches? → decide email</h3>
+              <p class="step-desc">If no row matched, log "no match" and skip email. Otherwise generate CSV and proceed.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="branch">
+              <div class="branch-item yes">
+                <b>✅ Has matches</b>
+                Write CSV → upload to SharePoint → send email (Phase 5).
+              </div>
+              <div class="branch-item no">
+                <b>❌ Zero matches</b>
+                Log "no match" → <b>no email sent</b> → end.
+              </div>
+            </div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">4.4</span>
+            <div class="step-body">
+              <h3 class="step-title">📊 Write per-RFP matched-materials CSV</h3>
+              <p class="step-desc">Export matched rows + Quantity, UoM, TDS path → upload to SharePoint.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">File: matched_materials_RFP_2026_Pumps_20260521_160545.csv
+Cols: material, ExtractedMaterial, MatchMethod, Quantity,
+      UnitOfMeasurement, TDS_file_path, RFP_End_Date, SourceFile
+
+Uploaded to:
+  /ALLRFPs/BAHRA/RFP_2026_Pumps/matched_materials_*.csv</div>
+          </div></div>
+        </div>
+
+      </div></div>
+    </div>
+
+    <!-- PHASE 5: Notify -->
+    <div class="phase system-phase" data-phase="5" id="d-phase-5">
+      <div class="phase-header" onclick="togglePhase('download', 5)">
+        <div class="phase-num system">5</div>
+        <div class="phase-icon">📧</div>
+        <div class="phase-meta">
+          <h2>Notify Bidder via Adaptive Card Email <span class="phase-tag system">System · Email</span></h2>
+          <p>Build an actionable HTML email with the matched-materials table; send and mark RFP as notified.</p>
+        </div>
+        <div class="phase-chevron">▶</div>
+      </div>
+      <div class="step-list"><div class="step-list-inner">
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">5.1</span>
+            <div class="step-body">
+              <h3 class="step-title">✉️ Compose actionable card email</h3>
+              <p class="step-desc">HTML email with the matched-materials table + deep link to dashboard. Bidder responds from here.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="sub-card">
+              <div class="kicker">Table columns</div>
+              <p class="text"><b>Products | Email | Results | Remarks</b> — Name column is hidden by design.</p>
+            </div>
+            <div class="example">To:      bidder@bahra.com
+Subject: [RFP] New RFP "RFP_2026_Pumps" — 12 matched materials
+
+[ Open in Dashboard ]   [ View on SharePoint ]
+
+| Products            | Email   | Results | Remarks |
+| Centrifugal Pump 5HP| Pending | ✅      | -       |
+| Stainless Valve 2in | Pending | ✅      | -       |</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">5.2</span>
+            <div class="step-body">
+              <h3 class="step-title">📤 Send + update Dataverse</h3>
+              <p class="step-desc">After successful send → flip <code>Email_Status</code> to "Sent" so step 2.2 skips this RFP next run.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">helpers/email_helper.py → send_actionable_card(...)
+
+On success:
+  DATAVERSE.update_row(RFP_ACTIVITY_LOG, {
+    Email_Status:  "Sent",
+    Email_Sent_At: "2026-05-21 16:05:33"
+  })</div>
+          </div></div>
+        </div>
+
+      </div></div>
+    </div>
+
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- ══════════════════ SUBMIT RFP FLOW ══════════════════════════ -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="flow-wrap" id="flow-submit">
+
+    <div class="flow-summary">
+      <h2>📤 Submit RFP — what this flow does</h2>
+      <p>Triggered manually by the bidder from the dashboard. Bot reopens Ariba, navigates the bidding wizard, imports the bidder's filled Excel, attaches TDS files, and saves the response as a draft for human review.</p>
+    </div>
+
+    <!-- PHASE 1: User triggers -->
+    <div class="phase user-phase" data-phase="1" id="s-phase-1">
+      <div class="phase-header" onclick="togglePhase('submit', 1)">
+        <div class="phase-num user">1</div>
+        <div class="phase-icon">👤</div>
+        <div class="phase-meta">
+          <h2>User Triggers Submission from Dashboard <span class="phase-tag user">Human · Manual</span></h2>
+          <p>Bidder prepares the filled Excel + TDS PDFs and clicks Submit. This is the only manual step.</p>
+        </div>
+        <div class="phase-chevron">▶</div>
+      </div>
+      <div class="step-list"><div class="step-list-inner">
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">1.1</span>
+            <div class="step-body">
+              <h3 class="step-title">💰 Fill Excel with prices</h3>
+              <p class="step-desc">Bidder downloads the original RFP Excel, fills the Price column for each material, saves it.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="sub-card warn">
+              <div class="kicker">Important</div>
+              <p class="text">Sheet names and column structure <b>must not change</b> — Ariba rejects the import if the schema differs from what it issued.</p>
+            </div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">1.2</span>
+            <div class="step-body">
+              <h3 class="step-title">⬆️ Upload filled Excel + TDS PDFs</h3>
+              <p class="step-desc">Open RFP in dashboard → upload the priced Excel + one PDF per material.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="sub-card">
+              <div class="kicker">Where they land</div>
+              <p class="text">Filled Excel → <code>/ALLRFPs/&lt;co&gt;/&lt;rfp&gt;/rfp-upload-file/</code><br>TDS PDFs   → <code>/ALLRFPs/&lt;co&gt;/&lt;rfp&gt;/tds-files/</code></p>
+            </div>
+            <div class="sub-card">
+              <div class="kicker">TDS filename convention</div>
+              <p class="text">Filename must contain the material code (anywhere) so the bot auto-matches it to the right row: e.g. <code>100234567_pump_spec.pdf</code>.</p>
+            </div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">1.3</span>
+            <div class="step-body">
+              <h3 class="step-title">🚀 Click "Submit" → fires API call</h3>
+              <p class="step-desc">Bidder picks which TDS files to attach, then clicks Submit. Dashboard POSTs to the backend.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">POST /api/submit-rfp
+{
+  rfp_id:                "RFP_2026_Pumps",
+  company_name:          "BAHRA",
+  allowed_tds_filenames: ["100234567_pump_spec.pdf",
+                          "100445566_valve_TDS.pdf"]
+}
+→ triggers rfp/submit_rfp.py → submit_rfp(...)</div>
+          </div></div>
+        </div>
+
+      </div></div>
+    </div>
+
+    <!-- PHASE 2: Open Ariba -->
+    <div class="phase" data-phase="2" id="s-phase-2">
+      <div class="phase-header" onclick="togglePhase('submit', 2)">
+        <div class="phase-num bot">2</div>
+        <div class="phase-icon">🌐</div>
+        <div class="phase-meta">
+          <h2>Find RFP &amp; Open Ariba Bidding Page <span class="phase-tag bot">Bot · Automated</span></h2>
+          <p>Match the RFP ID against scraped portal data, then open the bidding wizard in a fresh tab.</p>
+        </div>
+        <div class="phase-chevron">▶</div>
+      </div>
+      <div class="step-list"><div class="step-list-inner">
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">2.1</span>
+            <div class="step-body">
+              <h3 class="step-title">🔎 Find RFP in scraped portal data</h3>
+              <p class="step-desc">Normalise both IDs (spaces vs underscores) via <code>rfp_ids_match</code>, find matching row.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="branch">
+              <div class="branch-item yes">
+                <b>✅ Found</b>
+                Proceed to open link in new tab (2.2).
+              </div>
+              <div class="branch-item no">
+                <b>❌ Not found</b>
+                Return error → user sees "RFP not found in scraped portal data". Flow ends.
+              </div>
+            </div>
+            <div class="example">rfp_id        = "RFP_2026_Pumps"
+portal Title  = "RFP 2026 Pumps - BAHRA"   ← different format
+rfp_ids_match(rfp_id, portal_title) → True ✅</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">2.2</span>
+            <div class="step-body">
+              <h3 class="step-title">🪟 Open RFP link in new tab</h3>
+              <p class="step-desc">Use <code>window.open</code> so the main page stays loaded — bot drives the new tab.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">async with main_page.context.expect_page() as new_page_info:
+    await main_page.evaluate(f"window.open('{link}', '_blank');")
+new_page = await new_page_info.value
+await new_page.wait_for_load_state()</div>
+          </div></div>
+        </div>
+
+      </div></div>
+    </div>
+
+    <!-- PHASE 3: Navigate Wizard -->
+    <div class="phase" data-phase="3" id="s-phase-3">
+      <div class="phase-header" onclick="togglePhase('submit', 3)">
+        <div class="phase-num bot">3</div>
+        <div class="phase-icon">🧭</div>
+        <div class="phase-meta">
+          <h2>Navigate Ariba Bidding Wizard <span class="phase-tag bot">Bot · Automated</span></h2>
+          <p>Walk through Step 2 (accept terms) and Step 3 (set currency). These gate everything downstream.</p>
+        </div>
+        <div class="phase-chevron">▶</div>
+      </div>
+      <div class="step-list"><div class="step-list-inner">
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">3.1</span>
+            <div class="step-body">
+              <h3 class="step-title">📝 Wizard Step 2 — Accept agreement</h3>
+              <p class="step-desc">Click "I intend to respond" radio + OK + Done. Uses 4 fallback strategies for finicky radio buttons.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="sub-card">
+              <div class="kicker">Why robust click</div>
+              <p class="text">Ariba's radio is often intercepted by its label. <code>safe_radio_click</code> tries: direct → label → force → JS click.</p>
+            </div>
+            <div class="example">go_to_step(page, 2)
+→ radio  #_x3fmod   ← "I intend to respond"
+→ button #_ali5ud   ← OK
+→ button #_kfai0c   ← Done</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">3.2</span>
+            <div class="step-body">
+              <h3 class="step-title">💱 Wizard Step 3 — Set currency to SAR</h3>
+              <p class="step-desc">Anchor by visible label text (not dynamic ID), pick "Saudi Riyal".</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">currency_combo = page.locator(
+  "tr:has-text('Select event bidding currency') [role='combobox']"
+).first
+await currency_combo.click()
+→ select option text = "Saudi Riyal"</div>
+          </div></div>
+        </div>
+
+      </div></div>
+    </div>
+
+    <!-- PHASE 4: Import Excel -->
+    <div class="phase" data-phase="4" id="s-phase-4">
+      <div class="phase-header" onclick="togglePhase('submit', 4)">
+        <div class="phase-num bot">4</div>
+        <div class="phase-icon">📂</div>
+        <div class="phase-meta">
+          <h2>Import Filled Excel (with validation gate) <span class="phase-tag bot">Bot · Automated</span></h2>
+          <p>Fetch the priced Excel from SharePoint, upload to Ariba, handle confirmation dialogs, abort if Ariba rejects.</p>
+        </div>
+        <div class="phase-chevron">▶</div>
+      </div>
+      <div class="step-list"><div class="step-list-inner">
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">4.1</span>
+            <div class="step-body">
+              <h3 class="step-title">🖱️ Click "Select Using Excel" → "Download Content"</h3>
+              <p class="step-desc">Reveal the Excel import controls inside the bidding console.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">await page.get_by_text("Select Using Excel").click()
+await page.wait_for_timeout(5000)
+await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.2);")
+→ button[title*='Download Content'] now available</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">4.2</span>
+            <div class="step-body">
+              <h3 class="step-title">📂 Fetch filled Excel from SharePoint</h3>
+              <p class="step-desc">Priority 1: <code>rfp-upload-file/</code> (bidder's priced file). Priority 2: <code>downloaded-rfp/</code> (original).</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="branch">
+              <div class="branch-item yes">
+                <b>✅ Excel found</b>
+                Saved to TEMP → upload to Ariba.
+              </div>
+              <div class="branch-item no">
+                <b>❌ Neither folder has Excel</b>
+                Raise: "Please upload the filled Excel file first." Flow ends.
+              </div>
+            </div>
+            <div class="example">Priority 1: /ALLRFPs/BAHRA/RFP_2026_Pumps/rfp-upload-file/
+Priority 2: /ALLRFPs/BAHRA/RFP_2026_Pumps/downloaded-rfp/
+→ TEMP\RFP_2026_Pumps_filled.xlsx</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">4.3</span>
+            <div class="step-body">
+              <h3 class="step-title">⬆️ Upload Excel + click Import</h3>
+              <p class="step-desc">Attach file, wait 9s for Ariba to parse server-side, click "Import Excel Bidding".</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">await page.locator("input[type='file']").set_input_files(upload_path)
+await page.wait_for_timeout(9000)
+await safe_click(page, "button[title*='Import Excel Bidding']")</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">4.4</span>
+            <div class="step-body">
+              <h3 class="step-title">🚦 Validation gate — Ariba portal errors?</h3>
+              <p class="step-desc">Scan multiple error selectors. If found → screenshot the page and abort with a clear message.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="branch">
+              <div class="branch-item no">
+                <b>❌ Error visible</b>
+                Screenshot → raise RuntimeError → user sees what Ariba complained about + screenshot path. Flow ends.
+              </div>
+              <div class="branch-item yes">
+                <b>✅ No error</b>
+                Proceed to confirmation dialogs (4.5).
+              </div>
+            </div>
+            <div class="example">selectors = [".portletError", ".messageError",
+             "#PageErrorPanel .msgText", ...]
+
+if ariba_error_text:
+    await page.screenshot(path="LOGS/ariba_excel_error_*.png",
+                          full_page=True)
+    raise RuntimeError(f"Ariba rejected the file — {ariba_error_text}")</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">4.5</span>
+            <div class="step-body">
+              <h3 class="step-title">✅ Confirm dialogs (lots, currency, import)</h3>
+              <p class="step-desc">Click "Use selected lots", dismiss currency change warning + import confirmation popups.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">await safe_click(page, "button[title*='Use selected lots']")
+
+# currency warning (checked twice with 3s gap)
+await safe_click(page,
+  "#currencyChangeWarningConfirmationId button[title='OK']")
+
+# import confirmation (up to 15s wait)
+await dialog.get_by_role("button", name="OK").click()</div>
+          </div></div>
+        </div>
+
+      </div></div>
+    </div>
+
+    <!-- PHASE 5: Attach & Save -->
+    <div class="phase" data-phase="5" id="s-phase-5">
+      <div class="phase-header" onclick="togglePhase('submit', 5)">
+        <div class="phase-num bot">5</div>
+        <div class="phase-icon">💾</div>
+        <div class="phase-meta">
+          <h2>Attach TDS Files &amp; Save as Draft <span class="phase-tag bot">Bot · Automated</span></h2>
+          <p>Per-material TDS attach, then click Save (NOT Submit) and flip the Dataverse status to "saved_draft".</p>
+        </div>
+        <div class="phase-chevron">▶</div>
+      </div>
+      <div class="step-list"><div class="step-list-inner">
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">5.1</span>
+            <div class="step-body">
+              <h3 class="step-title">📎 Attach TDS file per material code</h3>
+              <p class="step-desc">For each row, find a PDF whose filename contains the material code → attach via "Attach a file" link.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">material_to_files = {
+  "100234567": "TEMP/100234567_pump_spec.pdf",
+  "100445566": "TEMP/100445566_valve_TDS.pdf"
+}
+
+# per row in bidding console:
+→ click "More..."
+→ click "Attach a file" → set_input_files(file) → OK</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">5.2</span>
+            <div class="step-body">
+              <h3 class="step-title">💾 Click "Save" (NOT "Submit Entire Response")</h3>
+              <p class="step-desc">Intentionally parks the response as a draft — final submission is left to a human.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="sub-card warn">
+              <div class="kicker">By design</div>
+              <p class="text">Bot never auto-submits final bids — prices are too sensitive. Human logs into Ariba, reviews, then clicks Submit themselves.</p>
+            </div>
+            <div class="example">await safe_click(page,
+  "button[title*='Save your response; it will not be submitted to the owner']")
+# NOTE: NOT button[title*='Submit Entire Response']</div>
+          </div></div>
+        </div>
+
+        <div class="step">
+          <div class="step-head" onclick="toggleStep(this)">
+            <span class="step-id">5.3</span>
+            <div class="step-body">
+              <h3 class="step-title">🗄️ Update Dataverse status → "saved_draft"</h3>
+              <p class="step-desc">Flip <code>Participated</code> column so dashboard shows the RFP as drafted and ready for human review.</p>
+            </div>
+            <span class="step-chevron">▶</span>
+          </div>
+          <div class="sub"><div class="sub-inner">
+            <div class="example">update_rfp_participation_status(
+  rfp_id     = "RFP_2026_Pumps",
+  status     = "saved_draft",
+  category   = "submit",
+  log_change = True
+)
+→ logs to RFP_Activity_Log change history</div>
+          </div></div>
+        </div>
+
+      </div></div>
+    </div>
+
+  </div>
+
+  <p class="hint">Switch tabs to see each flow · Click ▶ to expand · "Walk me through" auto-tours the current flow</p>
+
+</main>
+
+<script>
+  let currentFlow = 'download';
+
+  // ─── Switch between Download / Submit ───
+  function switchFlow(name) {
+    currentFlow = name;
+    document.querySelectorAll('.flow-tab').forEach(t => t.classList.toggle('active', t.dataset.flow === name));
+    document.querySelectorAll('.flow-wrap').forEach(w => w.classList.toggle('active', w.id === 'flow-' + name));
+    document.getElementById('pipeline-download').style.display = (name === 'download') ? 'flex' : 'none';
+    document.getElementById('pipeline-submit').style.display   = (name === 'submit')   ? 'flex' : 'none';
+    collapseAll();
+    togglePhase(name, 1);
+  }
+
+  // ─── Phase + step toggles ───
+  function togglePhase(flow, num) {
+    const ph = document.getElementById((flow === 'download' ? 'd' : 's') + '-phase-' + num);
+    if (!ph) return;
+    ph.classList.toggle('open');
+    setActivePipe(ph.classList.contains('open') ? num : null);
+    if (ph.classList.contains('open')) {
+      ph.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+  function toggleStep(headEl) {
+    headEl.parentElement.classList.toggle('open');
+  }
+  function expandAll() {
+    document.querySelectorAll('.flow-wrap.active .phase').forEach(p => p.classList.add('open'));
+  }
+  function collapseAll() {
+    document.querySelectorAll('.phase, .step').forEach(p => p.classList.remove('open'));
+    setActivePipe(null);
+  }
+  function goToPhase(flow, num) {
+    if (flow !== currentFlow) switchFlow(flow);
+    document.querySelectorAll('.flow-wrap.active .phase').forEach(p => p.classList.remove('open'));
+    const ph = document.getElementById((flow === 'download' ? 'd' : 's') + '-phase-' + num);
+    ph.classList.add('open');
+    setActivePipe(num);
+    ph.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function setActivePipe(num) {
+    document.querySelectorAll('.pipe-step').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.phase').forEach(p => p.classList.remove('active'));
+    if (num != null) {
+      const pipe = (currentFlow === 'download') ? 'pipeline-download' : 'pipeline-submit';
+      document.querySelector(`#${pipe} .pipe-step[data-phase="${num}"]`)?.classList.add('active');
+      const ph = document.getElementById((currentFlow === 'download' ? 'd' : 's') + '-phase-' + num);
+      ph?.classList.add('active');
+    }
+  }
+
+  // ─── Walk-me-through ───
+  let walking = false, walkTimer = null;
+  async function playThrough() {
+    const btn = document.getElementById('playBtn');
+    if (walking) {
+      clearTimeout(walkTimer); walking = false;
+      btn.textContent = '▶ Walk me through';
+      return;
+    }
+    walking = true;
+    btn.textContent = '⏸ Stop tour';
+    collapseAll();
+    for (let i = 1; i <= 5 && walking; i++) {
+      goToPhase(currentFlow, i);
+      await new Promise(r => walkTimer = setTimeout(r, 2800));
+    }
+    walking = false;
+    btn.textContent = '▶ Walk me through';
+  }
+
+  // start with Download phase 1 open
+  togglePhase('download', 1);
+</script>
+
+</body>
+</html>

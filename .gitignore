@@ -4,6 +4,7 @@ env
 LOGS
 _pycache_
 __pycache__
+.cache
 config
 helpers/__pycache__
 tests/__pycache__

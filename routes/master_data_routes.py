@@ -1,7 +1,7 @@
 """
 Master Data API Routes - Material Master Codes and Keywords management.
 
-All routes require the 'master_data.*' permissions defined in
+All routes require granular permissions (material_master.*, keyword_master.*, rfp_team.*, column_config.*) defined in
 services/permission_definitions.py.
 """
 
@@ -72,7 +72,7 @@ async def api_list_materials(
     search: str = "",
     page: int = 1,
     page_size: int = 100,
-    user: dict = Depends(require_permission("master_data.view")),
+    user: dict = Depends(require_permission("material_master.view")),
 ):
     try:
         result = list_materials(search=search or None, page=page, page_size=page_size)
@@ -84,11 +84,12 @@ async def api_list_materials(
 @router.post("/materials/create")
 async def api_create_material(
     request: Request,
-    user: dict = Depends(require_permission("master_data.create")),
+    user: dict = Depends(require_permission("material_master.create")),
 ):
     data = await request.json()
     code = (data.get("material_code") or "").strip()
     description = (data.get("description") or "").strip()
+    bahra_item_code = (data.get("bahra_item_code") or "").strip()
 
     if not code:
         raise HTTPException(status_code=400, detail="material_code is required")
@@ -96,7 +97,7 @@ async def api_create_material(
     if material_code_exists(code):
         raise HTTPException(status_code=409, detail=f"Material code '{code}' already exists")
 
-    ok = create_material(code, description)
+    ok = create_material(code, description, bahra_item_code)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to create material")
 
@@ -107,7 +108,11 @@ async def api_create_material(
         actor_name=user.get("name", ""),
         target_type="MaterialMaster",
         target_id=code,
-        details=json.dumps({"material_code": code, "description": description}),
+        details=json.dumps({
+            "material_code": code,
+            "description": description,
+            "bahra_item_code": bahra_item_code,
+        }),
         ip_address=get_request_ip(request),
     )
 
@@ -118,11 +123,12 @@ async def api_create_material(
 async def api_update_material(
     request: Request,
     record_id: str,
-    user: dict = Depends(require_permission("master_data.edit")),
+    user: dict = Depends(require_permission("material_master.edit")),
 ):
     data = await request.json()
     code = (data.get("material_code") or "").strip()
     description = (data.get("description") or "").strip()
+    bahra_item_code = (data.get("bahra_item_code") or "").strip()
 
     if not code:
         raise HTTPException(status_code=400, detail="material_code is required")
@@ -134,7 +140,7 @@ async def api_update_material(
     if material_code_exists(code, exclude_record_id=record_id):
         raise HTTPException(status_code=409, detail=f"Material code '{code}' already exists")
 
-    ok = update_material(record_id, code, description)
+    ok = update_material(record_id, code, description, bahra_item_code)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to update material")
 
@@ -145,7 +151,11 @@ async def api_update_material(
         actor_name=user.get("name", ""),
         target_type="MaterialMaster",
         target_id=record_id,
-        details=json.dumps({"material_code": code, "description": description}),
+        details=json.dumps({
+            "material_code": code,
+            "description": description,
+            "bahra_item_code": bahra_item_code,
+        }),
         ip_address=get_request_ip(request),
     )
 
@@ -156,7 +166,7 @@ async def api_update_material(
 async def api_delete_material(
     request: Request,
     record_id: str,
-    user: dict = Depends(require_permission("master_data.delete")),
+    user: dict = Depends(require_permission("material_master.delete")),
 ):
     existing = get_material(record_id)
     if not existing:
@@ -184,7 +194,7 @@ async def api_delete_material(
 async def api_import_materials(
     request: Request,
     file: UploadFile = File(...),
-    user: dict = Depends(require_permission("master_data.create")),
+    user: dict = Depends(require_permission("material_master.create")),
 ):
     """
     Bulk import materials from a CSV or Excel file.
@@ -248,7 +258,7 @@ async def api_list_keywords(
     search: str = "",
     page: int = 1,
     page_size: int = 200,
-    user: dict = Depends(require_permission("master_data.view")),
+    user: dict = Depends(require_permission("keyword_master.view")),
 ):
     try:
         result = list_keywords(search=search or None, page=page, page_size=page_size)
@@ -260,7 +270,7 @@ async def api_list_keywords(
 @router.post("/keywords/create")
 async def api_create_keyword(
     request: Request,
-    user: dict = Depends(require_permission("master_data.create")),
+    user: dict = Depends(require_permission("keyword_master.create")),
 ):
     data = await request.json()
     kw = (data.get("keyword") or "").strip().upper()
@@ -293,7 +303,7 @@ async def api_create_keyword(
 async def api_update_keyword(
     request: Request,
     record_id: str,
-    user: dict = Depends(require_permission("master_data.edit")),
+    user: dict = Depends(require_permission("keyword_master.edit")),
 ):
     data = await request.json()
     kw = (data.get("keyword") or "").strip().upper()
@@ -330,7 +340,7 @@ async def api_update_keyword(
 async def api_delete_keyword(
     request: Request,
     record_id: str,
-    user: dict = Depends(require_permission("master_data.delete")),
+    user: dict = Depends(require_permission("keyword_master.delete")),
 ):
     existing = get_keyword(record_id)
     if not existing:
@@ -358,7 +368,7 @@ async def api_delete_keyword(
 async def api_import_keywords(
     request: Request,
     file: UploadFile = File(...),
-    user: dict = Depends(require_permission("master_data.create")),
+    user: dict = Depends(require_permission("keyword_master.create")),
 ):
     """
     Bulk import keywords from a CSV or Excel file.
@@ -429,7 +439,7 @@ async def api_list_rfp_team_columns(
     search: str = "",
     page: int = 1,
     page_size: int = 100,
-    user: dict = Depends(require_permission("master_data.view")),
+    user: dict = Depends(require_permission("column_config.view")),
 ):
     try:
         result = list_team_columns(search=search or None, page=page, page_size=page_size)
@@ -441,7 +451,7 @@ async def api_list_rfp_team_columns(
 @router.get("/rfp-team-columns/all")
 async def api_get_all_rfp_team_columns(
     request: Request,
-    user: dict = Depends(require_permission("master_data.view")),
+    user: dict = Depends(require_permission("column_config.view")),
 ):
     """Return all active columns sorted by sort_order (used by frontend forms)."""
     try:
@@ -454,7 +464,7 @@ async def api_get_all_rfp_team_columns(
 @router.post("/rfp-team-columns/create")
 async def api_create_rfp_team_column(
     request: Request,
-    user: dict = Depends(require_permission("master_data.create")),
+    user: dict = Depends(require_permission("column_config.create")),
 ):
     data = await request.json()
     key = (data.get("column_key") or "").strip().lower()
@@ -496,7 +506,7 @@ async def api_create_rfp_team_column(
 async def api_update_rfp_team_column(
     request: Request,
     record_id: str,
-    user: dict = Depends(require_permission("master_data.edit")),
+    user: dict = Depends(require_permission("column_config.edit")),
 ):
     data = await request.json()
     label = (data.get("column_label") or "").strip()
@@ -530,7 +540,7 @@ async def api_update_rfp_team_column(
 async def api_delete_rfp_team_column(
     request: Request,
     record_id: str,
-    user: dict = Depends(require_permission("master_data.delete")),
+    user: dict = Depends(require_permission("column_config.delete")),
 ):
     existing = get_team_column(record_id)
     if not existing:
@@ -564,7 +574,7 @@ async def api_delete_rfp_team_column(
 @router.post("/rfp-team-columns/reorder")
 async def api_reorder_rfp_team_columns(
     request: Request,
-    user: dict = Depends(require_permission("master_data.edit")),
+    user: dict = Depends(require_permission("column_config.edit")),
 ):
     data = await request.json()
     ordered_ids = data.get("ordered_ids", [])
@@ -600,7 +610,7 @@ async def api_list_rfp_team(
     search: str = "",
     page: int = 1,
     page_size: int = 100,
-    user: dict = Depends(require_permission("master_data.view")),
+    user: dict = Depends(require_permission("rfp_team.view")),
 ):
     try:
         result = list_rfp_team(search=search or None, page=page, page_size=page_size)
@@ -612,7 +622,7 @@ async def api_list_rfp_team(
 @router.post("/rfp-team/create")
 async def api_create_rfp_team_member(
     request: Request,
-    user: dict = Depends(require_permission("master_data.create")),
+    user: dict = Depends(require_permission("rfp_team.create")),
 ):
     data = await request.json()
     product = (data.get("product") or "").strip()
@@ -651,7 +661,7 @@ async def api_create_rfp_team_member(
 async def api_update_rfp_team_member(
     request: Request,
     record_id: str,
-    user: dict = Depends(require_permission("master_data.edit")),
+    user: dict = Depends(require_permission("rfp_team.edit")),
 ):
     data = await request.json()
     product = (data.get("product") or "").strip()
@@ -694,7 +704,7 @@ async def api_update_rfp_team_member(
 async def api_delete_rfp_team_member(
     request: Request,
     record_id: str,
-    user: dict = Depends(require_permission("master_data.delete")),
+    user: dict = Depends(require_permission("rfp_team.delete")),
 ):
     existing = get_rfp_team_member(record_id)
     if not existing:
@@ -726,7 +736,7 @@ async def api_delete_rfp_team_member(
 async def api_import_rfp_team(
     request: Request,
     file: UploadFile = File(...),
-    user: dict = Depends(require_permission("master_data.create")),
+    user: dict = Depends(require_permission("rfp_team.create")),
 ):
     """
     Bulk import RFP team members from a CSV or Excel file.

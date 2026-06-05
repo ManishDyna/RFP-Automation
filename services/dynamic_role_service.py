@@ -14,13 +14,7 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, List
 
 from helpers.core_helper import DATAVERSE
-from config.config import (
-    ROLES_TABLE_API,
-    ROLES_TABLE_LOGICAL,
-    ROLE_PERMISSIONS_TABLE_API,
-    ROLE_PERMISSIONS_TABLE_LOGICAL,
-    RBAC_CACHE_TTL_SECONDS,
-)
+from services.system_settings_service import get_setting
 from services.permission_definitions import PERMISSIONS, DEFAULT_ROLES
 
 
@@ -30,6 +24,15 @@ _ROLE_PERMISSIONS_CACHE: Dict[str, Dict] = {}
 # Structure: {"role_name_lower": {"permissions": ["perm1", "perm2"], "ts": timestamp}}
 _CACHE_LOCK = threading.Lock()
 
+_ROLES_LIST_CACHE = {"data": None, "ts": 0}
+_ROLES_LIST_LOCK = threading.Lock()
+_ROLES_CACHE_TTL = 300  # 5 minutes
+
+
+def _invalidate_roles_list_cache():
+    _ROLES_LIST_CACHE["data"] = None
+    _ROLES_LIST_CACHE["ts"] = 0
+
 
 def invalidate_role_cache(role_name: Optional[str] = None):
     """Clear cached permissions. If role_name given, clear only that role."""
@@ -38,6 +41,7 @@ def invalidate_role_cache(role_name: Optional[str] = None):
             _ROLE_PERMISSIONS_CACHE.pop(role_name.strip().lower(), None)
         else:
             _ROLE_PERMISSIONS_CACHE.clear()
+    _invalidate_roles_list_cache()
 
 
 def _get_cached_permissions(role_name: str) -> Optional[List[str]]:
@@ -45,7 +49,7 @@ def _get_cached_permissions(role_name: str) -> Optional[List[str]]:
     key = role_name.strip().lower()
     with _CACHE_LOCK:
         entry = _ROLE_PERMISSIONS_CACHE.get(key)
-        if entry and (time.time() - entry["ts"]) < RBAC_CACHE_TTL_SECONDS:
+        if entry and (time.time() - entry["ts"]) < get_setting('RBAC_CACHE_TTL_SECONDS', 300):
             return entry["permissions"]
     return None
 
@@ -63,21 +67,17 @@ def _set_cached_permissions(role_name: str, permissions: List[str]):
 # ==================== COLUMN MAPPING HELPERS ====================
 
 def _get_roles_column_mapping():
-    return DATAVERSE.get_column_mapping(ROLES_TABLE_LOGICAL)
+    return DATAVERSE.get_column_mapping(get_setting('ROLES_TABLE_LOGICAL', 'cr673_bahra_roles'))
 
 
 def _get_perms_column_mapping():
-    return DATAVERSE.get_column_mapping(ROLE_PERMISSIONS_TABLE_LOGICAL)
+    return DATAVERSE.get_column_mapping(get_setting('ROLE_PERMISSIONS_TABLE_LOGICAL', 'cr673_bahra_role_permissions'))
 
 
 def _get_primary_id(table_logical: str) -> str:
-    """Get primary ID attribute name for a table."""
-    try:
-        meta_url = f"{DATAVERSE.api_url}EntityDefinitions(LogicalName='{table_logical}')?$select=PrimaryIdAttribute"
-        resp = requests.get(meta_url, headers=DATAVERSE._headers())
-        return resp.json().get("PrimaryIdAttribute", "")
-    except Exception:
-        return ""
+    """Get primary ID attribute name for a table (cached)."""
+    from helpers.metadata_cache import get_primary_id
+    return get_primary_id(table_logical)
 
 
 def _now_iso() -> str:
@@ -86,11 +86,19 @@ def _now_iso() -> str:
 
 # ==================== ROLE CRUD ====================
 
-def list_roles(top: int = 100, filters: Optional[Dict[str, str]] = None) -> List[Dict]:
-    """List all roles from Dataverse."""
+def list_roles(top: int = 100, filters: Optional[Dict[str, str]] = None, force_refresh: bool = False) -> List[Dict]:
+    """List all roles from Dataverse with TTL caching (no-filter queries only)."""
+    from time import time as _now
+    now = _now()
+
+    # Use cache for unfiltered queries
+    if not force_refresh and not filters:
+        if _ROLES_LIST_CACHE["data"] is not None and (now - _ROLES_LIST_CACHE["ts"]) < _ROLES_CACHE_TTL:
+            return _ROLES_LIST_CACHE["data"]
+
     col_map = _get_roles_column_mapping()
     reverse_map = {v: k for k, v in col_map.items()}
-    primary_id = _get_primary_id(ROLES_TABLE_LOGICAL)
+    primary_id = _get_primary_id(get_setting('ROLES_TABLE_LOGICAL', 'cr673_bahra_roles'))
 
     # Build filter
     filter_parts = []
@@ -105,10 +113,10 @@ def list_roles(top: int = 100, filters: Optional[Dict[str, str]] = None) -> List
     filter_expr = " and ".join(filter_parts) if filter_parts else None
 
     result = DATAVERSE.query_rows(
-        table_api_name=ROLES_TABLE_API,
+        table_api_name=get_setting('ROLES_TABLE_API', 'cr673_bahra_roleses'),
         filter_expr=filter_expr,
         top=top,
-        table_logical_name=ROLES_TABLE_LOGICAL,
+        table_logical_name=get_setting('ROLES_TABLE_LOGICAL', 'cr673_bahra_roles'),
         use_display_names=False,
     )
     rows = result.get("value", []) if isinstance(result, dict) else []
@@ -124,6 +132,12 @@ def list_roles(top: int = 100, filters: Optional[Dict[str, str]] = None) -> List
         if primary_id and primary_id in row:
             item["record_id"] = row[primary_id]
         mapped.append(item)
+
+    # Cache unfiltered results
+    if not filters:
+        with _ROLES_LIST_LOCK:
+            _ROLES_LIST_CACHE["data"] = mapped
+            _ROLES_LIST_CACHE["ts"] = now
 
     return mapped
 
@@ -155,12 +169,14 @@ def create_role(payload: Dict) -> bool:
     for key in data:
         data[key] = str(data[key])
 
-    return DATAVERSE.insert_row(
-        table_api_name=ROLES_TABLE_API,
+    result = DATAVERSE.insert_row(
+        table_api_name=get_setting('ROLES_TABLE_API', 'cr673_bahra_roleses'),
         data=data,
-        table_logical_name=ROLES_TABLE_LOGICAL,
+        table_logical_name=get_setting('ROLES_TABLE_LOGICAL', 'cr673_bahra_roles'),
         use_display_names=True,
     )
+    _invalidate_roles_list_cache()
+    return result
 
 
 def update_role(record_id: str, updates: Dict) -> bool:
@@ -170,10 +186,10 @@ def update_role(record_id: str, updates: Dict) -> bool:
         updates[key] = str(updates[key])
 
     result = DATAVERSE.update_row(
-        table_api_name=ROLES_TABLE_API,
+        table_api_name=get_setting('ROLES_TABLE_API', 'cr673_bahra_roleses'),
         record_id=record_id,
         data=updates,
-        table_logical_name=ROLES_TABLE_LOGICAL,
+        table_logical_name=get_setting('ROLES_TABLE_LOGICAL', 'cr673_bahra_roles'),
         use_display_names=True,
     )
 
@@ -188,22 +204,79 @@ def update_role(record_id: str, updates: Dict) -> bool:
 def delete_role(record_id: str) -> Dict:
     """
     Soft-delete a role (set is_active=False).
-    Prevents deleting system roles.
+    Prevents deleting the Admin role.
     Returns {"ok": bool, "error": str}.
     """
     role = get_role(record_id)
     if not role:
         return {"ok": False, "error": "Role not found"}
 
-    is_system = str(role.get("is_system", "false")).lower() in ("true", "1", "yes")
-    if is_system:
-        return {"ok": False, "error": "Cannot delete system roles"}
+    if (role.get("name", "")).lower() == "admin":
+        return {"ok": False, "error": "Cannot delete the Admin role"}
 
     result = update_role(record_id, {"is_active": "false"})
     if role.get("name"):
         invalidate_role_cache(role["name"])
 
     return {"ok": result, "error": "" if result else "Failed to deactivate role"}
+
+
+def toggle_role_status(record_id: str) -> Dict:
+    """
+    Toggle a role's active/inactive status.
+    Prevents toggling the Admin role.
+    Returns {"ok": bool, "is_active": bool, "error": str}.
+    """
+    role = get_role(record_id)
+    if not role:
+        return {"ok": False, "is_active": False, "error": "Role not found"}
+
+    if (role.get("name", "")).lower() == "admin":
+        return {"ok": False, "is_active": True, "error": "Cannot toggle the Admin role"}
+
+    currently_active = str(role.get("is_active", "true")).lower() != "false"
+    new_status = "false" if currently_active else "true"
+
+    result = update_role(record_id, {"is_active": new_status})
+    if role.get("name"):
+        invalidate_role_cache(role["name"])
+
+    return {
+        "ok": result,
+        "is_active": not currently_active,
+        "error": "" if result else "Failed to toggle role status",
+    }
+
+
+def hard_delete_role(record_id: str) -> Dict:
+    """
+    Permanently delete a role and all its permission mappings from Dataverse.
+    Prevents deleting the Admin role.
+    Returns {"ok": bool, "error": str}.
+    """
+    role = get_role(record_id)
+    if not role:
+        return {"ok": False, "error": "Role not found"}
+
+    if (role.get("name", "")).lower() == "admin":
+        return {"ok": False, "error": "Cannot permanently delete the Admin role"}
+
+    role_name = role.get("name", "")
+
+    # 1. Delete all permission mappings for this role
+    if role_name:
+        _delete_role_permissions(role_name)
+        invalidate_role_cache(role_name)
+
+    # 2. Hard-delete the role record itself
+    try:
+        DATAVERSE.delete_row(
+            table_api_name=get_setting('ROLES_TABLE_API', 'cr673_bahra_roleses'),
+            record_id=record_id,
+        )
+        return {"ok": True, "error": ""}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to permanently delete role: {str(e)}"}
 
 
 # ==================== ROLE-PERMISSION MAPPING ====================
@@ -230,11 +303,11 @@ def get_role_permissions(role_name: str) -> List[str]:
 
     try:
         result = DATAVERSE.query_rows(
-            table_api_name=ROLE_PERMISSIONS_TABLE_API,
+            table_api_name=get_setting('ROLE_PERMISSIONS_TABLE_API', 'cr673_bahra_role_permissionses'),
             filter_expr=filter_expr,
             select=perm_key_logical,
             top=5000,
-            table_logical_name=ROLE_PERMISSIONS_TABLE_LOGICAL,
+            table_logical_name=get_setting('ROLE_PERMISSIONS_TABLE_LOGICAL', 'cr673_bahra_role_permissions'),
             use_display_names=False,
         )
         rows = result.get("value", []) if isinstance(result, dict) else []
@@ -245,6 +318,36 @@ def get_role_permissions(role_name: str) -> List[str]:
 
     _set_cached_permissions(role_name, permissions)
     return permissions
+
+
+def get_all_permissions_count_by_role() -> Dict[str, int]:
+    """
+    Fetch ALL permission mappings in a single query and return counts grouped by role.
+    Used to avoid N+1 queries when listing roles with their permission counts.
+    """
+    col_map = _get_perms_column_mapping()
+    role_name_logical = col_map.get("role_name", "cr673_role_name")
+    perm_key_logical = col_map.get("permission_key", "cr673_permission_key")
+
+    try:
+        result = DATAVERSE.query_rows(
+            table_api_name=get_setting('ROLE_PERMISSIONS_TABLE_API', 'cr673_bahra_role_permissionses'),
+            select=f"{role_name_logical},{perm_key_logical}",
+            top=5000,
+            table_logical_name=get_setting('ROLE_PERMISSIONS_TABLE_LOGICAL', 'cr673_bahra_role_permissions'),
+            use_display_names=False,
+        )
+        rows = result.get("value", []) if isinstance(result, dict) else []
+    except Exception as e:
+        print(f"[RBAC] Failed to fetch all permissions: {e}")
+        return {}
+
+    counts: Dict[str, int] = {}
+    for row in rows:
+        role = row.get(role_name_logical, "")
+        if role:
+            counts[role] = counts.get(role, 0) + 1
+    return counts
 
 
 def set_role_permissions(role_id: str, role_name: str, permission_keys: List[str]) -> bool:
@@ -267,9 +370,9 @@ def set_role_permissions(role_id: str, role_name: str, permission_keys: List[str
         }
         try:
             DATAVERSE.insert_row(
-                table_api_name=ROLE_PERMISSIONS_TABLE_API,
+                table_api_name=get_setting('ROLE_PERMISSIONS_TABLE_API', 'cr673_bahra_role_permissionses'),
                 data=data,
-                table_logical_name=ROLE_PERMISSIONS_TABLE_LOGICAL,
+                table_logical_name=get_setting('ROLE_PERMISSIONS_TABLE_LOGICAL', 'cr673_bahra_role_permissions'),
                 use_display_names=True,
             )
         except Exception as e:
@@ -286,24 +389,23 @@ def _delete_role_permissions(role_name: str):
     role_name_logical = col_map.get("role_name", "cr673_role_name")
     escaped_name = role_name.replace("'", "''")
     filter_expr = f"{role_name_logical} eq '{escaped_name}'"
-    primary_id = _get_primary_id(ROLE_PERMISSIONS_TABLE_LOGICAL)
+    primary_id = _get_primary_id(get_setting('ROLE_PERMISSIONS_TABLE_LOGICAL', 'cr673_bahra_role_permissions'))
 
     try:
         result = DATAVERSE.query_rows(
-            table_api_name=ROLE_PERMISSIONS_TABLE_API,
+            table_api_name=get_setting('ROLE_PERMISSIONS_TABLE_API', 'cr673_bahra_role_permissionses'),
             filter_expr=filter_expr,
             select=primary_id,
             top=5000,
-            table_logical_name=ROLE_PERMISSIONS_TABLE_LOGICAL,
+            table_logical_name=get_setting('ROLE_PERMISSIONS_TABLE_LOGICAL', 'cr673_bahra_role_permissions'),
             use_display_names=False,
         )
         rows = result.get("value", []) if isinstance(result, dict) else []
+        record_ids = [row.get(primary_id) for row in rows if row.get(primary_id)]
 
-        for row in rows:
-            rid = row.get(primary_id)
-            if rid:
-                url = f"{DATAVERSE.api_url}{ROLE_PERMISSIONS_TABLE_API}({rid})"
-                requests.delete(url, headers=DATAVERSE._headers())
+        if record_ids:
+            table_api = get_setting('ROLE_PERMISSIONS_TABLE_API', 'cr673_bahra_role_permissionses')
+            DATAVERSE.batch_delete(table_api, record_ids)
     except Exception as e:
         print(f"[RBAC] Failed to delete permissions for role '{role_name}': {e}")
 

@@ -160,57 +160,57 @@ def _generate_suggestions(failure_point: Optional[Dict], errors: List[Dict], war
         
         # Timeout errors
         if "timeout" in message or "timed out" in message:
-            suggestions.append("⏱️ Timeout occurred - Check if the page/element is loading slowly")
-            suggestions.append("   → Increase timeout values in the script")
-            suggestions.append("   → Check network connectivity")
-        
+            suggestions.append("Timeout occurred - Check if the page/element is loading slowly")
+            suggestions.append("   -> Increase timeout values in the script")
+            suggestions.append("   -> Check network connectivity")
+
         # Element not found errors
         if "not found" in message or "could not find" in message or "selector" in message:
-            suggestions.append("🔍 Element not found - The page structure may have changed")
-            suggestions.append("   → Verify the CSS/XPath selectors are correct")
-            suggestions.append("   → Check if the website was updated")
-        
+            suggestions.append("[Search] Element not found - The page structure may have changed")
+            suggestions.append("   -> Verify the CSS/XPath selectors are correct")
+            suggestions.append("   -> Check if the website was updated")
+
         # Login errors
         if "login" in action or "authentication" in message:
-            suggestions.append("🔐 Login failed - Check credentials or session")
-            suggestions.append("   → Verify username and password are correct")
-            suggestions.append("   → Check if account is locked or requires password reset")
-            suggestions.append("   → Check if 2FA/MFA is required")
-        
+            suggestions.append("Login failed - Check credentials or session")
+            suggestions.append("   -> Verify username and password are correct")
+            suggestions.append("   -> Check if account is locked or requires password reset")
+            suggestions.append("   -> Check if 2FA/MFA is required")
+
         # Upload errors
         if "upload" in action or "upload" in message:
-            suggestions.append("📤 File upload failed")
-            suggestions.append("   → Verify the file exists at the specified path")
-            suggestions.append("   → Check file size limits")
-            suggestions.append("   → Ensure file format is accepted")
-        
+            suggestions.append("File upload failed")
+            suggestions.append("   -> Verify the file exists at the specified path")
+            suggestions.append("   -> Check file size limits")
+            suggestions.append("   -> Ensure file format is accepted")
+
         # Download errors
         if "download" in action or "download" in message:
-            suggestions.append("📥 File download failed")
-            suggestions.append("   → Check if download button is visible and enabled")
-            suggestions.append("   → Verify download folder permissions")
-            suggestions.append("   → Check if file already exists")
-        
+            suggestions.append("[Download] File download failed")
+            suggestions.append("   -> Check if download button is visible and enabled")
+            suggestions.append("   -> Verify download folder permissions")
+            suggestions.append("   -> Check if file already exists")
+
         # Click errors
         if "click" in action or "click" in message:
-            suggestions.append("🖱️ Click operation failed")
-            suggestions.append("   → Element may be hidden or disabled")
-            suggestions.append("   → Check if page finished loading")
-            suggestions.append("   → Try scrolling element into view first")
-        
+            suggestions.append("Click operation failed")
+            suggestions.append("   -> Element may be hidden or disabled")
+            suggestions.append("   -> Check if page finished loading")
+            suggestions.append("   -> Try scrolling element into view first")
+
         # Network errors
         if "network" in message or "connection" in message:
-            suggestions.append("🌐 Network error detected")
-            suggestions.append("   → Check internet connection")
-            suggestions.append("   → Verify the website is accessible")
-            suggestions.append("   → Check if proxy settings are correct")
-    
+            suggestions.append("Network error detected")
+            suggestions.append("   -> Check internet connection")
+            suggestions.append("   -> Verify the website is accessible")
+            suggestions.append("   -> Check if proxy settings are correct")
+
     # Generic suggestions if no specific ones matched
     if not suggestions:
-        suggestions.append("❓ Review the error logs for details")
-        suggestions.append("   → Check the timestamp when error occurred")
-        suggestions.append("   → Look for patterns in repeated failures")
-        suggestions.append("   → Contact support if issue persists")
+        suggestions.append("Review the error logs for details")
+        suggestions.append("   -> Check the timestamp when error occurred")
+        suggestions.append("   -> Look for patterns in repeated failures")
+        suggestions.append("   -> Contact support if issue persists")
     
     return suggestions
 
@@ -258,15 +258,15 @@ def _map_status_to_severity(status: str) -> ErrorSeverity:
 
 
 def _get_status_emoji(severity: ErrorSeverity) -> str:
-    """Get emoji indicator for status"""
+    """Get status indicator for severity"""
     emoji_map = {
-        ErrorSeverity.INFO: "ℹ️",
-        ErrorSeverity.SUCCESS: "✅",
-        ErrorSeverity.WARNING: "⚠️",
-        ErrorSeverity.ERROR: "❌",
-        ErrorSeverity.CRITICAL: "🚨"
+        ErrorSeverity.INFO: "[INFO]",
+        ErrorSeverity.SUCCESS: "[OK]",
+        ErrorSeverity.WARNING: "[WARN]",
+        ErrorSeverity.ERROR: "[ERROR]",
+        ErrorSeverity.CRITICAL: "[CRITICAL]"
     }
-    return emoji_map.get(severity, "➡️")
+    return emoji_map.get(severity, "->")
 
 
 def create_enhanced_error_report(
@@ -325,51 +325,51 @@ def format_error_report_for_display(report: Dict[str, Any]) -> str:
     lines = []
     
     lines.append("=" * 80)
-    lines.append("🔍 AUTOMATION ERROR REPORT")
+    lines.append("AUTOMATION ERROR REPORT")
     lines.append("=" * 80)
-    lines.append(f"\n📋 RFP ID: {report['rfp_id']}")
-    lines.append(f"⏰ Report Time: {report['report_timestamp']}")
-    lines.append(f"📊 Status: {report['automation_status']}")
-    lines.append(f"\n💬 Summary: {report['error_summary']}")
+    lines.append(f"\nRFP ID: {report['rfp_id']}")
+    lines.append(f"Report Time: {report['report_timestamp']}")
+    lines.append(f"Status: {report['automation_status']}")
+    lines.append(f"\nSummary: {report['error_summary']}")
     
     # Failure identification
     failure = report['failure_identification']
-    lines.append("\n" + "─" * 80)
-    lines.append("🎯 FAILURE IDENTIFICATION")
-    lines.append("─" * 80)
+    lines.append("\n" + "-" * 80)
+    lines.append("FAILURE IDENTIFICATION")
+    lines.append("-" * 80)
     
     if failure.get('last_successful_step'):
         last_step = failure['last_successful_step']
-        lines.append(f"\n✅ Last Successful Step:")
+        lines.append(f"\n[OK] Last Successful Step:")
         lines.append(f"   Action: {last_step.get('action')}")
         lines.append(f"   Time: {last_step.get('timestamp')}")
         lines.append(f"   Message: {last_step.get('message')}")
     
     if failure.get('failure_point'):
         fail_point = failure['failure_point']
-        lines.append(f"\n🚨 Failure Point:")
+        lines.append(f"\n[CRITICAL] Failure Point:")
         lines.append(f"   Action: {fail_point.get('action')}")
         lines.append(f"   Time: {fail_point.get('timestamp')}")
         lines.append(f"   Status: {fail_point.get('status')}")
         lines.append(f"   Error Message: {fail_point.get('message')}")
     
-    lines.append(f"\n📊 Error Count: {failure.get('total_errors', 0)}")
-    lines.append(f"⚠️  Warning Count: {failure.get('total_warnings', 0)}")
+    lines.append(f"\nError Count: {failure.get('total_errors', 0)}")
+    lines.append(f"[WARN] Warning Count: {failure.get('total_warnings', 0)}")
     
     # Suggestions
     if report.get('suggested_actions'):
-        lines.append("\n" + "─" * 80)
-        lines.append("💡 SUGGESTED ACTIONS")
-        lines.append("─" * 80)
+        lines.append("\n" + "-" * 80)
+        lines.append("SUGGESTED ACTIONS")
+        lines.append("-" * 80)
         for suggestion in report['suggested_actions']:
             lines.append(f"   {suggestion}")
     
     # Timeline (last 10 entries)
     timeline = report.get('error_timeline', [])
     if timeline:
-        lines.append("\n" + "─" * 80)
-        lines.append("📅 ERROR TIMELINE (Last 10 Steps)")
-        lines.append("─" * 80)
+        lines.append("\n" + "-" * 80)
+        lines.append("ERROR TIMELINE (Last 10 Steps)")
+        lines.append("-" * 80)
         for entry in timeline[-10:]:
             lines.append(f"\n{entry.get('display', '')}")
     

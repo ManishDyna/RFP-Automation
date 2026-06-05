@@ -5,23 +5,83 @@ import re
 import tempfile
 import shutil
 
-async def extract_rfp_details_inner_text(page):
-    """Use inner_text() which is closer to what you see in browser"""
+async def extract_rfp_details_inner_text(page, company_name=None):
+    """
+    Public entry: wait for the page to settle, try extracting owner/publish_time,
+    and retry once if either field is missing (Fix 3 — softens transient
+    extraction failures caused by selector races or slow renders).
+
+    `company_name` is used by `_do_extract_rfp_details_once` to look up
+    per-company preferred selectors from COMPANY_RFP_SELECTORS (Fix 4).
+    """
+    try:
+        await page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        pass
+
+    result = await _do_extract_rfp_details_once(page, company_name=company_name)
+    if result.get('owner') and result.get('publish_time'):
+        return result
+
+    print(f"  🔁 DEBUG: First attempt missing fields (owner={result.get('owner')}, "
+          f"publish_time={result.get('publish_time')}) — retrying after short wait")
+    try:
+        await asyncio.sleep(2)
+        await page.wait_for_selector("body", timeout=5000)
+    except Exception:
+        pass
+
+    retry = await _do_extract_rfp_details_once(page, company_name=company_name)
+    return {
+        'owner': result.get('owner') or retry.get('owner'),
+        'publish_time': result.get('publish_time') or retry.get('publish_time'),
+    }
+
+
+def _build_selector_list(company_name=None):
+    """Return preferred-then-generic selector list for a given company (Fix 4)."""
+    generic_selectors = [
+        'div.wideLabels table td',
+        'table.wideLabels td',
+        'table td',
+        'div.wideLabels td',
+        '.w-tbl-cell',
+        'div[class*="label"] table td',
+    ]
+    if not company_name:
+        return generic_selectors
+    try:
+        from services.system_settings_service import get_setting
+        company_map = get_setting("COMPANY_RFP_SELECTORS", {}) or {}
+    except Exception:
+        company_map = {}
+    if not company_map:
+        try:
+            from config.config import COMPANY_RFP_SELECTORS as _cfg
+            company_map = _cfg
+        except Exception:
+            company_map = {}
+    preferred = (company_map.get(company_name) or {}).get("preferred_selectors") or []
+    # Preserve order, drop duplicates so generic selectors don't double-run.
+    seen = set()
+    merged = []
+    for sel in list(preferred) + generic_selectors:
+        if sel not in seen:
+            merged.append(sel)
+            seen.add(sel)
+    return merged
+
+
+async def _do_extract_rfp_details_once(page, company_name=None):
+    """Single-pass extraction. Returns {'owner': str|None, 'publish_time': str|None}."""
     owner_name = None
     publish_time = None
-    
+
     try:
-        print("  🔍 DEBUG: Starting extract_rfp_details_inner_text function")
-        
-        # Try multiple selectors to find the table
-        selectors_to_try = [
-            'div.wideLabels table td',
-            'table.wideLabels td',
-            'table td',
-            'div.wideLabels td',
-            '.w-tbl-cell',
-            'div[class*="label"] table td'
-        ]
+        print(f"  🔍 DEBUG: Starting _do_extract_rfp_details_once (company={company_name})")
+
+        # Try multiple selectors to find the table (per-company preferred first; Fix 4)
+        selectors_to_try = _build_selector_list(company_name)
         
         all_cells = None
         cell_count = 0
@@ -58,7 +118,7 @@ async def extract_rfp_details_inner_text(page):
                             # Names can have commas (e.g., "Last, First" format)
                             if (len(potential) > 3 and 
                                 re.match(r'^[A-Za-z\s\.\',\-]+$', potential) and
-                                not any(kw in potential.lower() for kw in ['owner', 'publish', 'time', 'date', 'currency', 'commodity', 'event', 'type', 'loading', 'ariba', 'supplier', 'rfp'])):
+                                not any(kw in potential.lower() for kw in ['owner', 'publish', 'time', 'date', 'currency', 'commodity', 'event', 'type', 'loading', 'ariba', 'supplier', 'portal', 'rfp', 'declined', 'submitted', 'participated', 'no bid', 'open', 'pending', 'closed', 'not participated', 'active', 'inactive', 'draft', 'cancelled', 'status'])):
                                 owner_name = potential
                                 print(f"  ✅ DEBUG: Found owner in full text: {owner_name} (line {j})")
                                 break
@@ -114,7 +174,7 @@ async def extract_rfp_details_inner_text(page):
                                 print(f"  ❌ DEBUG: Regex did NOT match for cell {j}")
                             
                             # Check for excluded keywords
-                            excluded_keywords = ['owner', 'publish', 'time', 'date', 'currency', 'commodity', 'event', 'type', 'loading', 'ariba', 'supplier', 'portal', 'rfp']
+                            excluded_keywords = ['owner', 'publish', 'time', 'date', 'currency', 'commodity', 'event', 'type', 'loading', 'ariba', 'supplier', 'portal', 'rfp', 'declined', 'submitted', 'participated', 'no bid', 'open', 'pending', 'closed', 'not participated', 'active', 'inactive', 'draft', 'cancelled', 'status']
                             has_excluded = any(keyword in potential_name.lower() for keyword in excluded_keywords)
                             print(f"  🔍 DEBUG: Cell {j} keyword check - Has excluded keywords: {has_excluded}")
                             
@@ -183,7 +243,7 @@ async def extract_rfp_details_inner_text(page):
         return {'owner': None, 'publish_time': None}
 
 
-def process_folder(graph_client, folder, master_csv, company_name: str = None, new_rfp_titles: list = None):
+def process_folder(graph_client, folder, master_csv, company_name: str = None, new_rfp_titles: list = None, rfp_end_dates: dict = None):
     """
     Process downloaded RFP Excel files, match materials with master CSV,
     and generate/upload a matched materials CSV.
@@ -328,7 +388,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
         result = DATAVERSE.query_rows(
             RFP_ACTIVITY_LOG_TABLE_API,
             filter_expr=filter_expr,
-            select="RFP_ID,Email_Status,RFP_End_Date,owner_name,publish_time,Company_Name,participated,Link,Material_Matched,Keyword_Matched,Matched_Data",
+            select="RFP_ID,Email_Status,RFP_End_Date,owner_name,publish_time,Company_Name,participated,Link,Matched_Data",
             top=len(rfp_ids),
             table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
             use_display_names=True
@@ -410,87 +470,161 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
             log_event("RFP", "Process File", "Fail", f"Column 'name' not found in file: {file_name}", rfp_id)
             files_failed += 1
             continue
-        
+
         # Find Description column for keyword matching
         col_desc = find_column_name(df.columns, "description")
+
+        # Fallback columns for material code extraction when Name has no 9-digit code
+        col_mat_num = find_column_name(df.columns, "materialnumber")
+        col_mat_code = find_column_name(df.columns, "materialcode")
+
+        # Quantity & Unit of Measurement columns (captured per material into Matched_Data JSON)
+        col_qty = find_column_name(df.columns, "quantity")
+        col_uom = (find_column_name(df.columns, "unitofmeasure")
+                   or find_column_name(df.columns, "unitofmeasurement")
+                   or find_column_name(df.columns, "uom"))
+
+        def _cell(col, idx):
+            if not col:
+                return ""
+            val = df.iloc[idx][col]
+            if pd.isna(val):
+                return ""
+            # Convert numpy scalars (int64, float64, bool_) to native Python types
+            # so downstream json.dumps() in log_events.py can serialize them.
+            if hasattr(val, "item"):
+                return val.item()
+            return val
 
         # Capture total line items for analytics
         rfp_file_stats.setdefault(rfp_id, {})["total_line_items"] = len(df)
 
-        for idx, value in df[col_name].items():
-            if pd.isna(value):
-                continue
-            
-            # Get Name and Description text for keyword matching
-            name_text = str(value) if not pd.isna(value) else ""
-            description_text = str(df.iloc[idx][col_desc]) if col_desc and not pd.isna(df.iloc[idx][col_desc]) else ""
-            
-            for mat in re.findall(r'\d{9}', name_text):
-                # Method 1: Exact Material Code Match
-                matched_rows = master[master[master_col].astype(str) == mat]
-                is_matched = not matched_rows.empty
-                
-                # Method 2: Keyword Matching (only if exact match failed)
-                if not is_matched and keywords_list:
-                    # Extract keywords from Name and Description (comma-separated)
-                    name_keywords = extract_keywords_from_text(name_text)
-                    desc_keywords = extract_keywords_from_text(description_text)
-                    all_material_keywords = set(name_keywords + desc_keywords)
-                    
-                    # Check if any keyword from CSV matches any keyword from material
-                    for csv_keyword in keywords_list:
-                        # Check if CSV keyword appears in any material keyword
-                        for mat_keyword in all_material_keywords:
-                            if csv_keyword in mat_keyword or mat_keyword in csv_keyword:
-                                is_matched = True
-                                break
-                        if is_matched:
-                            break
-                
-                # Get RFP End Date from log (needed for all records)
-                RFP_End_Date = "-"
-                if not log_df.empty:
-                    match_row = log_df.loc[log_df["RFP_ID"].astype(str) == str(rfp_id), "RFP_End_Date"]
-                    if not match_row.empty:
-                        RFP_End_Date = match_row.iloc[0]
+        # Helper: build a record dict with common fields + Excel columns
+        def _build_record(base_dict, idx):
+            for col_index in [2, 7, 13, 14, 17, 19, 22]:
+                if col_index - 1 < len(df.columns):
+                    header = df.columns[col_index - 1]
+                    base_dict[header] = df.iloc[idx, col_index - 1]
+                else:
+                    base_dict[f"MissingCol_{col_index}"] = None
+            return base_dict
 
-                if is_matched:
-                    files_with_any_match.add(file_name)   # mark this file as having at least one match
+        # Helper: get RFP End Date from log
+        def _get_rfp_end_date():
+            if rfp_end_dates and rfp_id in rfp_end_dates:
+                return rfp_end_dates[rfp_id]
+            if not log_df.empty:
+                match_row = log_df.loc[
+                    log_df["RFP_ID"].astype(str).str.strip() == str(rfp_id).strip(),
+                    "RFP_End_Date"
+                ]
+                if not match_row.empty:
+                    return match_row.iloc[0]
+            return "-"
 
-                    # If matched by keyword but no exact code match, search master for rows with matching keywords
-                    if matched_rows.empty and keywords_list:
-                        # Try to find rows in master that contain the matched keywords
-                        # Search in material code column and other text columns
-                        name_keywords = extract_keywords_from_text(name_text)
-                        desc_keywords = extract_keywords_from_text(description_text)
-                        all_material_keywords = set(name_keywords + desc_keywords)
+        # Helper: keyword match check
+        def _try_keyword_match(name_text, description_text):
+            if not keywords_list:
+                return False
+            name_keywords = extract_keywords_from_text(name_text)
+            desc_keywords = extract_keywords_from_text(description_text)
+            all_material_keywords = set(name_keywords + desc_keywords)
+            for csv_keyword in keywords_list:
+                for mat_keyword in all_material_keywords:
+                    if csv_keyword in mat_keyword or mat_keyword in csv_keyword:
+                        return True
+            return False
 
-                        # Search master CSV for rows containing any of the matched keywords
-                        keyword_matched_rows = pd.DataFrame()
-                        for mat_keyword in all_material_keywords:
-                            if mat_keyword:
-                                # Search in material column
-                                temp_matches = master[master[master_col].astype(str).str.contains(mat_keyword, case=False, na=False)]
+        # Helper: find master rows by keyword search
+        def _find_master_rows_by_keyword(name_text, description_text):
+            name_keywords = extract_keywords_from_text(name_text)
+            desc_keywords = extract_keywords_from_text(description_text)
+            all_material_keywords = set(name_keywords + desc_keywords)
+            keyword_matched_rows = pd.DataFrame()
+            for mat_keyword in all_material_keywords:
+                if mat_keyword:
+                    temp_matches = master[master[master_col].astype(str).str.contains(mat_keyword, case=False, na=False, regex=False)]
+                    if not temp_matches.empty:
+                        keyword_matched_rows = pd.concat([keyword_matched_rows, temp_matches]).drop_duplicates()
+                    for col in master.columns:
+                        if col != master_col and master[col].dtype == 'object':
+                            try:
+                                temp_matches = master[master[col].astype(str).str.contains(mat_keyword, case=False, na=False, regex=False)]
                                 if not temp_matches.empty:
                                     keyword_matched_rows = pd.concat([keyword_matched_rows, temp_matches]).drop_duplicates()
+                            except:
+                                pass
+            return keyword_matched_rows
 
-                                # Also search in other text columns if they exist
-                                for col in master.columns:
-                                    if col != master_col and master[col].dtype == 'object':
-                                        try:
-                                            temp_matches = master[master[col].astype(str).str.contains(mat_keyword, case=False, na=False)]
-                                            if not temp_matches.empty:
-                                                keyword_matched_rows = pd.concat([keyword_matched_rows, temp_matches]).drop_duplicates()
-                                        except:
-                                            pass
+        RFP_End_Date = _get_rfp_end_date()
 
-                        if not keyword_matched_rows.empty:
-                            matched_rows = keyword_matched_rows.head(1)  # Use first matching row
+        for idx in df.index:
+            name_raw = df.iloc[idx][col_name]
+            name_text = "" if pd.isna(name_raw) else str(name_raw)
+            description_text = ""
+            if col_desc and not pd.isna(df.iloc[idx][col_desc]):
+                description_text = str(df.iloc[idx][col_desc])
 
-                    # Create records from matched rows (use to_dict for better performance)
-                    if not matched_rows.empty:
-                        for record in matched_rows.to_dict('records'):
-                            # Update with extra info
+            # Try Name first; fall back to Material Number / Material Code on this row
+            material_codes = re.findall(r'\d{9}', name_text)
+            if not material_codes:
+                for fb_col in (col_mat_num, col_mat_code):
+                    if not fb_col:
+                        continue
+                    fb_val = df.iloc[idx][fb_col]
+                    if pd.isna(fb_val):
+                        continue
+                    material_codes = re.findall(r'\d{9}', str(fb_val))
+                    if material_codes:
+                        break
+
+            # Skip truly empty rows (no name, no description, no fallback code)
+            if not material_codes and not name_text and not description_text:
+                continue
+
+            if material_codes:
+                # --- Rows WITH 9-digit material codes ---
+                for mat in material_codes:
+                    # Method 1: Exact Material Code Match
+                    matched_rows = master[master[master_col].astype(str) == mat]
+                    is_matched = not matched_rows.empty
+
+                    # Method 2: Keyword Matching (only if exact match failed)
+                    if not is_matched:
+                        is_matched = _try_keyword_match(name_text, description_text)
+
+                    if is_matched:
+                        files_with_any_match.add(file_name)
+
+                        # If keyword matched (no exact code match), search master by keywords
+                        if matched_rows.empty and keywords_list:
+                            keyword_matched_rows = _find_master_rows_by_keyword(name_text, description_text)
+                            if not keyword_matched_rows.empty:
+                                matched_rows = keyword_matched_rows.head(1)
+
+                        if not matched_rows.empty:
+                            for record in matched_rows.to_dict('records'):
+                                record.update({
+                                    "SourceFile": file_name,
+                                    "RFP_Title": rfp_id,
+                                    "RFP_End_Date": RFP_End_Date,
+                                    "TDS_file_path": get_sharepoint_rfp_tds_path(rfp_id, mat),
+                                    "RowNumber": idx + 2,
+                                    "ColumnName": col_name,
+                                    "ExtractedMaterial": mat,
+                                    "MatchMethod": "exact",
+                                    "is_matched": True,
+                                    "ExcelName": name_text,
+                                    "ExcelDescription": description_text,
+                                    "Quantity": _cell(col_qty, idx),
+                                    "UnitOfMeasurement": _cell(col_uom, idx),
+                                })
+                                all_matches.append(_build_record(record, idx))
+                        else:
+                            record = {master_col: mat}
+                            for col in master.columns:
+                                if col not in record:
+                                    record[col] = None
                             record.update({
                                 "SourceFile": file_name,
                                 "RFP_Title": rfp_id,
@@ -499,75 +633,85 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                                 "RowNumber": idx + 2,
                                 "ColumnName": col_name,
                                 "ExtractedMaterial": mat,
-                                "MatchMethod": "exact",
+                                "MatchMethod": "keyword",
                                 "is_matched": True,
                                 "ExcelName": name_text,
                                 "ExcelDescription": description_text,
+                                "Quantity": _cell(col_qty, idx),
+                                "UnitOfMeasurement": _cell(col_uom, idx),
                             })
-                            # Capture specific columns from Excel
-                            for col_index in [2, 7, 13, 14, 17, 19, 22]:
-                                if col_index - 1 < len(df.columns):
-                                    header = df.columns[col_index - 1]
-                                    record[header] = df.iloc[idx, col_index - 1]
-                                else:
-                                    record[f"MissingCol_{col_index}"] = None
-                            all_matches.append(record)
+                            all_matches.append(_build_record(record, idx))
                     else:
-                        # Keyword matched but no row found in master - still create a record with material code
-                        # This ensures we don't lose keyword-matched materials
-                        record = {master_col: mat}  # Start with material code
-                        # Add other columns from master with empty values
+                        # Unmatched material
+                        record = {master_col: mat}
                         for col in master.columns:
                             if col not in record:
                                 record[col] = None
-
                         record.update({
                             "SourceFile": file_name,
                             "RFP_Title": rfp_id,
                             "RFP_End_Date": RFP_End_Date,
-                            "TDS_file_path": get_sharepoint_rfp_tds_path(rfp_id, mat),
+                            "TDS_file_path": "",
                             "RowNumber": idx + 2,
                             "ColumnName": col_name,
                             "ExtractedMaterial": mat,
+                            "MatchMethod": None,
+                            "is_matched": False,
+                            "ExcelName": name_text,
+                            "ExcelDescription": description_text,
+                            "Quantity": _cell(col_qty, idx),
+                            "UnitOfMeasurement": _cell(col_uom, idx),
+                        })
+                        all_matches.append(_build_record(record, idx))
+
+            else:
+                # --- Rows WITHOUT 9-digit codes: try keyword matching on Name + Description ---
+                is_matched = _try_keyword_match(name_text, description_text)
+
+                if is_matched:
+                    files_with_any_match.add(file_name)
+                    matched_rows = _find_master_rows_by_keyword(name_text, description_text)
+
+                    if not matched_rows.empty:
+                        for record_data in matched_rows.head(1).to_dict('records'):
+                            record_data.update({
+                                "SourceFile": file_name,
+                                "RFP_Title": rfp_id,
+                                "RFP_End_Date": RFP_End_Date,
+                                "TDS_file_path": "",
+                                "RowNumber": idx + 2,
+                                "ColumnName": col_name,
+                                "ExtractedMaterial": "",
+                                "MatchMethod": "keyword",
+                                "is_matched": True,
+                                "ExcelName": name_text,
+                                "ExcelDescription": description_text,
+                                "Quantity": _cell(col_qty, idx),
+                                "UnitOfMeasurement": _cell(col_uom, idx),
+                            })
+                            all_matches.append(_build_record(record_data, idx))
+                    else:
+                        record = {master_col: ""}
+                        for col in master.columns:
+                            if col not in record:
+                                record[col] = None
+                        record.update({
+                            "SourceFile": file_name,
+                            "RFP_Title": rfp_id,
+                            "RFP_End_Date": RFP_End_Date,
+                            "TDS_file_path": "",
+                            "RowNumber": idx + 2,
+                            "ColumnName": col_name,
+                            "ExtractedMaterial": "",
                             "MatchMethod": "keyword",
                             "is_matched": True,
                             "ExcelName": name_text,
                             "ExcelDescription": description_text,
+                            "Quantity": _cell(col_qty, idx),
+                            "UnitOfMeasurement": _cell(col_uom, idx),
                         })
-                        # Capture specific columns from Excel
-                        for col_index in [2, 7, 13, 14, 17, 19, 22]:
-                            if col_index - 1 < len(df.columns):
-                                header = df.columns[col_index - 1]
-                                record[header] = df.iloc[idx, col_index - 1]
-                            else:
-                                record[f"MissingCol_{col_index}"] = None
-                        all_matches.append(record)
-                else:
-                    # Unmatched material — store for dialog display
-                    record = {master_col: mat}
-                    for col in master.columns:
-                        if col not in record:
-                            record[col] = None
-                    record.update({
-                        "SourceFile": file_name,
-                        "RFP_Title": rfp_id,
-                        "RFP_End_Date": RFP_End_Date,
-                        "TDS_file_path": "",
-                        "RowNumber": idx + 2,
-                        "ColumnName": col_name,
-                        "ExtractedMaterial": mat,
-                        "MatchMethod": None,
-                        "is_matched": False,
-                        "ExcelName": name_text,
-                        "ExcelDescription": description_text,
-                    })
-                    for col_index in [2, 7, 13, 14, 17, 19, 22]:
-                        if col_index - 1 < len(df.columns):
-                            header = df.columns[col_index - 1]
-                            record[header] = df.iloc[idx, col_index - 1]
-                        else:
-                            record[f"MissingCol_{col_index}"] = None
-                    all_matches.append(record)
+                        all_matches.append(_build_record(record, idx))
+                # else: no code and no keyword match — skip (header/instruction row)
 
     # A file is "not matched" only if NONE of its materials had any match
     not_mateched_files = [
@@ -586,12 +730,13 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
     if not result_df.empty:
         # ✅ Generate per-RFP matched material CSVs
         for rfp_id_key in result_df["RFP_Title"].dropna().unique():
-            rfp_matches = result_df[result_df["RFP_Title"] == rfp_id_key]
+            rfp_matches = result_df[(result_df["RFP_Title"] == rfp_id_key) & (result_df["is_matched"] == True)]
             if rfp_matches.empty:
                 continue
             per_rfp_csv = os.path.join(OUTPUT_DIR, f"matched_materials_{rfp_id_key}_{timestamp}.csv")
             try:
-                rfp_matches.to_csv(per_rfp_csv, index=False)
+                csv_df = rfp_matches.drop(columns=["is_matched"], errors="ignore")
+                csv_df.to_csv(per_rfp_csv, index=False)
                 print(f"✅ Exported per-RFP matches for {rfp_id_key} to {per_rfp_csv}")
                 log_event("RFP", "Files Matching", "Success", f"Exported {len(rfp_matches)} matches for {rfp_id_key}", rfp_id_key)
 
@@ -632,11 +777,6 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
                     Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     Matched_Data=matches_in_file,
                     company_name=company_name,
-                    total_line_items=_stats.get("total_line_items"),
-                    file_size_bytes=_stats.get("file_size_bytes"),
-                    match_rate_pct=_rate,
-                    exact_match_count=_exact,
-                    keyword_match_count=_keyword,
                 )
     else:
         print("not_mateched_files:-", not_mateched_files)
@@ -665,9 +805,8 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
 
     clean_title = clean_rfp_title(title)
 
-    # Build local storage path
+    # Build local storage path (folder created only after successful download)
     local_rfp_dir = os.path.join(OUTPUT_DIR, company_name, clean_title, "downloaded-rfp")
-    os.makedirs(local_rfp_dir, exist_ok=True)
     local_file_path = os.path.join(local_rfp_dir, f"{clean_title}.xls")
 
     # Check DB Email_Status first — if email already sent, skip everything
@@ -706,15 +845,48 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                 _file_size = os.path.getsize(local_file_path)
             except Exception:
                 pass
+
+            # Scrape owner_name / publish_time from the detail page so the new
+            # DB row isn't created with empty metadata. Mirrors the same flow
+            # used by the normal-download branch below.
+            local_owner_name = None
+            local_publish_time = None
+            detail_page = await page.context.new_page()
+            try:
+                await detail_page.goto(link, wait_until="domcontentloaded", timeout=60000)
+                try:
+                    await click_if_visible(detail_page, "#_c8_tuc", timeout=3000)
+                    await asyncio.sleep(10)
+                except Exception:
+                    pass
+                rfp_details = await extract_rfp_details_inner_text(detail_page, company_name=company_name)
+                local_owner_name = rfp_details.get('owner')
+                local_publish_time = rfp_details.get('publish_time')
+                if local_owner_name or local_publish_time:
+                    log_event("RFP", "Extract Details", "Success",
+                              f"Local-file branch: owner={local_owner_name}, publish_time={local_publish_time}", title)
+                else:
+                    log_event("RFP", "Extract Details", "Warning",
+                              "Local-file branch: extractor returned no owner/publish_time", title)
+            except Exception as e:
+                log_event("RFP", "Extract Details", "Warning",
+                          f"Local-file branch: detail-page scrape failed: {e}", title)
+            finally:
+                try:
+                    await detail_page.close()
+                except Exception:
+                    pass
+
             log_rfp_activity(
                 rfp_id=title,
                 Downloaded_At=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 RFP_End_Date=RFP_End_Date,
+                owner_name=local_owner_name,
+                publish_time=local_publish_time,
                 participated=participated,
                 link=link,
                 company_name=company_name,
                 rfp_type=row.get("Event Type", ""),
-                file_size_bytes=_file_size,
             )
         else:
             log_event("RFP", "Download", "Info", "File exists locally, email not yet sent — will process + email", title)
@@ -773,7 +945,7 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
         # Extract RFP details (owner_name and publish_time) before clicking
         try:
             print(f"🔍 Extracting RFP details for: {title}")
-            rfp_details = await extract_rfp_details_inner_text(new_page)
+            rfp_details = await extract_rfp_details_inner_text(new_page, company_name=company_name)
             print(f"📋 Extracted details - Owner: {rfp_details['owner']}, Publish Time: {rfp_details['publish_time']}")
             if rfp_details.get('owner') or rfp_details.get('publish_time'):
                 log_event("RFP", "Extract Details", "Success", f"Extracted owner: {rfp_details.get('owner')}, publish_time: {rfp_details.get('publish_time')}", title)
@@ -832,6 +1004,7 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
         print("Downloading:", final_filename)
         log_event("RFP", "Download", "Saving", f"Saving file: {final_filename} to local", title)
 
+        os.makedirs(local_rfp_dir, exist_ok=True)
         await download.save_as(local_file_path)
         log_event("RFP", "Download", "Success", f"Successfully downloaded: {final_filename}", title)
 
@@ -870,7 +1043,6 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
             link=link,
             company_name=company_name,
             rfp_type=row.get("Event Type", ""),
-            file_size_bytes=_file_size,
         )
         success = True
 
@@ -891,6 +1063,7 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
             clean_title = clean_rfp_title(title)
             try:
                 # Move fallback file to local folder
+                os.makedirs(local_rfp_dir, exist_ok=True)
                 shutil.move(latest_file, local_file_path)
                 log_event("RFP", "Download", "Success", f"Fallback file saved to local", title)
 
@@ -929,7 +1102,6 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
                     link=link,
                     company_name=company_name,
                     rfp_type=row.get("Event Type", ""),
-                    file_size_bytes=_fb_file_size,
                 )
                 success = True
             except Exception as e:
@@ -950,11 +1122,12 @@ async def attempt_download(page, row, company_name: str, attempts="Attempt 1", g
 
 
 async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
-    """Returns the list of newly downloaded RFP titles (excludes skipped ones)."""
+    """Returns dict with 'successful', 'skipped', and 'failed' title lists."""
     log_event("RFP", "Download Batch", "Start", f"Starting download for {len(rfps)} RFPs")
     missing = []
     successful = []
     skipped = []
+    failed = []
     total_rfps = len(rfps)
 
     for row in rfps:
@@ -970,7 +1143,6 @@ async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
 
     if missing:
         log_event("RFP", "Retry", "Downloading", f"Retrying {len(missing)} failed downloads")
-        still_missing = []
         for row in missing:
             title = row.get("Title", "")
             log_event("RFP", "Retry", "Downloading", "Attempt 2", title)
@@ -979,11 +1151,11 @@ async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
                 successful.append(title)
                 log_event("RFP", "Retry", "Success", f"Successfully downloaded on retry", title)
             else:
-                still_missing.append(title)
+                failed.append(title)
                 log_event("RFP", "Retry", "Fail", "Failed on retry attempt", title)
 
-        if still_missing:
-            for t in still_missing:
+        if failed:
+            for t in failed:
                 log_event("RFP", "Retry", "Fail", "Still missing after retry", t)
         else:
             log_event("RFP", "Retry", "Success", "All failed downloads recovered on retry")
@@ -991,9 +1163,9 @@ async def download_rfp_files(page, rfps, company_name: str, graph_client=None):
     # Summary log
     new_download_count = len(successful)
     skipped_count = len(skipped)
-    failed_count = len(missing) if not missing else (len(still_missing) if 'still_missing' in locals() and still_missing else 0)
+    failed_count = len(failed)
     summary_msg = f"Download batch complete. Total: {total_rfps}, New: {new_download_count}, Skipped: {skipped_count}, Failed: {failed_count}"
     log_event("RFP", "Download Batch", "Complete", summary_msg)
 
-    return successful
+    return {"successful": successful, "skipped": skipped, "failed": failed}
    

@@ -1,7 +1,44 @@
 import requests
+import logging
 from msal import ConfidentialClientApplication
-from typing import Dict, Any , List
+from typing import Dict, Any, List
 from datetime import datetime, timedelta
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+
+logger = logging.getLogger(__name__)
+
+
+def _is_retryable_error(exc: Exception) -> bool:
+    """Only retry on server errors (5xx) or throttling (429), not client errors."""
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return True
+    if isinstance(exc, requests.exceptions.Timeout):
+        return True
+    if isinstance(exc, requests.exceptions.HTTPError):
+        status = exc.response.status_code if exc.response is not None else 0
+        return status == 429 or status >= 500
+    return False
+
+
+def _retry_request(method, url, **kwargs):
+    """Execute an HTTP request with retry logic for transient failures."""
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+        retry=retry_if_exception(_is_retryable_error),
+        reraise=True,
+    )
+    def _do_request():
+        resp = method(url, **kwargs)
+        if resp.status_code == 429 or resp.status_code >= 500:
+            resp.raise_for_status()
+        return resp
+
+    try:
+        return _do_request()
+    except Exception:
+        # Final fallback: return the last response without raising
+        return method(url, **kwargs)
 
 class DataverseClient:
     def __init__(self, tenant_id, client_id, client_secret, resource_url):
@@ -55,25 +92,37 @@ class DataverseClient:
             headers.update(extra)
         return headers
 
+    def _request(self, method, url, retryable=True, **kwargs):
+        """Centralized HTTP request with optional retry for transient failures."""
+        if retryable:
+            return _retry_request(method, url, **kwargs)
+        return method(url, **kwargs)
+
     def count_rows(self, table_api_name: str, filter_expr: str = None, table_logical_name: str = None, use_display_names: bool = True) -> int:
         """Get the total count of rows in a Dataverse table using $count."""
-        url = f"{self.api_url}{table_api_name}"
-        params = {"$count": "true", "$top": "0"}
-
         if filter_expr and use_display_names and table_logical_name:
             column_map = self.get_column_mapping(table_logical_name)
             for display_name, logical_name in column_map.items():
                 filter_expr = filter_expr.replace(display_name, logical_name)
 
         if filter_expr:
-            params["$filter"] = filter_expr
+            # Use $count=true with $top=1 and filter (Dataverse doesn't support $top=0)
+            url = f"{self.api_url}{table_api_name}"
+            params = {"$count": "true", "$top": "1", "$filter": filter_expr}
+            resp = self._request(requests.get, url, headers=self._headers(), params=params)
+            if resp.status_code != 200:
+                raise Exception(f"[ERROR] Count failed for '{table_api_name}': {resp.status_code}")
+            return resp.json().get("@odata.count", 0)
+        else:
+            # Use /$count endpoint for total count (fastest)
+            url = f"{self.api_url}{table_api_name}/$count"
+            resp = self._request(requests.get, url, headers=self._headers())
+            if resp.status_code != 200:
+                raise Exception(f"[ERROR] Count failed for '{table_api_name}': {resp.status_code}")
+            text = resp.text.strip().replace('\ufeff', '').replace('\xef\xbb\xbf', '')
+            return int(text)
 
-        resp = requests.get(url, headers=self._headers(), params=params)
-        if resp.status_code != 200:
-            raise Exception(f"[ERROR] Count failed for '{table_api_name}': {resp.status_code}")
-        return resp.json().get("@odata.count", 0)
-
-    def get_all_rows(self, table_api_name: str, select_columns: List[str] = None, table_logical_name: str = None, use_display_names: bool = True, page_size: int = 5000) -> List[dict]:
+    def get_all_rows(self, table_api_name: str, select_columns: List[str] = None, filter_expr: str = None, table_logical_name: str = None, use_display_names: bool = True, page_size: int = 5000) -> List[dict]:
         """Fetch ALL rows from a Dataverse table using @odata.nextLink pagination."""
         url = f"{self.api_url}{table_api_name}"
         params = {}  # No $top — let Dataverse paginate naturally via @odata.nextLink
@@ -82,19 +131,25 @@ class DataverseClient:
         if select_columns:
             select_expr = ",".join(select_columns)
 
-        if use_display_names and table_logical_name and select_expr:
+        if use_display_names and table_logical_name:
             column_map = self.get_column_mapping(table_logical_name)
-            select_fields = [column_map.get(f.strip(), f.strip()) for f in select_expr.split(",")]
-            select_expr = ",".join(select_fields)
+            if select_expr:
+                select_fields = [column_map.get(f.strip(), f.strip()) for f in select_expr.split(",")]
+                select_expr = ",".join(select_fields)
+            if filter_expr:
+                for display_name, logical_name in column_map.items():
+                    filter_expr = filter_expr.replace(display_name, logical_name)
 
         if select_expr:
             params["$select"] = select_expr
+        if filter_expr:
+            params["$filter"] = filter_expr
 
         all_rows = []
         page_num = 0
         while url:
             page_num += 1
-            resp = requests.get(url, headers=self._headers(), params=params)
+            resp = self._request(requests.get, url, headers=self._headers(), params=params)
             if resp.status_code != 200:
                 error_text = resp.text.encode('ascii', 'replace').decode('ascii')
                 raise Exception(f"[ERROR] Query failed for '{table_api_name}': {resp.status_code}, {error_text}")
@@ -102,7 +157,7 @@ class DataverseClient:
             page_rows = data.get("value", [])
             all_rows.extend(page_rows)
             next_link = data.get("@odata.nextLink")
-            print(f"📊 Page {page_num}: fetched {len(page_rows)} rows (total so far: {len(all_rows)}, has next: {bool(next_link)})")
+            print(f"[Page {page_num}] fetched {len(page_rows)} rows (total so far: {len(all_rows)}, has next: {bool(next_link)})")
             url = next_link
             params = {}  # nextLink URL already contains query params
 
@@ -244,7 +299,7 @@ class DataverseClient:
         if order_by:
             params["$orderby"] = order_by
 
-        resp = requests.get(url, headers=self._headers(), params=params)
+        resp = self._request(requests.get, url, headers=self._headers(), params=params)
         if resp.status_code != 200:
             error_text = resp.text.encode('ascii', 'replace').decode('ascii')
             raise Exception(f"[ERROR] Query failed for '{table_api_name}': {resp.status_code}, {error_text}")
@@ -273,7 +328,7 @@ class DataverseClient:
         return result
 
 
-    # Get display name → logical name mapping for a table (cached)
+    # Get display name -> logical name mapping for a table (cached)
     def get_column_mapping(self, table_logical_name: str, force_refresh: bool = False) -> dict:
         """
         Get column mapping from display names to logical names.
@@ -285,7 +340,7 @@ class DataverseClient:
             return self._column_mapping_cache[table_logical_name]
 
         url = f"{self.api_url}EntityDefinitions(LogicalName='{table_logical_name}')/Attributes?$select=LogicalName,DisplayName"
-        response = requests.get(url, headers=self._headers())
+        response = self._request(requests.get, url, headers=self._headers())
         if response.status_code != 200:
             error_text = response.text.encode('ascii', 'replace').decode('ascii')
             raise Exception(f"Failed to get metadata for '{table_logical_name}': {response.status_code}, {error_text}")
@@ -364,9 +419,8 @@ class DataverseClient:
             column_map = self.get_column_mapping(table_logical_name)
             data = {column_map.get(k, k): v for k, v in data.items()}
         url = f"{self.api_url}{table_api_name}({record_id})"
-        #response = requests.patch(url, json=data, headers=self._headers())
-        response = requests.patch(
-            url,
+        response = self._request(
+            requests.patch, url,
             json=data,
             headers=self._headers("application/json;IEEE754Compatible=true"),
         )
@@ -376,4 +430,77 @@ class DataverseClient:
         else:
             error_text = response.text.encode('ascii', 'replace').decode('ascii')
             raise Exception(f"[ERROR] Update failed for '{table_api_name}': {response.status_code}, {error_text}")
+
+    def delete_row(self, table_api_name: str, record_id: str):
+        """Delete a single row from a Dataverse table by record ID."""
+        url = f"{self.api_url}{table_api_name}({record_id})"
+        response = self._request(requests.delete, url, headers=self._headers())
+        if response.status_code in [200, 204]:
+            print(f"[OK] Row deleted from '{table_api_name}'")
+            return True
+        else:
+            error_text = response.text.encode('ascii', 'replace').decode('ascii')
+            raise Exception(f"[ERROR] Delete failed for '{table_api_name}': {response.status_code}, {error_text}")
+
+    def batch_delete(self, table_api_name: str, record_ids: List[str]) -> int:
+        """
+        Delete multiple rows using Dataverse $batch API.
+        Returns count of successfully deleted rows.
+        Falls back to one-by-one delete if batch fails.
+        """
+        import uuid as _uuid
+
+        if not record_ids:
+            return 0
+
+        batch_id = str(_uuid.uuid4())
+        changeset_id = str(_uuid.uuid4())
+        boundary = f"batch_{batch_id}"
+        changeset_boundary = f"changeset_{changeset_id}"
+
+        # Build multipart batch body
+        body_parts = [f"--{boundary}", f"Content-Type: multipart/mixed; boundary={changeset_boundary}", ""]
+        for i, rid in enumerate(record_ids):
+            body_parts.extend([
+                f"--{changeset_boundary}",
+                f"Content-Type: application/http",
+                f"Content-Transfer-Encoding: binary",
+                f"Content-ID: {i + 1}",
+                "",
+                f"DELETE {self.api_url}{table_api_name}({rid}) HTTP/1.1",
+                "Content-Type: application/json",
+                "",
+                "",
+            ])
+        body_parts.append(f"--{changeset_boundary}--")
+        body_parts.append(f"--{boundary}--")
+        batch_body = "\r\n".join(body_parts)
+
+        try:
+            resp = requests.post(
+                f"{self.api_url}$batch",
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                    "Content-Type": f"multipart/mixed; boundary={boundary}",
+                    "OData-MaxVersion": "4.0",
+                    "OData-Version": "4.0",
+                },
+                data=batch_body,
+            )
+            if resp.status_code in [200, 204]:
+                return len(record_ids)
+            else:
+                logger.warning(f"Batch delete failed ({resp.status_code}), falling back to one-by-one")
+        except Exception as e:
+            logger.warning(f"Batch delete error: {e}, falling back to one-by-one")
+
+        # Fallback: delete one by one
+        deleted = 0
+        for rid in record_ids:
+            try:
+                self.delete_row(table_api_name, rid)
+                deleted += 1
+            except Exception:
+                pass
+        return deleted
 

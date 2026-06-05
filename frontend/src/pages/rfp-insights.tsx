@@ -1,4 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { useHasPermission } from '@/hooks/use-auth'
+import { formatDateMDY } from '@/lib/utils'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -12,7 +14,6 @@ import {
   Calendar,
   Building2,
   ListFilter,
-  TrendingUp,
   Clock,
   CheckCircle2,
   XCircle,
@@ -21,6 +22,8 @@ import {
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
+import { StatCard } from '@/components/shared/stat-card'
+import { StatusBadge } from '@/components/shared/status-badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -52,6 +55,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { api } from '@/lib/api'
+import { SharePointButton } from '@/components/shared/sharepoint-button'
 
 const statusOptions = [
   { value: '', label: 'All Statuses' },
@@ -80,65 +84,6 @@ const participationOptions = [
   { value: 'declined', label: 'Declined' },
 ]
 
-function StatusBadge({ status }: { status: string }) {
-  const statusMap: Record<string, { label: string; variant: 'warning' | 'success' | 'destructive' | 'secondary' | 'info'; icon: React.ElementType }> = {
-    open: { label: 'Open', variant: 'warning', icon: Clock },
-    not_participant: { label: 'Not Participant', variant: 'destructive', icon: XCircle },
-    submitted: { label: 'Submitted', variant: 'success', icon: CheckCircle2 },
-    declined: { label: 'Declined', variant: 'destructive', icon: XCircle },
-    'saved draft': { label: 'Saved Draft', variant: 'secondary', icon: ListFilter },
-    downloaded: { label: 'Downloaded', variant: 'info', icon: Download },
-    draft: { label: 'Draft', variant: 'secondary', icon: ListFilter },
-  }
-
-  const { label, variant, icon: Icon } = statusMap[status?.toLowerCase()] || {
-    label: status || 'Unknown',
-    variant: 'secondary' as const,
-    icon: ListFilter
-  }
-
-  return (
-    <Badge variant={variant} className="gap-1.5 font-medium">
-      <Icon className="h-3 w-3" />
-      {label}
-    </Badge>
-  )
-}
-
-function StatCard({
-  title,
-  value,
-  icon: Icon,
-  trend,
-  className
-}: {
-  title: string
-  value: string | number
-  icon: React.ElementType
-  trend?: string
-  className?: string
-}) {
-  return (
-    <div className={`rounded-xl p-4 ${className}`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-slate-600">{title}</p>
-          <p className="text-2xl font-bold text-slate-800 mt-1">{value}</p>
-          {trend && (
-            <p className="text-xs text-emerald-600 font-medium mt-1 flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" />
-              {trend}
-            </p>
-          )}
-        </div>
-        <div className="w-10 h-10 rounded-lg bg-white/60 flex items-center justify-center">
-          <Icon className="h-5 w-5 text-slate-600" />
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // Define available columns
 const AVAILABLE_COLUMNS = {
   company: { label: 'Company', default: true },
@@ -147,11 +92,13 @@ const AVAILABLE_COLUMNS = {
   deadline: { label: 'Deadline', default: true },
   status: { label: 'Status', default: true },
   participation: { label: 'Participation', default: true },
-  materialMatch: { label: 'Material Match', default: false },
+  materialMatch: { label: 'Material Code Match', default: false },
   keywordMatch: { label: 'Keyword Match', default: false },
 } as const
 
 export default function RfpInsightsPage() {
+  const canDownloadRfp = useHasPermission('rfp.download')
+  const canSharePointRfp = useHasPermission('rfp.sharepoint.view')
   const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState({
     status: searchParams.get('status') || '',
@@ -272,6 +219,32 @@ export default function RfpInsightsPage() {
   }
 
   const [downloadingRfpId, setDownloadingRfpId] = useState<string | null>(null)
+  const [exportingFormat, setExportingFormat] = useState<string | null>(null)
+  const [exportingFullAnalysis, setExportingFullAnalysis] = useState(false)
+
+  const handleExport = useCallback(async (format: 'csv' | 'excel') => {
+    setExportingFormat(format)
+    try {
+      await api.exportRfpData(filters, format)
+      toast.success(`RFP data exported as ${format === 'excel' ? 'Excel' : 'CSV'} successfully`)
+    } catch (error: any) {
+      toast.error(error.message || `Failed to export ${format === 'excel' ? 'Excel' : 'CSV'}`)
+    } finally {
+      setExportingFormat(null)
+    }
+  }, [filters])
+
+  const handleExportFullAnalysis = useCallback(async () => {
+    setExportingFullAnalysis(true)
+    try {
+      await api.exportFullAnalysis()
+      toast.success('Full analysis report exported successfully')
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to export full analysis report')
+    } finally {
+      setExportingFullAnalysis(false)
+    }
+  }, [])
 
   const handleDownloadExcel = useCallback(async (rfpId: string, company?: string) => {
     setDownloadingRfpId(rfpId)
@@ -440,7 +413,7 @@ export default function RfpInsightsPage() {
             <div className="space-y-2">
               <Label htmlFor="material_match" className="text-slate-600 text-sm flex items-center gap-1.5">
                 <ListFilter className="h-3.5 w-3.5" />
-                Material Match
+                Material Code Match
               </Label>
               <Select
                 value={filters.material_match || 'all'}
@@ -548,6 +521,38 @@ export default function RfpInsightsPage() {
               )}
             </p>
             <div className="flex items-center gap-3">
+              {/* Export Buttons */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-slate-200 hover:bg-slate-50"
+                disabled={exportingFormat === 'csv'}
+                onClick={() => handleExport('csv')}
+              >
+                <Download className={`h-4 w-4 mr-2 ${exportingFormat === 'csv' ? 'animate-spin' : ''}`} />
+                {exportingFormat === 'csv' ? 'Exporting...' : 'Export CSV'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                disabled={exportingFormat === 'excel'}
+                onClick={() => handleExport('excel')}
+              >
+                <FileSpreadsheet className={`h-4 w-4 mr-2 ${exportingFormat === 'excel' ? 'animate-spin' : ''}`} />
+                {exportingFormat === 'excel' ? 'Exporting...' : 'Export Excel'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                disabled={exportingFullAnalysis}
+                onClick={handleExportFullAnalysis}
+                title="Export 3-sheet workbook: Material list, RFP list, and RFP count pivot (ignores current filters)"
+              >
+                <FileSpreadsheet className={`h-4 w-4 mr-2 ${exportingFullAnalysis ? 'animate-spin' : ''}`} />
+                {exportingFullAnalysis ? 'Exporting...' : 'Export full analysis report'}
+              </Button>
               {/* Column Visibility Dropdown */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -629,7 +634,7 @@ export default function RfpInsightsPage() {
                       <TableHead className="text-slate-600 font-semibold">Deadline</TableHead>
                     )}
                     {visibleColumns.materialMatch && (
-                      <TableHead className="text-slate-600 font-semibold">Material Match</TableHead>
+                      <TableHead className="text-slate-600 font-semibold">Material Code Match</TableHead>
                     )}
                     {visibleColumns.keywordMatch && (
                       <TableHead className="text-slate-600 font-semibold">Keyword Match</TableHead>
@@ -666,17 +671,17 @@ export default function RfpInsightsPage() {
                       </TableCell>
                       {visibleColumns.company && (
                         <TableCell className="text-slate-600">
-                          {rfp.Company_Name || 'Saudi Electricity Company'}
+                          {rfp.Company_Name || 'Saudi Energy'}
                         </TableCell>
                       )}
                       {visibleColumns.owner && (
                         <TableCell className="text-slate-600">{rfp.Owner_Name || '-'}</TableCell>
                       )}
                       {visibleColumns.published && (
-                        <TableCell className="text-slate-500 text-sm">{rfp.Publish_Time || '-'}</TableCell>
+                        <TableCell className="text-slate-500 text-sm">{formatDateMDY(rfp.Publish_Time)}</TableCell>
                       )}
                       {visibleColumns.deadline && (
-                        <TableCell className="text-slate-500 text-sm">{rfp.RFP_End_Date || '-'}</TableCell>
+                        <TableCell className="text-slate-500 text-sm">{formatDateMDY(rfp.RFP_End_Date)}</TableCell>
                       )}
                       {visibleColumns.materialMatch && (
                         <TableCell>
@@ -753,15 +758,24 @@ export default function RfpInsightsPage() {
                               </a>
                             </Button>
                           )}
-                          <Button
-                            size="sm"
-                            className="h-8 bg-emerald-600 hover:bg-emerald-700 shadow-sm"
-                            disabled={downloadingRfpId === rfp.RFP_ID}
-                            onClick={() => handleDownloadExcel(rfp.RFP_ID, rfp.Company_Name)}
-                          >
-                            <FileSpreadsheet className={`h-3.5 w-3.5 mr-1.5 ${downloadingRfpId === rfp.RFP_ID ? 'animate-spin' : ''}`} />
-                            {downloadingRfpId === rfp.RFP_ID ? 'Downloading...' : 'Excel'}
-                          </Button>
+                          {canSharePointRfp && (
+                            <SharePointButton
+                              rfpId={rfp.RFP_ID}
+                              company={rfp.Company_Name}
+                              variant="labeled"
+                            />
+                          )}
+                          {canDownloadRfp && (
+                            <Button
+                              size="sm"
+                              className="h-8 bg-emerald-600 hover:bg-emerald-700 shadow-sm"
+                              disabled={downloadingRfpId === rfp.RFP_ID}
+                              onClick={() => handleDownloadExcel(rfp.RFP_ID, rfp.Company_Name)}
+                            >
+                              <FileSpreadsheet className={`h-3.5 w-3.5 mr-1.5 ${downloadingRfpId === rfp.RFP_ID ? 'animate-spin' : ''}`} />
+                              {downloadingRfpId === rfp.RFP_ID ? 'Downloading...' : 'Excel'}
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

@@ -19,6 +19,12 @@ import {
   FileWarning,
   ChevronDown,
   ChevronUp,
+  Download,
+  Upload,
+  Ban,
+  HelpCircle,
+  RefreshCcw,
+  Bell,
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -60,11 +66,14 @@ interface LogEntry {
   details: string
 }
 
+type AutomationType = 'download' | 'submit' | 'decline' | 'sync' | 'reminder' | 'other'
+
 interface AutomationRun {
   run_id: string
   rfp_id: string
   category: string
   action: string
+  automation_type: AutomationType
   start_time: string
   end_time: string
   overall_status: 'completed' | 'failed' | 'running' | 'unknown'
@@ -136,11 +145,22 @@ function deriveOverallStatus(
   )
   const hasFatalError = actions.some((a) => FATAL_ERROR_ACTIONS.includes(a))
 
+  // The "Result" action is logged ONCE at the end of Submit/Decline flows with
+  // the final outcome status (after all retries). A Fail here means the run
+  // definitively failed — unlike a Download/Fail which may be recovered by a
+  // subsequent Retry/Success.
+  const lastResultLog = [...logs]
+    .reverse()
+    .find((l) => (l.action ?? '').toLowerCase() === 'result')
+  const hasFailedResult =
+    !!lastResultLog && FAILURE_STATUSES.includes((lastResultLog.status ?? '').toLowerCase())
+
   // ── Path A: Explicit markers found → use them ──
   if (hasStartRun || hasEndRun || hasFatalError) {
-    // EndRun fired (finally block ran). If a fatal error was ALSO logged, run failed.
+    // EndRun fired (finally block ran). If a fatal error OR a failed Result
+    // outcome was logged, the run failed despite the clean finally.
     if (hasEndRun) {
-      return hasFatalError ? 'failed' : 'completed'
+      return (hasFatalError || hasFailedResult) ? 'failed' : 'completed'
     }
 
     // Fatal error but no EndRun → process crashed hard
@@ -200,6 +220,73 @@ function deriveOverallStatus(
   return 'unknown'
 }
 
+/**
+ * Pull the RFP ID out of a run's logs.
+ *
+ * For Submit/Decline flows the backend calls `log_event("SYSTEM", "StartRun", ...,
+ * f"Submit RFP {rfp_id} started")` WITHOUT passing rfp_id as a structured field,
+ * so every log row in the run has an empty RFP_ID column. We recover it from
+ * the StartRun details message; if that fails we fall back to the first log
+ * that has a non-empty rfp_id (for Download flows, which do set it).
+ */
+function extractRfpId(logs: LogEntry[]): string {
+  const startRun = logs.find((l) => (l.action ?? '').toLowerCase() === 'startrun')
+  const msg = startRun?.details ?? ''
+
+  // "Submit RFP <id> started" / "Decline RFP <id> started"
+  const m = msg.match(/^(?:Submit|Decline)\s+RFP\s+(.+?)\s+started/i)
+  if (m) return m[1].trim()
+
+  // Fallback: first log row carrying an rfp_id
+  const withRfp = logs.find((l) => l.rfp_id && l.rfp_id !== '-' && l.rfp_id.trim() !== '')
+  if (withRfp) return withRfp.rfp_id
+
+  return '-'
+}
+
+/**
+ * Classify a run as Download / Submit / Decline / Sync / Reminder / Other.
+ *
+ * Primary signal: the StartRun log's `details` message (most reliable — set once
+ * by the backend at the top of each automation entry-point in automation_logic.py).
+ * Fallback: categories (event_type) present in the run.
+ * Last resort: action names.
+ */
+function deriveAutomationType(logs: LogEntry[]): AutomationType {
+  // 1. Strongest signal: StartRun message
+  const startRun = logs.find((l) => (l.action ?? '').toLowerCase() === 'startrun')
+  const startMsg = (startRun?.details ?? '').toLowerCase()
+
+  if (startMsg) {
+    if (startMsg.includes('submit')) return 'submit'
+    if (startMsg.includes('decline')) return 'decline'
+    if (startMsg.includes('reminder')) return 'reminder'
+    if (startMsg.includes('sync')) return 'sync'
+    if (startMsg.includes('download') || startMsg.includes('all rfps') || startMsg.includes('open rfps')) {
+      return 'download'
+    }
+  }
+
+  // 2. Fallback: categories (event_type) seen in the run
+  const categories = new Set(logs.map((l) => (l.event_type ?? '').toUpperCase()))
+
+  if (categories.has('SUBMIT')) return 'submit'
+  if (categories.has('DECLINE')) return 'decline'
+  if (categories.has('SYNC')) return 'sync'
+  if (categories.has('ALL_RFPS')) return 'download'
+
+  // 3. Last resort: action names
+  const actions = logs.map((l) => (l.action ?? '').toLowerCase())
+  if (actions.some((a) => a.includes('submit'))) return 'submit'
+  if (actions.some((a) => a.includes('decline'))) return 'decline'
+  if (actions.some((a) => a.includes('reminder'))) return 'reminder'
+  if (actions.some((a) => a === 'download' || a.startsWith('download ') || a === 'downloadrfp')) {
+    return 'download'
+  }
+
+  return 'other'
+}
+
 function groupLogsByRunId(logs: LogEntry[], isAutomationRunning: boolean = false): AutomationRun[] {
   const groups: Record<string, LogEntry[]> = {}
 
@@ -221,9 +308,10 @@ function groupLogsByRunId(logs: LogEntry[], isAutomationRunning: boolean = false
 
     return {
       run_id: runId,
-      rfp_id: sorted[0]?.rfp_id || '-',
+      rfp_id: extractRfpId(sorted),
       category: sorted[0]?.event_type || '-',
       action: [...new Set(sorted.map((l) => l.action))].filter(a => a !== '-').join(', ') || '-',
+      automation_type: deriveAutomationType(sorted),
       start_time: sorted[0]?.event_time || '-',
       end_time: sorted[sorted.length - 1]?.event_time || '-',
       overall_status: deriveOverallStatus(sorted, isAutomationRunning),
@@ -267,6 +355,53 @@ function StatusIcon({ status }: { status: AutomationRun['overall_status'] }) {
   }
 }
 
+const AUTOMATION_TYPE_CONFIG: Record<AutomationType, {
+  label: string
+  icon: typeof Download
+  className: string
+}> = {
+  download: {
+    label: 'Download',
+    icon: Download,
+    className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  },
+  submit: {
+    label: 'Submit',
+    icon: Upload,
+    className: 'bg-blue-50 text-blue-700 border-blue-200',
+  },
+  decline: {
+    label: 'Decline',
+    icon: Ban,
+    className: 'bg-orange-50 text-orange-700 border-orange-200',
+  },
+  sync: {
+    label: 'Sync',
+    icon: RefreshCcw,
+    className: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  },
+  reminder: {
+    label: 'Reminder',
+    icon: Bell,
+    className: 'bg-amber-50 text-amber-700 border-amber-200',
+  },
+  other: {
+    label: 'Other',
+    icon: HelpCircle,
+    className: 'bg-slate-50 text-slate-600 border-slate-200',
+  },
+}
+
+function AutomationTypeBadge({ type }: { type: AutomationType }) {
+  const { label, icon: Icon, className } = AUTOMATION_TYPE_CONFIG[type]
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md border ${className}`}>
+      <Icon className="h-3 w-3" />
+      {label}
+    </span>
+  )
+}
+
 function StatusBadge({ status }: { status: AutomationRun['overall_status'] }) {
   const config: Record<string, { variant: any; label: string }> = {
     completed: { variant: 'success', label: 'Completed' },
@@ -302,11 +437,11 @@ function RunDetailModal({
 }) {
   const [activeTab, setActiveTab] = useState('timeline')
 
-  // Fetch error files for this RFP
+  // Fetch error files for this run
   const { data: errorFilesData, isLoading: loadingFiles } = useQuery({
-    queryKey: ['errorFiles', run?.rfp_id],
-    queryFn: () => api.getErrorFiles(run?.rfp_id),
-    enabled: open && !!run && run.rfp_id !== '-',
+    queryKey: ['errorFiles', run?.run_id],
+    queryFn: () => api.getErrorFiles(run?.run_id),
+    enabled: open && !!run && !!run.run_id,
   })
 
   const errorFiles = errorFilesData?.files || []
@@ -319,14 +454,15 @@ function RunDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[90vh] p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-4xl max-h-[90vh] p-0 gap-0 overflow-hidden flex flex-col">
         {/* Header */}
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white shrink-0">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
-              <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+              <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2 flex-wrap">
                 <StatusIcon status={run.overall_status} />
                 Automation Details
+                <AutomationTypeBadge type={run.automation_type} />
               </DialogTitle>
               <DialogDescription className="mt-1.5 text-sm text-slate-500">
                 Run ID: {run.run_id.substring(0, 8)}... | RFP: {run.rfp_id}
@@ -358,7 +494,7 @@ function RunDetailModal({
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0">
-          <div className="px-6 pt-3 border-b border-slate-100 bg-slate-50/50">
+          <div className="px-6 pt-3 border-b border-slate-100 bg-slate-50/50 shrink-0">
             <TabsList className="bg-transparent gap-1 p-0 h-auto">
               <TabsTrigger
                 value="timeline"
@@ -388,7 +524,7 @@ function RunDetailModal({
             </TabsList>
           </div>
 
-          <ScrollArea className="flex-1 max-h-[50vh]">
+          <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden">
             {/* Timeline Tab */}
             <TabsContent value="timeline" className="m-0 p-6">
               <div className="relative">
@@ -477,7 +613,7 @@ function RunDetailModal({
                 </div>
               )}
             </TabsContent>
-          </ScrollArea>
+          </div>
         </Tabs>
       </DialogContent>
     </Dialog>
@@ -626,7 +762,8 @@ function AutomationRunCard({
 
         {/* Main content */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <AutomationTypeBadge type={run.automation_type} />
             <h3 className="text-sm font-semibold text-slate-800 truncate">
               {run.rfp_id}
             </h3>
@@ -687,6 +824,7 @@ export default function LogsPage() {
   const [pageSize, setPageSize] = useState(100)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [typeFilter, setTypeFilter] = useState<string>('all')
   const [selectedRun, setSelectedRun] = useState<AutomationRun | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -715,6 +853,11 @@ export default function LogsPage() {
       result = result.filter((r) => r.overall_status === statusFilter)
     }
 
+    // Automation type filter
+    if (typeFilter !== 'all') {
+      result = result.filter((r) => r.automation_type === typeFilter)
+    }
+
     // Search filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
@@ -728,7 +871,7 @@ export default function LogsPage() {
     }
 
     return result
-  }, [allRuns, statusFilter, searchTerm])
+  }, [allRuns, statusFilter, typeFilter, searchTerm])
 
   // Stats
   const stats = useMemo(() => ({
@@ -843,6 +986,12 @@ export default function LogsPage() {
                 {statusFilter}
               </Badge>
             )}
+            {typeFilter !== 'all' && (
+              <Badge variant="secondary" className="ml-1 text-xs">
+                <Filter className="h-3 w-3 mr-1" />
+                {AUTOMATION_TYPE_CONFIG[typeFilter as AutomationType]?.label || typeFilter}
+              </Badge>
+            )}
           </CardTitle>
           <div className="flex items-center gap-3">
             <div className="relative w-64">
@@ -854,6 +1003,23 @@ export default function LogsPage() {
                 className="pl-10 bg-white border-slate-200"
               />
             </div>
+            <Select
+              value={typeFilter}
+              onValueChange={(value) => setTypeFilter(value)}
+            >
+              <SelectTrigger className="w-[150px] bg-white border-slate-200">
+                <SelectValue placeholder="All Types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="download">Download</SelectItem>
+                <SelectItem value="submit">Submit</SelectItem>
+                <SelectItem value="decline">Decline</SelectItem>
+                <SelectItem value="sync">Sync</SelectItem>
+                <SelectItem value="reminder">Reminder</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
             <Select
               value={String(pageSize)}
               onValueChange={(value) => {
@@ -914,16 +1080,17 @@ export default function LogsPage() {
               </div>
               <p className="text-lg font-medium text-slate-600 mb-2">No automation runs found</p>
               <p className="text-sm text-slate-400 mb-4">
-                {searchTerm || statusFilter !== 'all'
+                {searchTerm || statusFilter !== 'all' || typeFilter !== 'all'
                   ? 'Try adjusting your filters'
                   : 'Automation runs will appear here'}
               </p>
-              {(searchTerm || statusFilter !== 'all') && (
+              {(searchTerm || statusFilter !== 'all' || typeFilter !== 'all') && (
                 <Button
                   variant="outline"
                   onClick={() => {
                     setSearchTerm('')
                     setStatusFilter('all')
+                    setTypeFilter('all')
                   }}
                   className="border-slate-200"
                 >

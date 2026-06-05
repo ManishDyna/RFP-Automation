@@ -27,54 +27,82 @@ class GraphClient:
         result = app.acquire_token_for_client(SCOPES)
 
         # Debug: Print full token result
-        print(f"🔑 Token Result Keys: {result.keys()}")
+        print(f"[Token] Token Result Keys: {result.keys()}")
         if "error" in result:
-            print(f"❌ Token Error: {result.get('error')}")
-            print(f"❌ Error Description: {result.get('error_description')}")
+            print(f"[ERROR] Token Error: {result.get('error')}")
+            print(f"[ERROR] Error Description: {result.get('error_description')}")
 
         if "access_token" not in result:
-            raise RuntimeError(f"❌ Could not acquire token: {result}")
+            raise RuntimeError(f"[ERROR] Could not acquire token: {result}")
 
         self.token = result["access_token"]
         self.token_expiry = time.time() + result.get("expires_in", 3600) - 300
         self.headers = {"Authorization": f"Bearer {self.token}"}
-        print(f"✅ Token acquired successfully (length: {len(self.token)})")
+        print(f"[OK] Token acquired successfully (length: {len(self.token)})")
 
     def ensure_token(self):
         """Re-authenticate if token is missing or about to expire."""
         if not self.token or time.time() >= self.token_expiry:
-            print("🔄 Token expired or missing, re-authenticating...")
+            print("[Refresh] Token expired or missing, re-authenticating...")
             self.auth()
 
     def resolve_site_and_drive(self):
         # Resolve site ID
         site_url = f"https://graph.microsoft.com/v1.0/sites/{self.hostname}:{self.site_path}"
-        print(f"🔍 Requesting site URL: {site_url}")
-        print(f"🔍 Hostname: {self.hostname}")
-        print(f"🔍 Site Path: {self.site_path}")
+        print(f"Requesting site URL: {site_url}")
+        print(f"Hostname: {self.hostname}")
+        print(f"Site Path: {self.site_path}")
         r = requests.get(site_url, headers=self.headers)
-        print(f"🔍 Response Status: {r.status_code}")
+        print(f"Response Status: {r.status_code}")
         if r.status_code != 200:
-            raise RuntimeError(f"❌ Resolve site failed: {r.status_code} {r.text}")
+            raise RuntimeError(f"[ERROR] Resolve site failed: {r.status_code} {r.text}")
         self.site_id = r.json().get("id")
         if not self.site_id:
-            raise RuntimeError("❌ site_id missing")
+            raise RuntimeError("[ERROR] site_id missing")
 
         # Resolve drive ID
         drives_url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives"
         r = requests.get(drives_url, headers=self.headers)
         if r.status_code != 200:
-            raise RuntimeError(f"❌ List drives failed: {r.status_code} {r.text}")
+            raise RuntimeError(f"[ERROR] List drives failed: {r.status_code} {r.text}")
         for d in r.json().get("value", []):
             if d.get("name") == self.drive_name:
                 self.drive_id = d.get("id")
                 break
         if not self.drive_id:
-            raise RuntimeError(f"❌ Drive '{self.drive_name}' not found")
+            raise RuntimeError(f"[ERROR] Drive '{self.drive_name}' not found")
 
     def _get_item_by_path(self, path):
         url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{path}"
         return requests.get(url, headers=self.headers)
+
+    def get_folder_web_url(self, folder_path: str) -> str | None:
+        """Resolve the browser-openable SharePoint URL for a folder.
+
+        Returns the folder's `webUrl` if it exists, or None if the folder
+        is missing (HTTP 404). Raises on other errors.
+        """
+        self.ensure_token()
+        if not self.site_id or not self.drive_id:
+            self.resolve_site_and_drive()
+
+        folder_path = (folder_path or "").strip("/")
+        if not folder_path:
+            return None
+
+        url = (
+            f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}"
+            f"/root:/{folder_path}?$select=webUrl,folder,name"
+        )
+        res = requests.get(url, headers=self.headers)
+        if res.status_code == 404:
+            return None
+        if res.status_code != 200:
+            raise RuntimeError(
+                f"[ERROR] get_folder_web_url failed for '{folder_path}': "
+                f"{res.status_code} {res.text[:200]}"
+            )
+        return res.json().get("webUrl")
 
     def ensure_folder_path(self, folder_path):
         """Ensure nested folder path exists (e.g., 'RFP-logs/ALLRFPs/2025')."""
@@ -100,10 +128,10 @@ class GraphClient:
                 }
                 cr = requests.post(create_url, headers={**self.headers, "Content-Type": "application/json"}, data=json.dumps(payload))
                 if cr.status_code not in (200, 201):
-                    raise RuntimeError(f"❌ Create folder '{seg}' failed: {cr.status_code} {cr.text}")
+                    raise RuntimeError(f"[ERROR] Create folder '{seg}' failed: {cr.status_code} {cr.text}")
                 parent_id = cr.json()["id"]
             else:
-                raise RuntimeError(f"❌ Get path '{current_path}' failed: {res.status_code} {res.text}")
+                raise RuntimeError(f"[ERROR] Get path '{current_path}' failed: {res.status_code} {res.text}")
         return parent_id
 
     def upload_small_file(self, local_path, remote_path):
@@ -117,13 +145,13 @@ class GraphClient:
         """Upload >4MB via Upload Session."""
         parent_res = self._get_item_by_path(parent_folder_path)
         if parent_res.status_code != 200:
-            raise RuntimeError(f"❌ Parent path not found before large upload: {parent_folder_path}")
+            raise RuntimeError(f"[ERROR] Parent path not found before large upload: {parent_folder_path}")
         parent_id = parent_res.json()["id"]
 
         session_url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/items/{parent_id}:/{filename}:/createUploadSession"
         sres = requests.post(session_url, headers={**self.headers, "Content-Type": "application/json"}, data=json.dumps({"item": {"@microsoft.graph.conflictBehavior": "replace"}}))
         if sres.status_code not in (200, 201):
-            raise RuntimeError(f"❌ Create upload session failed: {sres.status_code} {sres.text}")
+            raise RuntimeError(f"[ERROR] Create upload session failed: {sres.status_code} {sres.text}")
         upload_url = sres.json()["uploadUrl"]
 
         file_size = os.path.getsize(local_path)
@@ -139,7 +167,7 @@ class GraphClient:
                 }
                 put = requests.put(upload_url, headers=headers, data=chunk)
                 if put.status_code not in (200, 201, 202):
-                    raise RuntimeError(f"❌ Chunk upload failed [{start}-{end}]: {put.status_code} {put.text}")
+                    raise RuntimeError(f"[ERROR] Chunk upload failed [{start}-{end}]: {put.status_code} {put.text}")
                 start = end + 1
         return put
 
@@ -192,23 +220,23 @@ class GraphClient:
                 else:
                     res = self.upload_large_file(str(fpath), parent_rel_folder, os.path.basename(rel))
                 if res.status_code in (200, 201, 202):
-                    print(f"☁️ Uploaded: {remote_file_path}")
+                    print(f"[Upload] Uploaded: {remote_file_path}")
                 else:
-                    print(f"❌ Upload failed: {remote_file_path} -> {res.status_code} {res.text}")
+                    print(f"[ERROR] Upload failed: {remote_file_path} -> {res.status_code} {res.text}")
 
     def download_file_from_sharepoint(self, sp_path: str, local_path: str):
         """Download a file from SharePoint to local path."""
         url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{sp_path}:/content"
         response = requests.get(url, headers=self.headers, stream=True)
         if response.status_code != 200:
-            raise RuntimeError(f"❌ Download failed for {sp_path}: {response.status_code} {response.text}")
+            raise RuntimeError(f"[ERROR] Download failed for {sp_path}: {response.status_code} {response.text}")
 
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         with open(local_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
 
-        print(f"☑️ Downloaded {sp_path} → {local_path}")
+        print(f"[Done] Downloaded {sp_path} -> {local_path}")
         return local_path
 
     def get_latest_excel_from_folder(self, sp_folder_path: str) -> tuple:
@@ -225,7 +253,7 @@ class GraphClient:
         response = requests.get(url, headers=self.headers)
         if response.status_code != 200:
             raise RuntimeError(
-                f"❌ Cannot list folder '{sp_folder_path}': HTTP {response.status_code} {response.text[:200]}"
+                f"[ERROR] Cannot list folder '{sp_folder_path}': HTTP {response.status_code} {response.text[:200]}"
             )
 
         items = response.json().get('value', [])
@@ -235,9 +263,9 @@ class GraphClient:
         ]
 
         if not excel_files:
-            raise RuntimeError(f"❌ No Excel files (.xls/.xlsx) found in '{sp_folder_path}'")
+            raise RuntimeError(f"[ERROR] No Excel files (.xls/.xlsx) found in '{sp_folder_path}'")
 
-        # Sort by lastModifiedDateTime descending → latest first
+        # Sort by lastModifiedDateTime descending -> latest first
         excel_files.sort(
             key=lambda x: x.get('lastModifiedDateTime', ''),
             reverse=True
@@ -248,13 +276,13 @@ class GraphClient:
         modified_at = latest.get('lastModifiedDateTime', 'unknown')
         size = latest.get('size', 0)
 
-        print(f"📋 Files in '{sp_folder_path}' ({len(excel_files)} Excel):")
+        print(f"Files in '{sp_folder_path}' ({len(excel_files)} Excel):")
         for i, f in enumerate(excel_files[:5]):
-            marker = " ← latest" if i == 0 else ""
+            marker = " <- latest" if i == 0 else ""
             print(f"   {i+1}. {f['name']} | {f.get('lastModifiedDateTime','?')}{marker}")
 
         file_path = f"{sp_folder_path}/{filename}"
-        print(f"📥 Fetching latest Excel: '{filename}' (modified: {modified_at}, size: {size} bytes)")
+        print(f"[Download] Fetching latest Excel: '{filename}' (modified: {modified_at}, size: {size} bytes)")
 
         content_url = (
             f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}"
@@ -263,13 +291,13 @@ class GraphClient:
         content_resp = requests.get(content_url, headers=self.headers)
         if content_resp.status_code != 200:
             raise RuntimeError(
-                f"❌ Failed to download '{filename}': HTTP {content_resp.status_code}"
+                f"[ERROR] Failed to download '{filename}': HTTP {content_resp.status_code}"
             )
 
         from io import BytesIO
         content = BytesIO(content_resp.content)
         content.seek(0)
-        print(f"✅ Latest Excel fetched: '{filename}' ({len(content_resp.content)} bytes)")
+        print(f"[OK] Latest Excel fetched: '{filename}' ({len(content_resp.content)} bytes)")
         return content, filename
 
     def list_files_in_directory(self, sp_directory_path: str, file_extensions: list = None) -> list:
@@ -287,7 +315,7 @@ class GraphClient:
         response = requests.get(url, headers=self.headers)
 
         if response.status_code != 200:
-            print(f"⚠️ Could not list directory {sp_directory_path}: {response.status_code}")
+            print(f"[WARN] Could not list directory {sp_directory_path}: {response.status_code}")
             return []
 
         files = []
@@ -331,7 +359,7 @@ class GraphClient:
         response = requests.get(url, headers=self.headers)
 
         if response.status_code != 200:
-            print(f"⚠️ Could not list directory {sp_directory_path}: {response.status_code}")
+            print(f"[WARN] Could not list directory {sp_directory_path}: {response.status_code}")
             return []
 
         folders = []
@@ -363,13 +391,13 @@ class GraphClient:
         safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip().rstrip('.')
         sp_company_path = f"{sp_base_folder}/ALLRFPs/{safe_company_name}"
 
-        print(f"🔄 Fetching RFP files from SharePoint: {sp_company_path}")
+        print(f"[Refresh] Fetching RFP files from SharePoint: {sp_company_path}")
 
         # List all Excel files in the company's folder
         excel_files = self.list_files_in_directory(sp_company_path, ['.xls', '.xlsx'])
 
         if not excel_files:
-            print(f"⚠️ No Excel files found in SharePoint: {sp_company_path}")
+            print(f"[WARN] No Excel files found in SharePoint: {sp_company_path}")
             return []
 
         downloaded_files = []
@@ -387,11 +415,11 @@ class GraphClient:
                 os.makedirs(os.path.dirname(local_path), exist_ok=True)
                 self.download_file_from_sharepoint(sp_path, local_path)
                 downloaded_files.append(local_path)
-                print(f"✅ Downloaded: {file_name}")
+                print(f"[OK] Downloaded: {file_name}")
             except Exception as e:
-                print(f"⚠️ Failed to download {file_name}: {e}")
+                print(f"[WARN] Failed to download {file_name}: {e}")
 
-        print(f"📥 Downloaded {len(downloaded_files)} RFP files from SharePoint")
+        print(f"[Download] Downloaded {len(downloaded_files)} RFP files from SharePoint")
         return downloaded_files
 
     def get_file_content_from_sharepoint(self, sp_path: str):
@@ -403,8 +431,8 @@ class GraphClient:
             import re
             return re.sub(r'[^a-z0-9]', '', name.lower())
         
-        print(f"\n🔍 SharePoint Fuzzy File Search")
-        print(f"   📄 Requested: '{sp_path}'")
+        print(f"\nSharePoint Fuzzy File Search")
+        print(f"   Requested: '{sp_path}'")
         
         # Split path into directory and filename
         path_parts = sp_path.split('/')
@@ -417,7 +445,7 @@ class GraphClient:
                 content.seek(0)
                 return content
             else:
-                raise RuntimeError(f"❌ File not found: {sp_path}")
+                raise RuntimeError(f"[ERROR] File not found: {sp_path}")
         
         directory_path = '/'.join(path_parts[:-1])
         target_filename = path_parts[-1]
@@ -432,11 +460,11 @@ class GraphClient:
             dir_response = requests.get(dir_url, headers=self.headers)
             
             if dir_response.status_code != 200:
-                print(f"   ❌ Directory access failed: {dir_response.status_code}")
-                raise RuntimeError(f"❌ Cannot access directory: {directory_path}")
+                print(f"   [ERROR] Directory access failed: {dir_response.status_code}")
+                raise RuntimeError(f"[ERROR] Cannot access directory: {directory_path}")
             
             files = dir_response.json().get('value', [])
-            print(f"   📊 Directory contains {len(files)} items")
+            print(f"   Directory contains {len(files)} items")
             
             # Normalize target for comparison
             normalized_target = normalize_filename(target_filename)
@@ -444,7 +472,7 @@ class GraphClient:
             # Strategy 1: Try exact filename match first
             for file in files:
                 if file.get('name') == target_filename:
-                    print(f"   ✅ Exact match found: '{target_filename}'")
+                    print(f"   [OK] Exact match found: '{target_filename}'")
                     actual_path = sp_path
                     break
                 else:
@@ -453,12 +481,12 @@ class GraphClient:
                     for file in files:
                         file_name = file.get('name', '')
                         if normalize_filename(file_name) == normalized_target:
-                            print(f"   ✅ Normalized match found!")
-                            print(f"      Target: '{target_filename}' → '{normalized_target}'")
-                            print(f"      Found:  '{file_name}' → '{normalize_filename(file_name)}'")
+                            print(f"   [OK] Normalized match found!")
+                            print(f"      Target: '{target_filename}' -> '{normalized_target}'")
+                            print(f"      Found:  '{file_name}' -> '{normalize_filename(file_name)}'")
                             actual_path = f"{directory_path}/{file_name}"
                             break
-                    
+
                     if not actual_path:
                         # Strategy 3: Try partial matching
                         partial_matches = []
@@ -467,35 +495,35 @@ class GraphClient:
                             norm_file = normalize_filename(file_name)
                             if normalized_target in norm_file or norm_file in normalized_target:
                                 partial_matches.append(file_name)
-                        
+
                         if partial_matches:
                             actual_path = f"{directory_path}/{partial_matches[0]}"
-                            print(f"   ✅ Partial match found: '{partial_matches[0]}'")
+                            print(f"   [OK] Partial match found: '{partial_matches[0]}'")
                         else:
                             # Show available files for debugging
-                            print(f"   ❌ No match found. Available files:")
+                            print(f"   [ERROR] No match found. Available files:")
                             for i, file in enumerate(files[:10]):
                                 name = file.get('name', 'Unknown')
                                 norm = normalize_filename(name)
-                                print(f"      {i+1}. '{name}' → '{norm}'")
-                            
-                            raise RuntimeError(f"❌ File not found: {target_filename}")
-                    
+                                print(f"      {i+1}. '{name}' -> '{norm}'")
+
+                            raise RuntimeError(f"[ERROR] File not found: {target_filename}")
+
             # Fetch the file using the determined path
-            print(f"   �� Fetching: {actual_path}")
+            print(f"   Fetching: {actual_path}")
             url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{actual_path}:/content"
             response = requests.get(url, headers=self.headers)
-            
+
             if response.status_code == 200:
-                print(f"   ✅ Success! ({len(response.content)} bytes)")
+                print(f"   [OK] Success! ({len(response.content)} bytes)")
                 content = BytesIO(response.content)
                 content.seek(0)
                 return content
             else:
-                raise RuntimeError(f"❌ Fetch failed: {response.status_code} {response.text}")
-                
+                raise RuntimeError(f"[ERROR] Fetch failed: {response.status_code} {response.text}")
+
         except Exception as e:
-            print(f"   ❌ Error: {e}")
+            print(f"   [ERROR] Error: {e}")
             raise e
 
     def download_all_from_sharepoint(self, sp_folder_path: str, local_base_dir: str, skip_existing: bool = False):
@@ -636,61 +664,61 @@ class GraphClient:
             response = requests.get(dir_url, headers=self.headers)
             
             if response.status_code != 200:
-                print(f"   ❌ Cannot access directory: {response.status_code}")
+                print(f"   [ERROR] Cannot access directory: {response.status_code}")
                 return sp_path  # Return original path if directory check fails
-            
+
             files = response.json().get('value', [])
-            print(f"   📊 Found {len(files)} files in directory")
-            
+            print(f"   Found {len(files)} files in directory")
+
             # Normalize the target filename for comparison
             normalized_target = normalize_filename(target_filename)
-            
+
             # Look for exact matches first
             for file in files:
                 file_name = file.get('name', '')
                 if file_name == target_filename:
-                    print(f"   ✅ Exact match found: '{file_name}'")
+                    print(f"   [OK] Exact match found: '{file_name}'")
                     return sp_path
-            
+
             # If no exact match, look for normalized matches
-            print(f"   🔍 No exact match, trying fuzzy matching...")
+            print(f"   No exact match, trying fuzzy matching...")
             for file in files:
                 file_name = file.get('name', '')
                 normalized_file = normalize_filename(file_name)
-                
+
                 if normalized_file == normalized_target:
-                    print(f"   ✅ Fuzzy match found!")
-                    print(f"      Target: '{target_filename}' → '{normalized_target}'")
-                    print(f"      Found:  '{file_name}' → '{normalized_file}'")
-                    
+                    print(f"   [OK] Fuzzy match found!")
+                    print(f"      Target: '{target_filename}' -> '{normalized_target}'")
+                    print(f"      Found:  '{file_name}' -> '{normalized_file}'")
+
                     # Return the correct path with the actual filename
                     correct_path = f"{directory_path}/{file_name}"
                     return correct_path
-            
+
             # If still no match, look for partial matches (target contained in filename)
-            print(f"   🔍 No exact fuzzy match, trying partial matching...")
+            print(f"   No exact fuzzy match, trying partial matching...")
             partial_matches = []
             for file in files:
                 file_name = file.get('name', '')
                 normalized_file = normalize_filename(file_name)
-                
+
                 if normalized_target in normalized_file or normalized_file in normalized_target:
                     partial_matches.append((file_name, normalized_file))
-            
+
             if partial_matches:
-                print(f"   📋 Found {len(partial_matches)} partial matches:")
+                print(f"   Found {len(partial_matches)} partial matches:")
                 for file_name, normalized in partial_matches:
-                    print(f"      - '{file_name}' → '{normalized}'")
-                
+                    print(f"      - '{file_name}' -> '{normalized}'")
+
                 # Use the first partial match
                 best_match = partial_matches[0][0]
-                print(f"   ✅ Using best partial match: '{best_match}'")
+                print(f"   [OK] Using best partial match: '{best_match}'")
                 correct_path = f"{directory_path}/{best_match}"
                 return correct_path
-            
-            print(f"   ❌ No matching file found")
+
+            print(f"   [ERROR] No matching file found")
             return None
-            
+
         except Exception as e:
-            print(f"   ❌ Error during fuzzy search: {e}")
+            print(f"   [ERROR] Error during fuzzy search: {e}")
             return sp_path  # Return original path if search fails

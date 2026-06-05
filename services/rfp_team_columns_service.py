@@ -15,10 +15,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict
 
 from helpers.core_helper import DATAVERSE
-from config.config import (
-    RFP_TEAM_COLUMNS_TABLE_API,
-    RFP_TEAM_COLUMNS_TABLE_LOGICAL,
-)
+from services.system_settings_service import get_setting
 
 
 # ---------------------------------------------------------------------------
@@ -62,9 +59,9 @@ def _now_iso() -> str:
 
 
 def _extract_record_id(row: dict) -> str:
-    pk_logical = f"{RFP_TEAM_COLUMNS_TABLE_LOGICAL}id"
+    pk_logical = f"{get_setting('RFP_TEAM_COLUMNS_TABLE_LOGICAL', 'cr673_bahra_rfp_team_columns')}id"
     try:
-        colmap = DATAVERSE.get_column_mapping(RFP_TEAM_COLUMNS_TABLE_LOGICAL)
+        colmap = DATAVERSE.get_column_mapping(get_setting('RFP_TEAM_COLUMNS_TABLE_LOGICAL', 'cr673_bahra_rfp_team_columns'))
         logical_to_display = {v: k for k, v in colmap.items()}
         pk_display = logical_to_display.get(pk_logical)
         return (row.get(pk_display) if pk_display else None) or row.get(pk_logical, "")
@@ -73,7 +70,7 @@ def _extract_record_id(row: dict) -> str:
 
 
 def _hard_delete(record_id: str) -> bool:
-    url = f"{DATAVERSE.api_url}{RFP_TEAM_COLUMNS_TABLE_API}({record_id})"
+    url = f"{DATAVERSE.api_url}{get_setting('RFP_TEAM_COLUMNS_TABLE_API', 'cr673_bahra_rfp_team_columnses')}({record_id})"
     resp = requests.delete(url, headers=DATAVERSE._headers())
     return resp.status_code in (200, 204)
 
@@ -101,13 +98,13 @@ def get_all_columns(force_refresh: bool = False) -> List[Dict]:
 
     try:
         rows = DATAVERSE.get_all_rows(
-            table_api_name=RFP_TEAM_COLUMNS_TABLE_API,
+            table_api_name=get_setting('RFP_TEAM_COLUMNS_TABLE_API', 'cr673_bahra_rfp_team_columnses'),
             select_columns=[
                 "column_key", "column_label", "column_type", "column_category",
                 "sort_order", "dropdown_options", "is_required", "is_team_field",
                 "is_protected", "is_active",
             ],
-            table_logical_name=RFP_TEAM_COLUMNS_TABLE_LOGICAL,
+            table_logical_name=get_setting('RFP_TEAM_COLUMNS_TABLE_LOGICAL', 'cr673_bahra_rfp_team_columns'),
             use_display_names=True,
         )
 
@@ -132,6 +129,13 @@ def get_all_columns(force_refresh: bool = False) -> List[Dict]:
             if rows:
                 print(f"[RFPTeamColumns] Raw row keys: {list(rows[0].keys())}")
 
+        # Ensure core fields always have is_team_field=true and is_required=true
+        _core_keys = {"product", "name", "email"}
+        for col in columns:
+            if col.get("column_key") in _core_keys:
+                col["is_team_field"] = "true"
+                col["is_required"] = "true"
+
         if columns:
             _column_cache = columns
             _column_cache_ts = time.time()
@@ -151,8 +155,11 @@ def get_display_columns() -> List[Dict]:
 
 
 def get_input_columns() -> List[Dict]:
-    """Return only category=input columns, sorted by sort_order."""
-    return [c for c in get_all_columns() if c.get("column_category") == "input"]
+    """Return only category=input columns (excluding buttons), sorted by sort_order."""
+    return [
+        c for c in get_all_columns()
+        if c.get("column_category") == "input" and c.get("column_type") != "button"
+    ]
 
 
 def get_team_field_columns() -> List[Dict]:
@@ -177,7 +184,7 @@ def list_columns(search: Optional[str] = None, page: int = 1, page_size: int = 1
     skip = (page - 1) * page_size
 
     result = DATAVERSE.query_rows(
-        table_api_name=RFP_TEAM_COLUMNS_TABLE_API,
+        table_api_name=get_setting('RFP_TEAM_COLUMNS_TABLE_API', 'cr673_bahra_rfp_team_columnses'),
         filter_expr=filter_expr,
         select="column_key,column_label,column_type,column_category,sort_order,"
                "dropdown_options,is_required,is_team_field,is_protected,is_active,"
@@ -185,7 +192,7 @@ def list_columns(search: Optional[str] = None, page: int = 1, page_size: int = 1
         top=page_size,
         skip=skip,
         order_by="sort_order asc",
-        table_logical_name=RFP_TEAM_COLUMNS_TABLE_LOGICAL,
+        table_logical_name=get_setting('RFP_TEAM_COLUMNS_TABLE_LOGICAL', 'cr673_bahra_rfp_team_columns'),
         use_display_names=True,
     )
 
@@ -198,13 +205,13 @@ def list_columns(search: Optional[str] = None, page: int = 1, page_size: int = 1
 
 def get_column(record_id: str) -> Optional[dict]:
     """Get a single column definition."""
-    url = f"{DATAVERSE.api_url}{RFP_TEAM_COLUMNS_TABLE_API}({record_id})"
+    url = f"{DATAVERSE.api_url}{get_setting('RFP_TEAM_COLUMNS_TABLE_API', 'cr673_bahra_rfp_team_columnses')}({record_id})"
     resp = requests.get(url, headers=DATAVERSE._headers())
     if resp.status_code != 200:
         return None
     row = resp.json()
     try:
-        colmap = DATAVERSE.get_column_mapping(RFP_TEAM_COLUMNS_TABLE_LOGICAL)
+        colmap = DATAVERSE.get_column_mapping(get_setting('RFP_TEAM_COLUMNS_TABLE_LOGICAL', 'cr673_bahra_rfp_team_columns'))
         logical_to_display = {v: k for k, v in colmap.items()}
         mapped = {logical_to_display.get(k, k): v for k, v in row.items()}
         mapped["record_id"] = record_id
@@ -219,11 +226,11 @@ def column_key_exists(key: str, exclude_record_id: str = "") -> bool:
     escaped = key.strip().lower().replace("'", "''")
     filter_expr = f"column_key eq '{escaped}' and is_active eq 'true'"
     result = DATAVERSE.query_rows(
-        table_api_name=RFP_TEAM_COLUMNS_TABLE_API,
+        table_api_name=get_setting('RFP_TEAM_COLUMNS_TABLE_API', 'cr673_bahra_rfp_team_columnses'),
         filter_expr=filter_expr,
         select="column_key",
         top=5,
-        table_logical_name=RFP_TEAM_COLUMNS_TABLE_LOGICAL,
+        table_logical_name=get_setting('RFP_TEAM_COLUMNS_TABLE_LOGICAL', 'cr673_bahra_rfp_team_columns'),
         use_display_names=True,
     )
     rows = result.get("value", []) if isinstance(result, dict) else []
@@ -251,9 +258,9 @@ def create_column(data: dict) -> bool:
         "updated_date": _now_iso(),
     }
     result = DATAVERSE.insert_row(
-        table_api_name=RFP_TEAM_COLUMNS_TABLE_API,
+        table_api_name=get_setting('RFP_TEAM_COLUMNS_TABLE_API', 'cr673_bahra_rfp_team_columnses'),
         data=payload,
-        table_logical_name=RFP_TEAM_COLUMNS_TABLE_LOGICAL,
+        table_logical_name=get_setting('RFP_TEAM_COLUMNS_TABLE_LOGICAL', 'cr673_bahra_rfp_team_columns'),
         use_display_names=True,
     )
     if result:
@@ -278,10 +285,10 @@ def update_column(record_id: str, data: dict) -> bool:
         payload["column_key"] = data["column_key"].strip().lower()
 
     result = DATAVERSE.update_row(
-        table_api_name=RFP_TEAM_COLUMNS_TABLE_API,
+        table_api_name=get_setting('RFP_TEAM_COLUMNS_TABLE_API', 'cr673_bahra_rfp_team_columnses'),
         record_id=record_id,
         data=payload,
-        table_logical_name=RFP_TEAM_COLUMNS_TABLE_LOGICAL,
+        table_logical_name=get_setting('RFP_TEAM_COLUMNS_TABLE_LOGICAL', 'cr673_bahra_rfp_team_columns'),
         use_display_names=True,
     )
     if result:
@@ -306,10 +313,10 @@ def reorder_columns(ordered_ids: List[str]) -> bool:
     for idx, record_id in enumerate(ordered_ids, start=1):
         data = {"sort_order": str(idx), "updated_date": _now_iso()}
         ok = DATAVERSE.update_row(
-            table_api_name=RFP_TEAM_COLUMNS_TABLE_API,
+            table_api_name=get_setting('RFP_TEAM_COLUMNS_TABLE_API', 'cr673_bahra_rfp_team_columnses'),
             record_id=record_id,
             data=data,
-            table_logical_name=RFP_TEAM_COLUMNS_TABLE_LOGICAL,
+            table_logical_name=get_setting('RFP_TEAM_COLUMNS_TABLE_LOGICAL', 'cr673_bahra_rfp_team_columns'),
             use_display_names=True,
         )
         if not ok:

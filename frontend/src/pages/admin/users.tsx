@@ -10,10 +10,12 @@ import {
   Pencil,
   Trash2,
   Search,
-  ShieldCheck,
-  ShieldOff,
   Unlock,
   Lock,
+  Eye,
+  EyeOff,
+  Copy,
+  RefreshCw,
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -69,23 +71,48 @@ import { useHasPermission } from '@/hooks/use-auth'
 const userSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Please enter a valid email'),
-  mobile: z.string().optional(),
   role: z.string().min(1, 'Please select a role'),
-  password: z.string().min(6, 'Password must be at least 6 characters').optional(),
+  password: z.union([
+    z.string()
+      .min(8, 'Password must be at least 8 characters')
+      .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+      .regex(/\d/, 'Password must contain at least one number'),
+    z.literal(''),
+  ]).optional(),
+  status: z.enum(['Active', 'Inactive']).optional(),
 })
 
 type UserFormData = z.infer<typeof userSchema>
+
+function generatePassword(length = 12): string {
+  const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  const lower = 'abcdefghijklmnopqrstuvwxyz'
+  const digits = '0123456789'
+  const special = '!@#$%^&*'
+  const all = upper + lower + digits + special
+  const pwd = [
+    upper[Math.floor(Math.random() * upper.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+    digits[Math.floor(Math.random() * digits.length)],
+    special[Math.floor(Math.random() * special.length)],
+  ]
+  for (let i = pwd.length; i < length; i++) {
+    pwd.push(all[Math.floor(Math.random() * all.length)])
+  }
+  return pwd.sort(() => Math.random() - 0.5).join('')
+}
 
 export default function UserManagementPage() {
   const queryClient = useQueryClient()
   const canCreate = useHasPermission('user_management.create')
   const canEdit = useHasPermission('user_management.edit')
   const canDelete = useHasPermission('user_management.delete')
-  const canActivate = useHasPermission('user_management.activate')
   const [searchTerm, setSearchTerm] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<any>(null)
   const [deleteUser, setDeleteUser] = useState<any>(null)
+  const [showPassword, setShowPassword] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['users'],
@@ -110,21 +137,6 @@ export default function UserManagementPage() {
     },
   })
 
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UserFormData }) =>
-      api.updateUser(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] })
-      toast.success('User updated successfully')
-      setDialogOpen(false)
-      setEditingUser(null)
-      reset()
-    },
-    onError: (error: any) => {
-      toast.error(error.message || 'Failed to update user')
-    },
-  })
-
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.deleteUser(id),
     onSuccess: () => {
@@ -135,24 +147,6 @@ export default function UserManagementPage() {
     onError: (error: any) => {
       toast.error(error.message || 'Failed to delete user')
     },
-  })
-
-  const activateMutation = useMutation({
-    mutationFn: (id: string) => api.activateUser(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] })
-      toast.success('User activated successfully')
-    },
-    onError: (error: any) => toast.error(error.message || 'Failed to activate user'),
-  })
-
-  const deactivateMutation = useMutation({
-    mutationFn: (id: string) => api.deactivateUser(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] })
-      toast.success('User deactivated successfully')
-    },
-    onError: (error: any) => toast.error(error.message || 'Failed to deactivate user'),
   })
 
   const unlockMutation = useMutation({
@@ -176,7 +170,6 @@ export default function UserManagementPage() {
     defaultValues: {
       name: '',
       email: '',
-      mobile: '',
       role: '',
       password: '',
     },
@@ -197,23 +190,52 @@ export default function UserManagementPage() {
     setEditingUser(user)
     setValue('name', user.name || '')
     setValue('email', user.email || '')
-    setValue('mobile', user.mobile_number || '')
     setValue('role', user.role || '')
     setValue('password', '')
+    const isUserActive = String(user.is_active || 'true').toLowerCase() !== 'false'
+    setValue('status', isUserActive ? 'Active' : 'Inactive')
+    setShowPassword(false)
     setDialogOpen(true)
   }
 
   const handleAdd = () => {
     setEditingUser(null)
     reset()
+    setShowPassword(false)
     setDialogOpen(true)
   }
 
-  const onSubmit = (data: UserFormData) => {
+  const onSubmit = async (data: UserFormData) => {
+    const payload = { ...data }
+    const newStatus = payload.status
+    delete payload.status
+    if (!payload.password) {
+      delete payload.password
+    }
+
     if (editingUser) {
-      updateMutation.mutate({ id: editingUser.record_id, data })
+      setIsSubmitting(true)
+      try {
+        await api.updateUser(editingUser.record_id, payload)
+        // Handle status change
+        const wasActive = String(editingUser.is_active || 'true').toLowerCase() !== 'false'
+        if (newStatus === 'Inactive' && wasActive) {
+          await api.deactivateUser(editingUser.record_id)
+        } else if (newStatus === 'Active' && !wasActive) {
+          await api.activateUser(editingUser.record_id)
+        }
+        queryClient.invalidateQueries({ queryKey: ['users'] })
+        toast.success('User updated successfully')
+        setDialogOpen(false)
+        setEditingUser(null)
+        reset()
+      } catch (error: any) {
+        toast.error(error.message || 'Failed to update user')
+      } finally {
+        setIsSubmitting(false)
+      }
     } else {
-      createMutation.mutate(data)
+      createMutation.mutate(payload as UserFormData)
     }
   }
 
@@ -265,11 +287,11 @@ export default function UserManagementPage() {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead>Mobile</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead className="text-center">Status</TableHead>
                     <TableHead>Created</TableHead>
-                    {(canEdit || canDelete || canActivate) && (
+                    <TableHead>Last Updated</TableHead>
+                    {(canEdit || canDelete) && (
                       <TableHead className="text-right">Actions</TableHead>
                     )}
                   </TableRow>
@@ -282,7 +304,6 @@ export default function UserManagementPage() {
                       <TableRow key={user.record_id}>
                         <TableCell className="font-medium">{user.name}</TableCell>
                         <TableCell>{user.email}</TableCell>
-                        <TableCell>{user.mobile_number || '-'}</TableCell>
                         <TableCell>
                           <Badge
                             variant={user.role?.toLowerCase() === 'admin' ? 'default' : 'secondary'}
@@ -303,7 +324,8 @@ export default function UserManagementPage() {
                           )}
                         </TableCell>
                         <TableCell>{user.created_display || '-'}</TableCell>
-                        {(canEdit || canDelete || canActivate) && (
+                        <TableCell>{user.updated_display || '-'}</TableCell>
+                        {(canEdit || canDelete) && (
                           <TableCell className="text-right">
                             <TooltipProvider delayDuration={0}>
                               <div className="flex items-center justify-end gap-1">
@@ -320,36 +342,6 @@ export default function UserManagementPage() {
                                       </Button>
                                     </TooltipTrigger>
                                     <TooltipContent>Edit user</TooltipContent>
-                                  </Tooltip>
-                                )}
-                                {canActivate && isActive && !isLocked && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        className="h-8 w-8 text-orange-500 hover:text-orange-600"
-                                        onClick={() => deactivateMutation.mutate(user.record_id)}
-                                      >
-                                        <ShieldOff className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Deactivate user</TooltipContent>
-                                  </Tooltip>
-                                )}
-                                {canActivate && !isActive && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        className="h-8 w-8 text-green-600 hover:text-green-700"
-                                        onClick={() => activateMutation.mutate(user.record_id)}
-                                      >
-                                        <ShieldCheck className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Activate user</TooltipContent>
                                   </Tooltip>
                                 )}
                                 {canEdit && isLocked && (
@@ -429,20 +421,10 @@ export default function UserManagementPage() {
                 type="email"
                 {...register('email')}
                 placeholder="user@company.com"
-                disabled={!!editingUser}
               />
               {errors.email && (
                 <p className="text-sm text-destructive">{errors.email.message}</p>
               )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="mobile">Mobile</Label>
-              <Input
-                id="mobile"
-                {...register('mobile')}
-                placeholder="+1 234 567 8900"
-              />
             </div>
 
             <div className="space-y-2">
@@ -474,16 +456,77 @@ export default function UserManagementPage() {
               )}
             </div>
 
+            {editingUser && (
+              <div className="space-y-2">
+                <Label htmlFor="status">Status</Label>
+                <Select
+                  value={watch('status')}
+                  onValueChange={(value: 'Active' | 'Inactive') => setValue('status', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="password">
                 Password {editingUser ? '(leave blank to keep current)' : '*'}
               </Label>
-              <Input
-                id="password"
-                type="password"
-                {...register('password')}
-                placeholder={editingUser ? '••••••••' : 'Enter password'}
-              />
+              <div className="flex gap-2 items-center">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  {...register('password')}
+                  placeholder={editingUser ? '••••••••' : 'Enter password'}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => setShowPassword(!showPassword)}
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => {
+                    const pwd = generatePassword()
+                    setValue('password', pwd)
+                    setShowPassword(true)
+                  }}
+                  title="Generate password"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => {
+                    const pwd = watch('password')
+                    if (pwd) {
+                      navigator.clipboard.writeText(pwd)
+                      toast.success('Password copied to clipboard')
+                    }
+                  }}
+                  title="Copy password"
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
               {errors.password && (
                 <p className="text-sm text-destructive">{errors.password.message}</p>
               )}
@@ -499,7 +542,7 @@ export default function UserManagementPage() {
               </Button>
               <Button
                 type="submit"
-                loading={createMutation.isPending || updateMutation.isPending}
+                loading={createMutation.isPending || isSubmitting}
               >
                 {editingUser ? 'Save Changes' : 'Create User'}
               </Button>

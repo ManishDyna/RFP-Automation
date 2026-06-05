@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { Building, Download, AlertTriangle } from 'lucide-react'
 
@@ -22,15 +22,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { api } from '@/lib/api'
 
-// Company options - should match config.py COMPANY_OPTIONS
-const COMPANY_OPTIONS = [
-  'all',
-  'Saudi Electricity Company',
-  'Aramco e-Marketplace',
-  'SABIC - Saudi Basic Industries Corp.',
-  'HADEED - RAJHI STEEL',
-]
-
 interface DownloadCompanyDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -40,6 +31,13 @@ interface DownloadCompanyDialogProps {
 export function DownloadCompanyDialog({ open, onOpenChange, mode = 'all' }: DownloadCompanyDialogProps) {
   const [company, setCompany] = useState('all')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [companyOptions, setCompanyOptions] = useState<string[]>([])
+
+  useEffect(() => {
+    if (open) {
+      api.getCompanyOptions().then((res) => setCompanyOptions(res.options)).catch(() => {})
+    }
+  }, [open])
 
   const isOpenMode = mode === 'open'
 
@@ -93,7 +91,7 @@ export function DownloadCompanyDialog({ open, onOpenChange, mode = 'all' }: Down
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Companies</SelectItem>
-                {COMPANY_OPTIONS.filter(c => c !== 'all').map((c) => (
+                {companyOptions.map((c: string) => (
                   <SelectItem key={c} value={c}>
                     {c}
                   </SelectItem>

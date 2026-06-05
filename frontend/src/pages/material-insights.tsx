@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, Fragment } from 'react'
+import { useState, useRef, useMemo, useEffect, Fragment } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -6,10 +6,7 @@ import {
   ArrowLeft,
   Filter,
   Building2,
-  TrendingUp,
   RotateCcw,
-  CheckCircle2,
-  XCircle,
   Package,
   Tag,
   Layers,
@@ -18,6 +15,10 @@ import {
   ChevronDown,
   ChevronRight,
   Hash,
+  Download,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -45,44 +46,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { api } from '@/lib/api'
-
-function StatCard({
-  title,
-  value,
-  icon: Icon,
-  trend,
-  className,
-}: {
-  title: string
-  value: string | number
-  icon: React.ElementType
-  trend?: string
-  className?: string
-}) {
-  return (
-    <div className={`rounded-xl p-4 ${className}`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-slate-600">{title}</p>
-          <p className="text-2xl font-bold text-slate-800 mt-1">{value}</p>
-          {trend && (
-            <p className="text-xs text-emerald-600 font-medium mt-1 flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" />
-              {trend}
-            </p>
-          )}
-        </div>
-        <div className="w-10 h-10 rounded-lg bg-white/60 flex items-center justify-center">
-          <Icon className="h-5 w-5 text-slate-600" />
-        </div>
-      </div>
-    </div>
-  )
-}
+import { StatCard } from '@/components/shared/stat-card'
 
 export default function MaterialInsightsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -98,6 +65,8 @@ export default function MaterialInsightsPage() {
 
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
+  const [isExporting, setIsExporting] = useState(false)
+  const [bahraSort, setBahraSort] = useState<'none' | 'asc' | 'desc'>('none')
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const ITEMS_PER_PAGE = 50
@@ -139,6 +108,36 @@ export default function MaterialInsightsPage() {
     if (!keywordChart.length) return []
     return keywordChart.slice(0, 10)
   }, [keywordChart])
+
+  // Client-side sort by Bahra Item Code (Materials tab only).
+  // 'asc'  → items WITH a bahra code first (A-Z), empty values last.
+  // 'desc' → items WITH a bahra code first (Z-A), empty values last.
+  const displayItems = useMemo(() => {
+    if (activeTab !== 'materials' || bahraSort === 'none') return allItems
+    const copy = [...allItems]
+    copy.sort((a: any, b: any) => {
+      const av = (a.bahra_item_code || '').toString()
+      const bv = (b.bahra_item_code || '').toString()
+      if (!av && !bv) return 0
+      if (!av) return 1
+      if (!bv) return -1
+      return bahraSort === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+    })
+    return copy
+  }, [allItems, bahraSort, activeTab])
+
+  const toggleBahraSort = () => {
+    setBahraSort((prev) => (prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none'))
+  }
+
+  // When Bahra sort is active, auto-load remaining pages so all bahra-coded
+  // items surface (otherwise sort only orders the first 50 of 973).
+  useEffect(() => {
+    if (activeTab !== 'materials' || bahraSort === 'none') return
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
+    }
+  }, [bahraSort, activeTab, hasNextPage, isFetchingNextPage, fetchNextPage, allItems.length])
 
   const handleFilterChange = (key: string, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
@@ -194,24 +193,82 @@ export default function MaterialInsightsPage() {
 
   const hasActiveFilters = !!(filters.company || filters.participated || filters.search)
 
-  // Scroll detection for lazy loading
-  useEffect(() => {
-    const scrollArea = scrollRef.current
-    if (!scrollArea) return
-
-    const viewport = scrollArea.querySelector('[data-radix-scroll-area-viewport]')
-    if (!viewport) return
-
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = viewport
-      if (scrollHeight - scrollTop - clientHeight < 200 && hasNextPage && !isFetchingNextPage) {
-        fetchNextPage()
-      }
+  const csvEscape = (value: any): string => {
+    const str = String(value ?? '')
+    if (/[",\n\r]/.test(str)) {
+      return `"${str.replace(/"/g, '""')}"`
     }
+    return str
+  }
 
-    viewport.addEventListener('scroll', handleScroll)
-    return () => viewport.removeEventListener('scroll', handleScroll)
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, activeTab])
+  const handleExportCSV = async () => {
+    if (isExporting) return
+    setIsExporting(true)
+    try {
+      const totalToFetch = totalFiltered || allItems.length
+      if (!totalToFetch) return
+
+      // Fetch the full filtered set in one call (backend has no upper cap on limit).
+      const response = await api.getMaterialInsightsGrouped({
+        tab: activeTab,
+        ...appliedFilters,
+        limit: totalToFetch,
+        offset: 0,
+      })
+      const items: any[] = response?.items || []
+      if (!items.length) return
+
+      let headers: string[] = []
+      let rows: (string | number)[][] = []
+
+      if (activeTab === 'materials') {
+        headers = ['Material Code', 'Description', 'RFP Count', 'Company Count', 'Companies', 'RFP IDs']
+        rows = items.map((item: any) => [
+          item.material_code ?? '',
+          item.material_description ?? '',
+          item.rfp_count ?? 0,
+          item.companies?.length ?? 0,
+          (item.companies || []).join('; '),
+          (item.rfps || []).map((r: any) => r.rfp_id).join('; '),
+        ])
+      } else {
+        headers = ['Keyword', 'RFP Count', 'Material Code Count', 'Material Codes', 'Company Count', 'Companies', 'RFP IDs']
+        rows = items.map((item: any) => [
+          item.keyword ?? '',
+          item.rfp_count ?? 0,
+          item.material_codes?.length ?? 0,
+          (item.material_codes || []).join('; '),
+          item.companies?.length ?? 0,
+          (item.companies || []).join('; '),
+          (item.rfps || []).map((r: any) => r.rfp_id).join('; '),
+        ])
+      }
+
+      const csvBody = [headers, ...rows]
+        .map((row) => row.map(csvEscape).join(','))
+        .join('\r\n')
+      const blob = new Blob(['﻿' + csvBody], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const today = new Date().toISOString().split('T')[0]
+      link.href = url
+      link.download = `material-insights-${activeTab}-${today}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  // Scroll detection for lazy loading
+  const handleTableScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    if (scrollHeight - scrollTop - clientHeight < 200 && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
+    }
+  }
 
   return (
     <PageWrapper
@@ -229,7 +286,7 @@ export default function MaterialInsightsPage() {
       {/* Stats Overview */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard
-          title="Unique Materials"
+          title="Unique Material Codes"
           value={stats.total_unique_materials || 0}
           icon={Package}
           className="stat-card-blue"
@@ -250,7 +307,7 @@ export default function MaterialInsightsPage() {
           title="Submitted RFPs"
           value={stats.submitted_rfp_count || 0}
           icon={Send}
-          trend={`${stats.total_material_rfp_links || 0} material links, ${stats.total_keyword_rfp_links || 0} keyword links`}
+          trend={`${stats.total_material_rfp_links || 0} material code links, ${stats.total_keyword_rfp_links || 0} keyword links`}
           className="stat-card-rose"
         />
       </div>
@@ -264,7 +321,7 @@ export default function MaterialInsightsPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
                   <BarChart3 className="h-4 w-4 text-indigo-500" />
-                  Top 10 Materials by RFP Count
+                  Top 10 Material Codes by RFP Count
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -351,7 +408,7 @@ export default function MaterialInsightsPage() {
           <TabsList>
             <TabsTrigger value="materials" className="gap-1.5">
               <Package className="h-4 w-4" />
-              Materials
+              Material Codes
               {stats.total_unique_materials ? (
                 <Badge variant="secondary" className="ml-1 text-xs">{stats.total_unique_materials}</Badge>
               ) : null}
@@ -460,7 +517,7 @@ export default function MaterialInsightsPage() {
               </div>
             </div>
 
-            <div className="mt-4 flex items-center justify-between">
+            <div className="mt-4 flex items-center justify-between flex-wrap gap-3">
               <p className="text-sm text-slate-500">
                 Showing <span className="font-semibold text-slate-700">{allItems.length}</span> of{' '}
                 <span className="font-semibold text-slate-700">{totalFiltered}</span> {activeTab}
@@ -468,9 +525,33 @@ export default function MaterialInsightsPage() {
                   <span className="text-slate-400"> ({totalAll} total)</span>
                 )}
               </p>
-              {hasNextPage && (
-                <p className="text-sm text-indigo-600 font-medium">Scroll down to load more...</p>
-              )}
+              <div className="flex items-center gap-3">
+                {hasNextPage && (
+                  <>
+                    <p className="text-sm text-indigo-600 font-medium">Scroll down to load more...</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fetchNextPage()}
+                      disabled={isFetchingNextPage}
+                      className="text-xs h-7 px-3 border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                    >
+                      {isFetchingNextPage ? 'Loading...' : 'Load More'}
+                    </Button>
+                  </>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportCSV}
+                  disabled={isExporting || !totalFiltered}
+                  className="text-xs h-7 px-3 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                  title={activeTab === 'materials' ? 'Export all filtered material codes to CSV' : 'Export all filtered keywords to CSV'}
+                >
+                  <Download className={`h-3.5 w-3.5 mr-1.5 ${isExporting ? 'animate-spin' : ''}`} />
+                  {isExporting ? 'Exporting...' : `Export CSV${totalFiltered ? ` (${totalFiltered})` : ''}`}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -496,7 +577,7 @@ export default function MaterialInsightsPage() {
                   <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
                     <Package className="h-8 w-8 text-slate-400" />
                   </div>
-                  <p className="text-lg font-medium text-slate-600 mb-2">No materials found</p>
+                  <p className="text-lg font-medium text-slate-600 mb-2">No material codes found</p>
                   <p className="text-sm text-slate-400 mb-4">
                     No matched material codes found in any RFPs
                   </p>
@@ -508,20 +589,35 @@ export default function MaterialInsightsPage() {
                   )}
                 </div>
               ) : (
-                <ScrollArea className="h-[560px]" ref={scrollRef}>
+                <div className="h-[560px] overflow-y-auto" onScroll={handleTableScroll} ref={scrollRef}>
                   <Table>
                     <TableHeader className="sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10">
                       <TableRow className="border-slate-200 hover:bg-slate-50/95">
                         <TableHead className="w-10"></TableHead>
                         <TableHead className="text-slate-600 font-semibold">Material Code</TableHead>
+                        <TableHead
+                          className="text-slate-600 font-semibold cursor-pointer select-none hover:text-slate-900"
+                          onClick={toggleBahraSort}
+                          title="Click to sort by Bahra Item Code (items with a code first)"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            Bahra Item Code
+                            {bahraSort === 'asc' ? (
+                              <ArrowUp className="h-3.5 w-3.5 text-indigo-600" />
+                            ) : bahraSort === 'desc' ? (
+                              <ArrowDown className="h-3.5 w-3.5 text-indigo-600" />
+                            ) : (
+                              <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" />
+                            )}
+                          </span>
+                        </TableHead>
                         <TableHead className="text-slate-600 font-semibold">Description</TableHead>
                         <TableHead className="text-slate-600 font-semibold">RFP Count</TableHead>
                         <TableHead className="text-slate-600 font-semibold">Companies</TableHead>
-                        <TableHead className="text-slate-600 font-semibold">Submitted</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {allItems.map((item: any) => (
+                      {displayItems.map((item: any) => (
                         <Fragment key={item.material_code}>
                           {/* Parent material row */}
                           <TableRow
@@ -538,6 +634,9 @@ export default function MaterialInsightsPage() {
                             <TableCell className="font-mono font-medium text-indigo-600">
                               {item.material_code}
                             </TableCell>
+                            <TableCell className="font-mono text-slate-700">
+                              {item.bahra_item_code || <span className="text-slate-400">—</span>}
+                            </TableCell>
                             <TableCell className="text-slate-600 max-w-[300px] truncate" title={item.material_description}>
                               {item.material_description}
                             </TableCell>
@@ -549,16 +648,6 @@ export default function MaterialInsightsPage() {
                             </TableCell>
                             <TableCell className="text-slate-600">
                               {item.companies?.length || 0} {(item.companies?.length || 0) === 1 ? 'company' : 'companies'}
-                            </TableCell>
-                            <TableCell>
-                              {item.submitted_count > 0 ? (
-                                <Badge className="gap-1 bg-emerald-100 text-emerald-700 border-emerald-200">
-                                  <Send className="h-3 w-3" />
-                                  {item.submitted_count}
-                                </Badge>
-                              ) : (
-                                <span className="text-slate-400 text-sm">0</span>
-                              )}
                             </TableCell>
                           </TableRow>
 
@@ -572,29 +661,13 @@ export default function MaterialInsightsPage() {
                               <TableCell className="pl-6 font-medium text-slate-700">
                                 {rfp.rfp_id}
                               </TableCell>
+                              <TableCell></TableCell>
                               <TableCell className="text-slate-500">{rfp.company}</TableCell>
                               <TableCell className="text-slate-500 text-sm">{rfp.rfp_end_date}</TableCell>
                               <TableCell>
                                 <Badge variant="outline" className="text-xs">
                                   {rfp.match_method === 'exact' ? 'Exact' : 'Keyword'}
                                 </Badge>
-                              </TableCell>
-                              <TableCell>
-                                {['submitted', 'yes'].includes(rfp.participated) ? (
-                                  <Badge className="gap-1 bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">
-                                    <CheckCircle2 className="h-3 w-3" />
-                                    Submitted
-                                  </Badge>
-                                ) : rfp.participated === 'declined' ? (
-                                  <Badge variant="destructive" className="gap-1 text-xs">
-                                    <XCircle className="h-3 w-3" />
-                                    Declined
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="outline" className="gap-1 text-slate-500 text-xs">
-                                    Open
-                                  </Badge>
-                                )}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -612,7 +685,7 @@ export default function MaterialInsightsPage() {
                       )}
                     </TableBody>
                   </Table>
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -650,7 +723,7 @@ export default function MaterialInsightsPage() {
                   )}
                 </div>
               ) : (
-                <ScrollArea className="h-[560px]" ref={scrollRef}>
+                <div className="h-[560px] overflow-y-auto" onScroll={handleTableScroll} ref={scrollRef}>
                   <Table>
                     <TableHeader className="sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10">
                       <TableRow className="border-slate-200 hover:bg-slate-50/95">
@@ -658,8 +731,8 @@ export default function MaterialInsightsPage() {
                         <TableHead className="text-slate-600 font-semibold">Keyword</TableHead>
                         <TableHead className="text-slate-600 font-semibold">RFP Count</TableHead>
                         <TableHead className="text-slate-600 font-semibold">Material Codes</TableHead>
+                        <TableHead className="text-slate-600 font-semibold">Bahra Item Code</TableHead>
                         <TableHead className="text-slate-600 font-semibold">Companies</TableHead>
-                        <TableHead className="text-slate-600 font-semibold">Submitted</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -693,17 +766,10 @@ export default function MaterialInsightsPage() {
                               {item.material_codes?.length || 0} codes
                             </TableCell>
                             <TableCell className="text-slate-600">
-                              {item.companies?.length || 0} {(item.companies?.length || 0) === 1 ? 'company' : 'companies'}
+                              {item.bahra_item_codes?.length || 0} codes
                             </TableCell>
-                            <TableCell>
-                              {item.submitted_count > 0 ? (
-                                <Badge className="gap-1 bg-emerald-100 text-emerald-700 border-emerald-200">
-                                  <Send className="h-3 w-3" />
-                                  {item.submitted_count}
-                                </Badge>
-                              ) : (
-                                <span className="text-slate-400 text-sm">0</span>
-                              )}
+                            <TableCell className="text-slate-600">
+                              {item.companies?.length || 0} {(item.companies?.length || 0) === 1 ? 'company' : 'companies'}
                             </TableCell>
                           </TableRow>
 
@@ -721,25 +787,11 @@ export default function MaterialInsightsPage() {
                               <TableCell className="font-mono text-xs text-slate-500">
                                 {rfp.material_code}
                               </TableCell>
+                              <TableCell className="font-mono text-xs text-slate-500">
+                                {rfp.bahra_item_code || <span className="text-slate-400">—</span>}
+                              </TableCell>
                               <TableCell className="text-slate-500 text-sm max-w-[200px] truncate" title={rfp.material_description}>
                                 {rfp.material_description}
-                              </TableCell>
-                              <TableCell>
-                                {['submitted', 'yes'].includes(rfp.participated) ? (
-                                  <Badge className="gap-1 bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">
-                                    <CheckCircle2 className="h-3 w-3" />
-                                    Submitted
-                                  </Badge>
-                                ) : rfp.participated === 'declined' ? (
-                                  <Badge variant="destructive" className="gap-1 text-xs">
-                                    <XCircle className="h-3 w-3" />
-                                    Declined
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="outline" className="gap-1 text-slate-500 text-xs">
-                                    Open
-                                  </Badge>
-                                )}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -757,7 +809,7 @@ export default function MaterialInsightsPage() {
                       )}
                     </TableBody>
                   </Table>
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>

@@ -23,21 +23,11 @@ import asyncio
 from automation_logic import run_automation_submit, run_automation_download_all_rfps
 from collections import Counter
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import run state management from automation routes
 from routes.automation import _RUN_STATE, _set_state, _add_submitting_rfp, _remove_submitting_rfp, _is_rfp_submitting, _run_async_in_thread
-from config.config import (
-    DASHBOARD_HTTP_MAX_AGE,
-    LOGS_FETCH_TOP_MAX,
-    LOGS_FETCH_AHEAD_FACTOR,
-    DEFAULT_PAGE_SIZE,
-    MIN_PAGE_SIZE,
-    MAX_PAGE_SIZE,
-    COMPANY_OPTIONS,
-    COMPANY_NAME,
-)
-from config.config import AUTOMATION_SCHEDULE_TABLE_API, AUTOMATION_SCHEDULE_TABLE_LOGICAL
-from config.config import RFP_ACTIVITY_LOG_TABLE_API, RFP_ACTIVITY_LOG_TABLE_LOGICAL
+from services.system_settings_service import get_setting
 from helpers.core_helper import (
     DATAVERSE,
     update_rfp_participation_status,
@@ -52,10 +42,11 @@ from helpers.core_helper import (
     find_column_name,
     extract_materials_from_excel,
     extract_keywords_from_text,
-    _find_other_content_sheet_name
+    _find_other_content_sheet_name,
+    find_rfp_file_across_companies,
 )
 from helpers.sharepoint_helper import GraphClient
-from config.config import CLIENT_ID, CLIENT_SECRET, TENANT_ID, SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME, OUTPUT_DIR, SP_BASE_FOLDER
+from helpers.power_automate_helper import sync_schedule_to_power_automate
 import tempfile
 from io import BytesIO
 import pandas as pd
@@ -181,7 +172,7 @@ def _get_frequency_maps():
     if not _FREQ_CACHE["label_to_value"] or not _FREQ_CACHE["value_to_label"]:
         try:
             maps = DATAVERSE.get_choice_options(
-                AUTOMATION_SCHEDULE_TABLE_LOGICAL,
+                get_setting("AUTOMATION_SCHEDULE_TABLE_LOGICAL", ""),
                 "cr673_frequency",
             )
             _FREQ_CACHE.update(maps)
@@ -212,14 +203,14 @@ async def update_rfp_status(request: Request, payload: dict = Body(...), user: d
         status_normalized = status.lower()
 
         # Validate status against allowed values
-        from config.config import VALID_RFP_STATUSES
+        VALID_RFP_STATUSES = get_setting("VALID_RFP_STATUSES", ["no", "saved_draft", "submitted", "declined"])
         if status_normalized not in [s.lower() for s in VALID_RFP_STATUSES]:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid status: '{status}'. Valid values are: {', '.join(VALID_RFP_STATUSES)}"
             )
 
-        ok = update_rfp_participation_status(rfp_id, status_normalized)
+        ok = update_rfp_participation_status(rfp_id, status_normalized, log_change=True)
         if not ok:
             raise HTTPException(status_code=404, detail="RFP not found to update")
         # Invalidate caches so the next dashboard fetch gets fresh data
@@ -375,13 +366,13 @@ async def update_sap_password(request: Request, user: dict = Depends(require_per
 # ================= Automation Schedule APIs =================
 
 def _safe_use_display_names() -> bool:
-    return bool(AUTOMATION_SCHEDULE_TABLE_LOGICAL)
+    return bool(get_setting("AUTOMATION_SCHEDULE_TABLE_LOGICAL", ""))
 
 @router.get("/schedule-automation/latest")
-async def get_latest_schedule(request: Request, user: dict = Depends(require_permission("schedule_automation.view"))):
+async def get_latest_schedule(request: Request, user: dict = Depends(require_permission("schedule_automation.manage"))):
     try:
         rows = DATAVERSE.get_rows_from_dataverse(
-            table_api_name=AUTOMATION_SCHEDULE_TABLE_API,
+            table_api_name=get_setting("AUTOMATION_SCHEDULE_TABLE_API", ""),
             select_columns=[
                 "job_name",
                 "interval",
@@ -396,7 +387,7 @@ async def get_latest_schedule(request: Request, user: dict = Depends(require_per
             ],
             top=1,
             order_by="id desc",
-            table_logical_name=AUTOMATION_SCHEDULE_TABLE_LOGICAL,
+            table_logical_name=get_setting("AUTOMATION_SCHEDULE_TABLE_LOGICAL", ""),
             use_display_names=_safe_use_display_names(),
         )
         latest = rows[0] if rows else {}
@@ -442,14 +433,28 @@ async def save_schedule(request: Request, payload: dict = Body(...), user: dict 
         data = {k: v for k, v in data.items() if v is not None and v != ""}
 
         ok = DATAVERSE.insert_row(
-            table_api_name=AUTOMATION_SCHEDULE_TABLE_API,
+            table_api_name=get_setting("AUTOMATION_SCHEDULE_TABLE_API", ""),
             data=data,
-            table_logical_name=AUTOMATION_SCHEDULE_TABLE_LOGICAL,
+            table_logical_name=get_setting("AUTOMATION_SCHEDULE_TABLE_LOGICAL", ""),
             use_display_names=_safe_use_display_names(),
         )
         if not ok:
             raise RuntimeError("Insert failed")
-        return JSONResponse({"ok": True})
+
+        # Push the schedule into the Power Automate Recurrence trigger. If this
+        # fails we keep the Dataverse row and surface the failure to the UI as
+        # a warning toast — the operator can retry without losing the save.
+        try:
+            pa_ok, pa_msg = sync_schedule_to_power_automate(
+                interval=data["interval"],
+                frequency=freq_label,
+                timezone=payload.get("timezone"),
+                start_time=start_time,
+            )
+        except Exception as pa_err:
+            pa_ok, pa_msg = False, str(pa_err)
+
+        return JSONResponse({"ok": True, "pa_synced": pa_ok, "pa_message": pa_msg})
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "message": str(e)})
 
@@ -474,10 +479,10 @@ async def view_rfp_excel(request: Request, rfp_id: str, company: str = None):
             if found_company:
                 selected_company = found_company
             else:
-                selected_company = COMPANY_NAME
+                selected_company = get_setting("COMPANY_NAME", "")
 
         # Connect to SharePoint and find the Excel file
-        graph_client = GraphClient(CLIENT_ID, CLIENT_SECRET, TENANT_ID, SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME)
+        graph_client = GraphClient(get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""), get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", ""))
         graph_client.auth()
         graph_client.resolve_site_and_drive()
 
@@ -492,7 +497,7 @@ async def view_rfp_excel(request: Request, rfp_id: str, company: str = None):
         if not sp_file_info:
             import re as _re
             safe_company = _re.sub(r'[<>:"/\\|?*]', '_', selected_company).strip().rstrip('.')
-            sp_company_path = f"{SP_BASE_FOLDER}/ALLRFPs/{safe_company}"
+            sp_company_path = f"{get_setting('SP_BASE_FOLDER', '')}/ALLRFPs/{safe_company}"
             sp_all_files = graph_client.list_files_in_directory(sp_company_path, ['.xls', '.xlsx'])
             matching = [f for f in sp_all_files if rfp_id in f.get('path', '')]
             if matching:
@@ -554,7 +559,7 @@ async def save_rfp_excel(request: Request, rfp_id: str, file: UploadFile = File(
             if found_company:
                 selected_company = found_company
             else:
-                selected_company = COMPANY_NAME
+                selected_company = get_setting("COMPANY_NAME", "")
 
         # Use new folder structure: ALLRFPs/Company/RFP_title/downloaded-rfp/RFP_title.xls
         found_file = get_rfp_excel_file_path(rfp_id, selected_company)
@@ -562,8 +567,9 @@ async def save_rfp_excel(request: Request, rfp_id: str, file: UploadFile = File(
         # If not found in new structure, try searching recursively
         if not os.path.exists(found_file):
             found_file = None
-            company_folder = os.path.join(OUTPUT_DIR, selected_company)
-            search_dirs = [company_folder, OUTPUT_DIR] if os.path.isdir(company_folder) else [OUTPUT_DIR]
+            _output_dir = get_setting("OUTPUT_DIR", "")
+            company_folder = os.path.join(_output_dir, selected_company)
+            search_dirs = [company_folder, _output_dir] if os.path.isdir(company_folder) else [_output_dir]
 
             for search_dir in search_dirs:
                 if not os.path.isdir(search_dir):
@@ -639,7 +645,7 @@ def get_cached_master_data(graph_client, master_csv_local):
     
     # Download and cache
     master_csv_path = graph_client.download_file_from_sharepoint(
-        sp_path=f"{SP_BASE_FOLDER}/master-files/material.csv",
+        sp_path=f"{get_setting('SP_BASE_FOLDER', '')}/master-files/material.csv",
         local_path=master_csv_local
     )
     master = pd.read_csv(master_csv_path)
@@ -667,7 +673,7 @@ def get_cached_keywords(graph_client, keywords_csv_local):
     keywords_list = []
     try:
         keywords_csv_path = graph_client.download_file_from_sharepoint(
-            sp_path=f"{SP_BASE_FOLDER}/master-files/unique_keywords.csv",
+            sp_path=f"{get_setting('SP_BASE_FOLDER', '')}/master-files/unique_keywords.csv",
             local_path=keywords_csv_local
         )
         keywords_df = pd.read_csv(keywords_csv_path)
@@ -682,7 +688,7 @@ def get_cached_keywords(graph_client, keywords_csv_local):
                         if kw_clean:
                             keywords_list.append(kw_clean)
     except Exception as e:
-        print(f"⚠ Could not load keywords: {e}")
+        print(f"[WARN] Could not load keywords: {e}")
         keywords_list = []
     
     _KEYWORDS_CACHE["data"] = keywords_list
@@ -703,7 +709,7 @@ def ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client):
         excel_path, found_company = find_rfp_file_across_companies(rfp_id)
         if excel_path and os.path.exists(excel_path):
             return excel_path
-        company = found_company or COMPANY_NAME
+        company = found_company or get_setting("COMPANY_NAME", "")
 
     excel_path = get_rfp_excel_file_path(rfp_id, company)
     if os.path.exists(excel_path):
@@ -723,14 +729,86 @@ def ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client):
                 filename
             )
             graph_client.download_file_from_sharepoint(sp_path, local_path)
-            print(f"✅ Downloaded RFP Excel from SharePoint: {sp_path}")
+            print(f"[OK] Downloaded RFP Excel from SharePoint: {sp_path}")
             return local_path
         except Exception as e:
-            print(f"⚠️ SharePoint download attempt ({ext}): {e}")
+            print(f"[WARN] SharePoint download attempt ({ext}): {e}")
             continue
 
-    print(f"❌ RFP Excel not found on SharePoint for {rfp_id} (company: {company})")
+    print(f"[ERROR] RFP Excel not found on SharePoint for {rfp_id} (company: {company})")
     return None
+
+
+def _parse_matched_data_json(matched_data_str: str):
+    """Parse Matched_Data JSON string into match percentage result, or return None."""
+    matched_data_str = (matched_data_str or "").strip()
+    if not matched_data_str:
+        return None
+    try:
+        data = json.loads(matched_data_str)
+    except Exception:
+        return None
+
+    # New categorized format (dict with summary)
+    if isinstance(data, dict) and "summary" in data:
+        s = data["summary"]
+        return {
+            "match_percentage": s.get("match_percentage", 0),
+            "total_materials": data.get("total_items", 0),
+            "matched_count": s.get("exact_match_count", 0) + s.get("keyword_match_count", 0),
+        }
+
+    # Old flat format (list of items) — backward compatibility
+    if isinstance(data, list) and data:
+        if not any("is_matched" in item for item in data):
+            return None
+        total_materials = len(data)
+        matched_count = sum(1 for item in data if bool(item.get("is_matched", True)))
+        match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
+        return {
+            "match_percentage": match_percentage,
+            "total_materials": total_materials,
+            "matched_count": matched_count,
+        }
+
+    return None
+
+
+def _batch_get_match_percentages_from_dataverse(rfp_ids: list):
+    """
+    Batch query Dataverse for Matched_Data of multiple RFPs at once.
+    Returns dict mapping rfp_id -> result dict or None (if not found/invalid).
+    Uses OData 'or' filter in chunks to stay within URL length limits.
+    """
+    results = {rid: None for rid in rfp_ids}
+    if not rfp_ids:
+        return results
+
+    # Chunk into groups of 15 to avoid URL length limits
+    chunk_size = 15
+    for i in range(0, len(rfp_ids), chunk_size):
+        chunk = rfp_ids[i:i + chunk_size]
+        filter_parts = [f"RFP_ID eq '{rid.replace(chr(39), chr(39)*2)}'" for rid in chunk]
+        filter_expr = " or ".join(filter_parts)
+        try:
+            result = DATAVERSE.query_rows(
+                get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
+                filter_expr=filter_expr,
+                select="RFP_ID,Matched_Data",
+                top=chunk_size,
+                table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
+                use_display_names=True
+            )
+            rows = result.get("value", []) if isinstance(result, dict) else []
+            for row in rows:
+                rfp_id = row.get("RFP_ID", "")
+                if rfp_id in results:
+                    parsed = _parse_matched_data_json(row.get("Matched_Data"))
+                    results[rfp_id] = parsed
+        except Exception as e:
+            print(f"[BatchMatch] Batch Dataverse query failed for chunk: {e}")
+
+    return results
 
 
 def _get_match_percentage_from_dataverse(rfp_id: str):
@@ -741,45 +819,23 @@ def _get_match_percentage_from_dataverse(rfp_id: str):
     try:
         filter_val = rfp_id.replace("'", "''")
         result = DATAVERSE.query_rows(
-            RFP_ACTIVITY_LOG_TABLE_API,
+            get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
             filter_expr=f"RFP_ID eq '{filter_val}'",
             select="RFP_ID,Matched_Data",
             top=1,
-            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
             use_display_names=True
         )
         rows = result.get("value", []) if isinstance(result, dict) else []
         if not rows:
             return None
-
-        matched_data_str = (rows[0].get("Matched_Data") or "").strip()
-        if not matched_data_str:
-            return None
-
-        items = json.loads(matched_data_str)
-        if not isinstance(items, list) or not items:
-            return None
-
-        # Only use new format data (has is_matched field)
-        has_new_format = any("is_matched" in item for item in items)
-        if not has_new_format:
-            return None
-
-        total_materials = len(items)
-        matched_count = sum(1 for item in items if bool(item.get("is_matched", True)))
-        match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
-
-        return {
-            "match_percentage": match_percentage,
-            "total_materials": total_materials,
-            "matched_count": matched_count,
-        }
+        return _parse_matched_data_json(rows[0].get("Matched_Data"))
     except Exception as e:
         print(f"[BatchMatch] Dataverse lookup failed for {rfp_id}: {e}")
         return None
 
 
-def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list, company: str = None, graph_client=None):
+def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_list, company: str = None, graph_client=None, master_code_set: set = None, skip_dataverse: bool = False):
     """
     Calculate match percentage for a single RFP (optimized with caching).
     Uses ALL items from Excel (no intent filter).
@@ -801,16 +857,17 @@ def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_li
                 if excel_path and os.path.exists(excel_path) and os.path.getmtime(excel_path) == file_mtime:
                     return cached
 
-    # Primary: try Dataverse stored data
-    dv_result = _get_match_percentage_from_dataverse(rfp_id)
-    if dv_result is not None:
-        dv_result["source"] = "dataverse"
-        dv_result["cache_version"] = _MATCH_CACHE_VERSION
-        _MATCH_PERCENTAGE_CACHE[rfp_id] = dv_result
-        return dv_result
+    # Primary: try Dataverse stored data (skip if batch already checked)
+    if not skip_dataverse:
+        dv_result = _get_match_percentage_from_dataverse(rfp_id)
+        if dv_result is not None:
+            dv_result["source"] = "dataverse"
+            dv_result["cache_version"] = _MATCH_CACHE_VERSION
+            _MATCH_PERCENTAGE_CACHE[rfp_id] = dv_result
+            return dv_result
 
-    # Fallback: local Excel file matching
-    excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, company, None)
+    # Fallback: Excel file matching (download from SharePoint if not local)
+    excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, company, graph_client)
 
     if not excel_path or not os.path.exists(excel_path):
         return {"match_percentage": 0, "total_materials": 0, "matched_count": 0, "file_mtime": None}
@@ -825,6 +882,10 @@ def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_li
         _MATCH_PERCENTAGE_CACHE[rfp_id] = result
         return result
 
+    # Build master_code_set if not provided (backward compat)
+    if master_code_set is None:
+        master_code_set = set(master[master_col].astype(str))
+
     # Match using exact code + keyword (same logic as download time)
     matched_count = 0
     for mat_data in materials_data:
@@ -832,9 +893,8 @@ def calculate_match_percentage_optimized(rfp_id, master, master_col, keywords_li
         name_text = mat_data.get("name", "")
         description_text = mat_data.get("description", "")
 
-        # Method 1: Exact Material Code Match
-        matched_rows = master[master[master_col].astype(str) == mat_code]
-        is_matched = not matched_rows.empty
+        # Method 1: Exact Material Code Match (O(1) set lookup)
+        is_matched = mat_code in master_code_set
 
         # Method 2: Keyword Matching (only if exact match failed)
         if not is_matched and keywords_list:
@@ -1141,7 +1201,7 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
         for sheet_name in workbook.sheet_names():
             if any(vs in sheet_name.lower() for vs in validation_sheet_names):
                 dv_sheet = workbook.sheet_by_name(sheet_name)
-                print(f"         🔍 Found validation sheet: '{sheet_name}' with {dv_sheet.ncols} columns")
+                print(f"          Found validation sheet: '{sheet_name}' with {dv_sheet.ncols} columns")
                 
                 # Show all column headers in DV_sheet for debugging
                 dv_headers = []
@@ -1151,8 +1211,8 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                         dv_headers.append(f"{chr(65+c)}:'{h}'")
                     except:
                         dv_headers.append(f"{chr(65+c)}:''")
-                print(f"         📋 DV_sheet columns: {', '.join(dv_headers)}")
-                print(f"         📍 Field '{label}' is at column {chr(65+col_idx)} (index {col_idx}) in Material sheet")
+                print(f"          DV_sheet columns: {', '.join(dv_headers)}")
+                print(f"          Field '{label}' is at column {chr(65+col_idx)} (index {col_idx}) in Material sheet")
                 
                 # PRIORITY 1: Match by COLUMN POSITION (only if DV_sheet has enough columns)
                 # The dropdown for column C in Material sheet should be in column C of DV_sheet
@@ -1161,7 +1221,7 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                     dv_header = ""
                     try:
                         dv_header = str(dv_sheet.cell_value(0, col_idx)).strip()
-                        print(f"         🔍 Column {chr(65+col_idx)} in DV_sheet has header: '{dv_header}'")
+                        print(f"          Column {chr(65+col_idx)} in DV_sheet has header: '{dv_header}'")
                     except:
                         pass
                     
@@ -1183,15 +1243,15 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                     # Validate: Check if this looks like a real dropdown list
                     if 2 <= len(unique_options) <= 500:  # Reasonable dropdown size
                         dv_info = f" (DV_sheet column {chr(65+col_idx)}: '{dv_header}')" if dv_header else f" (DV_sheet column {chr(65+col_idx)})"
-                        print(f"         ✅ COLUMN POSITION MATCH{dv_info}: Found {len(unique_options)} values: {unique_options[:5]}{'...' if len(unique_options) > 5 else ''}")
+                        print(f"         [OK] COLUMN POSITION MATCH{dv_info}: Found {len(unique_options)} values: {unique_options[:5]}{'...' if len(unique_options) > 5 else ''}")
                         return unique_options
                     else:
-                        print(f"         ⚠️ Column {chr(65+col_idx)} in DV_sheet has {len(unique_options)} unique values - doesn't look like a dropdown")
+                        print(f"         [WARN] Column {chr(65+col_idx)} in DV_sheet has {len(unique_options)} unique values - doesn't look like a dropdown")
                 else:
-                    print(f"         ⚠️ Column {chr(65+col_idx)} doesn't exist in DV_sheet (only has {dv_sheet.ncols} columns)")
+                    print(f"         [WARN] Column {chr(65+col_idx)} doesn't exist in DV_sheet (only has {dv_sheet.ncols} columns)")
                 
                 # PRIORITY 2: Match by DATA PATTERN (check what type of data each column contains)
-                print(f"         🔍 Trying to match by analyzing DV_sheet data patterns...")
+                print(f"          Trying to match by analyzing DV_sheet data patterns...")
                 for col in range(dv_sheet.ncols):
                     try:
                         header_val = str(dv_sheet.cell_value(0, col)).strip()
@@ -1208,7 +1268,7 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                         
                         # Analyze data pattern
                         col_letter = chr(65+col)
-                        print(f"         🔎 Column {col_letter} '{header_val}': {len(sample_data)} values, sample: {sample_data[:3]}")
+                        print(f"          Column {col_letter} '{header_val}': {len(sample_data)} values, sample: {sample_data[:3]}")
                         
                         # Check if this column matches the field we're looking for
                         is_match = False
@@ -1262,13 +1322,13 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                             
                             unique_options = list(dict.fromkeys(options))
                             if 2 <= len(unique_options) <= 500:
-                                print(f"         ✅ DATA PATTERN MATCH (column {col_letter} '{header_val}' via {match_reason}): Found {len(unique_options)} values: {unique_options[:5]}{'...' if len(unique_options) > 5 else ''}")
+                                print(f"         [OK] DATA PATTERN MATCH (column {col_letter} '{header_val}' via {match_reason}): Found {len(unique_options)} values: {unique_options[:5]}{'...' if len(unique_options) > 5 else ''}")
                                 return unique_options
                     except Exception as e:
-                        print(f"         ⚠️ Error analyzing column {chr(65+col)}: {e}")
+                        print(f"         [WARN] Error analyzing column {chr(65+col)}: {e}")
                         continue
                 
-                print(f"         ❌ No matching dropdown column found in DV_sheet for field '{label}'")
+                print(f"         [ERROR] No matching dropdown column found in DV_sheet for field '{label}'")
         
         # Method 2: Check if there's a note/comment on the cell (some Excel files store validation in notes)
         # xlrd doesn't support reading notes directly, so we skip this
@@ -1287,7 +1347,7 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
                             if val and str(val).strip() and str(val).strip() not in options:
                                 options.append(str(val).strip())
                         if options and len(options) >= 2:
-                            print(f"         ✅ Found dropdown values in same sheet column {chr(65 + check_col)}: {options[:5]}{'...' if len(options) > 5 else ''}")
+                            print(f"         [OK] Found dropdown values in same sheet column {chr(65 + check_col)}: {options[:5]}{'...' if len(options) > 5 else ''}")
                             return options
                 except:
                     continue
@@ -1295,7 +1355,7 @@ def get_dropdown_options_xls(workbook, sheet, row_idx, col_idx, label):
         return None
         
     except Exception as e:
-        print(f"         ⚠️ Error extracting dropdown options from XLS: {e}")
+        print(f"         [WARN] Error extracting dropdown options from XLS: {e}")
         return None
 
 
@@ -1359,7 +1419,7 @@ def parse_material_sheet_xls(sheet, sheet_idx, sheet_name, workbook):
             header_row_idx = row_idx
             break
     
-    print(f"         📋 Using row {header_row_idx + 1} as header row")
+    print(f"          Using row {header_row_idx + 1} as header row")
     
     # Read column headers
     headers = {}
@@ -1398,7 +1458,7 @@ def parse_material_sheet_xls(sheet, sheet_idx, sheet_name, workbook):
         if not material_code:
             continue
         
-        print(f"         🔧 Material: {material_code} (Row {row_idx + 1})")
+        print(f"          Material: {material_code} (Row {row_idx + 1})")
         
         # Find ALL yellow cells in this material row (blank or filled)
         material_fields = []
@@ -1419,7 +1479,7 @@ def parse_material_sheet_xls(sheet, sheet_idx, sheet_name, workbook):
                 value_str = f"'{cell_value}'" if cell_value else "(empty)"
                 
                 # Show ALL yellow cells in debug output
-                print(f"            🟨 {col_letter}{row_idx+1}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
+                print(f"             {col_letter}{row_idx+1}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
                 
                 # Only include BLANK yellow cells in form
                 if is_empty:
@@ -1442,17 +1502,17 @@ def parse_material_sheet_xls(sheet, sheet_idx, sheet_name, workbook):
                             label_check = label.lower()
                             if 'country' in label_check or 'origin' in label_check:
                                 dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
-                                print(f"            📋 Using fallback country list")
+                                print(f"             Using fallback country list")
                             elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
                                 dropdown_options = ['Yes', 'No']
-                                print(f"            📋 Using fallback Yes/No")
+                                print(f"             Using fallback Yes/No")
                             elif 'vendor' in label_check or 'local' in label_check:
                                 dropdown_options = ['Yes', 'No']
-                                print(f"            📋 Using fallback Yes/No")
+                                print(f"             Using fallback Yes/No")
                             else:
                                 # If no dropdown in Excel, change field type to 'text' instead of forcing dropdown
                                 field_type = 'text'
-                                print(f"            ⚠️ No dropdown values found in Excel for '{label}' - changing to TEXT input")
+                                print(f"            [WARN] No dropdown values found in Excel for '{label}' - changing to TEXT input")
                     
                     field = {
                         "id": f"material_{sheet_idx}_{row_idx}_{col_idx}",
@@ -1500,7 +1560,7 @@ def parse_material_sheet_xls(sheet, sheet_idx, sheet_name, workbook):
         })
         section["fields"].extend(mat_data["fields"])
     
-    print(f"      📊 Material sheet '{sheet_name}': Found {len(materials_data)} materials with {len(section['fields'])} total fields")
+    print(f"       Material sheet '{sheet_name}': Found {len(materials_data)} materials with {len(section['fields'])} total fields")
     
     return section
 
@@ -1516,7 +1576,7 @@ def extract_material_listing_fields(excel_path):
     material_fields = []
     
     try:
-        print(f"🔍 Extracting material listing fields from '{sheet_name}'...")
+        print(f" Extracting material listing fields from '{sheet_name}'...")
         
         if file_ext == '.xls':
             import xlrd
@@ -1525,7 +1585,7 @@ def extract_material_listing_fields(excel_path):
             try:
                 sheet = wb.sheet_by_name(sheet_name)
             except:
-                print(f"⚠ Sheet '{sheet_name}' not found, skipping material fields")
+                print(f"[WARN] Sheet '{sheet_name}' not found, skipping material fields")
                 return []
             
             # Find header row (search first 10 rows or all rows if less)
@@ -1536,7 +1596,7 @@ def extract_material_listing_fields(excel_path):
                     header_row_idx = row_idx
                     break
             
-            print(f"         📋 Using row {header_row_idx + 1} as header row")
+            print(f"          Using row {header_row_idx + 1} as header row")
             
             # Find Name column (use same logic as extract_materials_from_excel)
             name_col_idx = None
@@ -1560,11 +1620,11 @@ def extract_material_listing_fields(excel_path):
                 material_codes = re.findall(r"\d{9}", name_value)
                 if material_codes:
                     material_row_idx = row_idx
-                    print(f"🔧Found material row at: {row_idx + 1} with material code(s): {material_codes}")
+                    print(f"Found material row at: {row_idx + 1} with material code(s): {material_codes}")
                     break
             
             if not material_row_idx:
-                print(f"⚠ No material rows found in sheet")
+                print(f"[WARN] No material rows found in sheet")
                 return []
             
             print(f"Checking row {material_row_idx + 1} for yellow cells (using flexible detection)")
@@ -1607,7 +1667,7 @@ def extract_material_listing_fields(excel_path):
                                   'description', 'material code', 'item text', 'material po text', 
                                   'comment', 'intend to respond', 'reason for not bidding']
                     if header_val.lower() in skip_columns:
-                        print(f"         ⏭️  {col_letter}: '{header_val}' - SKIPPED (identifier column)")
+                        print(f"           {col_letter}: '{header_val}' - SKIPPED (identifier column)")
                         continue  # Skip identifier/info columns
                     
                     label = header_val
@@ -1617,20 +1677,20 @@ def extract_material_listing_fields(excel_path):
                     
                     # Infer field type
                     field_type = infer_field_type(label)
-                    print(f"         🔍 Field '{label}' detected as type: '{field_type}'")
+                    print(f"          Field '{label}' detected as type: '{field_type}'")
                     
                     # TDS/File fields are ALWAYS required for materials
                     if field_type == 'file':
                         is_required = True
-                        print(f"         🔒 {col_letter}: TDS/File field marked as REQUIRED")
+                        print(f"          {col_letter}: TDS/File field marked as REQUIRED")
                     
                     # Check for dropdown options - try to extract from Excel first
                     dropdown_options = None
                     if field_type == 'dropdown':
-                        print(f"         🔎 Extracting dropdown options for '{label}' at column {col_letter} (idx={col_idx})...")
+                        print(f"          Extracting dropdown options for '{label}' at column {col_letter} (idx={col_idx})...")
                         # Try to extract dropdown options from Excel data validation or DV sheet
                         dropdown_options = get_dropdown_options_xls(wb, sheet, material_row_idx, col_idx, label)
-                        print(f"         📊 Dropdown extraction result: {len(dropdown_options) if dropdown_options else 0} options found")
+                        print(f"          Dropdown extraction result: {len(dropdown_options) if dropdown_options else 0} options found")
                         
                         # If not found in Excel, use smart fallback ONLY for specific known fields
                         if not dropdown_options:
@@ -1638,22 +1698,22 @@ def extract_material_listing_fields(excel_path):
                             if 'country' in label_check or 'origin' in label_check:
                                 # Country fields should have dropdown even if not in Excel
                                 dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
-                                print(f"         📋 {col_letter}: Detected COUNTRY field - using fallback country list")
+                                print(f"          {col_letter}: Detected COUNTRY field - using fallback country list")
                             elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
                                 # Factory fields are typically Yes/No
                                 dropdown_options = ['Yes', 'No']
-                                print(f"         📋 {col_letter}: Detected FACTORY field - using fallback Yes/No")
+                                print(f"          {col_letter}: Detected FACTORY field - using fallback Yes/No")
                             elif 'vendor' in label_check or 'local' in label_check:
                                 # Vendor fields are typically Yes/No
                                 dropdown_options = ['Yes', 'No']
-                                print(f"         📋 {col_letter}: Detected VENDOR field - using fallback Yes/No")
+                                print(f"          {col_letter}: Detected VENDOR field - using fallback Yes/No")
                             else:
                                 # For other fields (like delivery time, etc.), if no dropdown in Excel, 
                                 # change field type to 'text' instead of forcing a dropdown
                                 field_type = 'text'
-                                print(f"         ⚠️ {col_letter}: No dropdown values found in Excel for '{label}' - changing to TEXT input")
+                                print(f"         [WARN] {col_letter}: No dropdown values found in Excel for '{label}' - changing to TEXT input")
                     
-                    print(f"         🔍 {col_letter}: '{label}' - Type: {field_type} - Blank: {is_empty} - Required: {is_required}")
+                    print(f"          {col_letter}: '{label}' - Type: {field_type} - Blank: {is_empty} - Required: {is_required}")
                     
                     field = {
                         "id": f"material_field_{col_idx}",
@@ -1674,23 +1734,23 @@ def extract_material_listing_fields(excel_path):
                     
                     material_fields.append(field)
                     rgb_str = f"RGB({color_rgb[0]}, {color_rgb[1]}, {color_rgb[2]})" if color_rgb else "N/A"
-                    print(f"         ✅ {col_letter}: '{label}' - Type: {field_type} - Required: {is_required} - {rgb_str}{options_summary}")
+                    print(f"         [OK] {col_letter}: '{label}' - Type: {field_type} - Required: {is_required} - {rgb_str}{options_summary}")
             
             # Summary of fields found
-            print(f"      📊 Material listing fields summary:")
+            print(f"       Material listing fields summary:")
             print(f"         Total fields found: {len(material_fields)}")
             file_fields = [f for f in material_fields if f['type'] == 'file']
             if file_fields:
-                print(f"         📎 TDS/File fields (REQUIRED for all materials): {len(file_fields)}")
+                print(f"         [Attachment] TDS/File fields (REQUIRED for all materials): {len(file_fields)}")
                 for ff in file_fields:
                     print(f"            - {ff['label']}")
             else:
-                print(f"         ⚠️  No TDS/file fields found - materials will not have file upload option!")
+                print(f"         [WARN]  No TDS/file fields found - materials will not have file upload option!")
             
             # Dropdown fields summary
             dropdown_fields = [f for f in material_fields if f['type'] == 'dropdown']
             if dropdown_fields:
-                print(f"         📋 Dropdown fields: {len(dropdown_fields)}")
+                print(f"          Dropdown fields: {len(dropdown_fields)}")
                 for df in dropdown_fields:
                     options_preview = df.get('options', [])[:3]
                     options_str = ', '.join(options_preview) + ('...' if len(df.get('options', [])) > 3 else '')
@@ -1699,180 +1759,182 @@ def extract_material_listing_fields(excel_path):
         else:  # .xlsx
             from openpyxl import load_workbook
             wb = load_workbook(excel_path, data_only=False)
-            
-            if sheet_name not in wb.sheetnames:
-                print(f"      ⚠ Sheet '{sheet_name}' not found, skipping material fields")
-                return []
-            
-            sheet = wb[sheet_name]
-            
-            # Find header row (search first 10 rows or all rows if less)
-            header_row_idx = 1
-            for row_idx in range(1, min(10, sheet.max_row + 1)):
-                row_text = " ".join([str(sheet.cell(row_idx, c).value or "") for c in range(1, sheet.max_column + 1)]).lower()
-                if any(kw in row_text for kw in ['price', 'quantity', 'manufacturer', 'material', 'code', 'name', 'description']):
-                    header_row_idx = row_idx
-                    break
-            
-            print(f"         📋 Using row {header_row_idx} as header row")
-            
-            # Find Name column (use same logic as extract_materials_from_excel)
-            name_col_idx = None
-            for col_idx in range(1, sheet.max_column + 1):
-                header_val = str(sheet.cell(header_row_idx, col_idx).value or "").strip().lower()
-                if 'name' in header_val.replace(" ", "").replace("_", ""):
-                    name_col_idx = col_idx
-                    col_letter = sheet.cell(header_row_idx, col_idx).column_letter
-                    print(f"         📍 Found Name column at: {col_letter}")
-                    break
-            
-            if name_col_idx is None:
-                print(f"         📍 No 'Name' column found in sheet")
-                return []
-            
-            # Find first material row by searching Name column for 9-digit material codes (same as existing logic)
-            material_row_idx = None
-            for row_idx in range(header_row_idx + 1, sheet.max_row + 1):
-                name_value = str(sheet.cell(row_idx, name_col_idx).value or "")
-                # Extract 9-digit material codes using regex (same as extract_materials_from_excel)
-                material_codes = re.findall(r"\d{9}", name_value)
-                if material_codes:
-                    material_row_idx = row_idx
-                    print(f"         🔧 Found material row at: {row_idx} with material code(s): {material_codes}")
-                    break
-            
-            if not material_row_idx:
-                print(f"      ⚠ No material rows found in sheet")
-                return []
-            
-            print(f"         🔧 Checking row {material_row_idx} for yellow cells (using flexible detection)")
-            print(f"         📊 Total columns to scan: {sheet.max_column}")
-            
-            # Scan ALL columns for yellow cells (use flexible detection for material listing)
-            for col_idx in range(1, sheet.max_column + 1):
-                cell = sheet.cell(material_row_idx, col_idx)
-                
-                # Get header for this column
-                header_cell = sheet.cell(header_row_idx, col_idx)
-                header_val = str(header_cell.value or "").strip()
-                
-                # Use the same function that works in other sheets, but with flexible detection
-                is_yellow, rgb_tuple = is_yellow_cell_xlsx(cell, debug=True, strict=False)
-                
-                # Check if this is a TDS/file field (always include even if not yellow)
-                # TDS files are required for all materials and must be included
-                is_file_field = False
-                if header_val:
-                    inferred_type = infer_field_type(header_val)
-                    is_file_field = (inferred_type == 'file')
-                    # Also check explicitly for common TDS field names
-                    if any(kw in header_val.lower() for kw in ['tds', 'technical data sheet']):
-                        is_file_field = True
-                
-                if is_yellow or is_file_field:
-                    cell_value = cell.value
-                    is_empty = (cell_value is None or str(cell_value).strip() == "")
-                    
-                    if not header_val:
-                        print(f"         ⚠️  {cell.column_letter}: Cell detected but NO HEADER - skipping")
-                        continue  # Skip columns with no header
-                    
-                    # Log why this field was included
-                    if is_file_field and not is_yellow:
-                        print(f"         📎 {cell.column_letter}: '{header_val}' - INCLUDED (TDS/file field - REQUIRED for all materials, not yellow)")
-                    
-                    # Skip common read-only identifier columns
-                    skip_columns = ['number', 'name', 'alternative', 'bundle', 'tier', 'answer', 
-                                  'description', 'material code', 'item text', 'material po text', 
-                                  'comment', 'intend to respond', 'reason for not bidding']
-                    if header_val.lower() in skip_columns:
-                        print(f"         ⏭️  {cell.column_letter}: '{header_val}' - SKIPPED (identifier column)")
-                        continue  # Skip identifier/info columns
-                    
-                    label = header_val
-                    
-                    # Check if required (has * in header OR is a file field - files are always required)
-                    is_required = '*' in label or 'required' in label.lower()
-                    
-                    # Infer field type
-                    field_type = infer_field_type(label)
-                    
-                    # TDS/File fields are ALWAYS required for materials
-                    if field_type == 'file':
-                        is_required = True
-                        print(f"         🔒 {cell.column_letter}: TDS/File field marked as REQUIRED")
-                    
-                    # Check for dropdown options from Excel data validation
-                    dropdown_options = None
-                    if field_type == 'dropdown':
-                        dropdown_options = get_dropdown_options_xlsx(sheet, cell)
-                        if dropdown_options:
-                            print(f"         📋 {cell.column_letter}: Dropdown options found from Excel: {dropdown_options}")
-                        else:
-                            # Fallback: provide common options based on field name
-                            label_check = label.lower()
-                            if 'country' in label_check or 'origin' in label_check:
-                                dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
-                                print(f"         📋 {cell.column_letter}: Detected COUNTRY field - using country list")
-                            elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
-                                dropdown_options = ['Yes', 'No']
-                                print(f"         📋 {cell.column_letter}: Detected FACTORY field - using Yes/No")
-                            elif 'vendor' in label_check or 'local' in label_check:
-                                dropdown_options = ['Yes', 'No']
-                                print(f"         📋 {cell.column_letter}: Detected VENDOR field - using Yes/No")
+            try:
+                if sheet_name not in wb.sheetnames:
+                    print(f"      [WARN] Sheet '{sheet_name}' not found, skipping material fields")
+                    return []
+
+                sheet = wb[sheet_name]
+
+                # Find header row (search first 10 rows or all rows if less)
+                header_row_idx = 1
+                for row_idx in range(1, min(10, sheet.max_row + 1)):
+                    row_text = " ".join([str(sheet.cell(row_idx, c).value or "") for c in range(1, sheet.max_column + 1)]).lower()
+                    if any(kw in row_text for kw in ['price', 'quantity', 'manufacturer', 'material', 'code', 'name', 'description']):
+                        header_row_idx = row_idx
+                        break
+
+                print(f"          Using row {header_row_idx} as header row")
+
+                # Find Name column (use same logic as extract_materials_from_excel)
+                name_col_idx = None
+                for col_idx in range(1, sheet.max_column + 1):
+                    header_val = str(sheet.cell(header_row_idx, col_idx).value or "").strip().lower()
+                    if 'name' in header_val.replace(" ", "").replace("_", ""):
+                        name_col_idx = col_idx
+                        col_letter = sheet.cell(header_row_idx, col_idx).column_letter
+                        print(f"          Found Name column at: {col_letter}")
+                        break
+
+                if name_col_idx is None:
+                    print(f"          No 'Name' column found in sheet")
+                    return []
+
+                # Find first material row by searching Name column for 9-digit material codes (same as existing logic)
+                material_row_idx = None
+                for row_idx in range(header_row_idx + 1, sheet.max_row + 1):
+                    name_value = str(sheet.cell(row_idx, name_col_idx).value or "")
+                    # Extract 9-digit material codes using regex (same as extract_materials_from_excel)
+                    material_codes = re.findall(r"\d{9}", name_value)
+                    if material_codes:
+                        material_row_idx = row_idx
+                        print(f"          Found material row at: {row_idx} with material code(s): {material_codes}")
+                        break
+
+                if not material_row_idx:
+                    print(f"      [WARN] No material rows found in sheet")
+                    return []
+
+                print(f"          Checking row {material_row_idx} for yellow cells (using flexible detection)")
+                print(f"          Total columns to scan: {sheet.max_column}")
+
+                # Scan ALL columns for yellow cells (use flexible detection for material listing)
+                for col_idx in range(1, sheet.max_column + 1):
+                    cell = sheet.cell(material_row_idx, col_idx)
+
+                    # Get header for this column
+                    header_cell = sheet.cell(header_row_idx, col_idx)
+                    header_val = str(header_cell.value or "").strip()
+
+                    # Use the same function that works in other sheets, but with flexible detection
+                    is_yellow, rgb_tuple = is_yellow_cell_xlsx(cell, debug=True, strict=False)
+
+                    # Check if this is a TDS/file field (always include even if not yellow)
+                    # TDS files are required for all materials and must be included
+                    is_file_field = False
+                    if header_val:
+                        inferred_type = infer_field_type(header_val)
+                        is_file_field = (inferred_type == 'file')
+                        # Also check explicitly for common TDS field names
+                        if any(kw in header_val.lower() for kw in ['tds', 'technical data sheet']):
+                            is_file_field = True
+
+                    if is_yellow or is_file_field:
+                        cell_value = cell.value
+                        is_empty = (cell_value is None or str(cell_value).strip() == "")
+
+                        if not header_val:
+                            print(f"         [WARN]  {cell.column_letter}: Cell detected but NO HEADER - skipping")
+                            continue  # Skip columns with no header
+
+                        # Log why this field was included
+                        if is_file_field and not is_yellow:
+                            print(f"         [Attachment] {cell.column_letter}: '{header_val}' - INCLUDED (TDS/file field - REQUIRED for all materials, not yellow)")
+
+                        # Skip common read-only identifier columns
+                        skip_columns = ['number', 'name', 'alternative', 'bundle', 'tier', 'answer',
+                                      'description', 'material code', 'item text', 'material po text',
+                                      'comment', 'intend to respond', 'reason for not bidding']
+                        if header_val.lower() in skip_columns:
+                            print(f"           {cell.column_letter}: '{header_val}' - SKIPPED (identifier column)")
+                            continue  # Skip identifier/info columns
+
+                        label = header_val
+
+                        # Check if required (has * in header OR is a file field - files are always required)
+                        is_required = '*' in label or 'required' in label.lower()
+
+                        # Infer field type
+                        field_type = infer_field_type(label)
+
+                        # TDS/File fields are ALWAYS required for materials
+                        if field_type == 'file':
+                            is_required = True
+                            print(f"          {cell.column_letter}: TDS/File field marked as REQUIRED")
+
+                        # Check for dropdown options from Excel data validation
+                        dropdown_options = None
+                        if field_type == 'dropdown':
+                            dropdown_options = get_dropdown_options_xlsx(sheet, cell)
+                            if dropdown_options:
+                                print(f"          {cell.column_letter}: Dropdown options found from Excel: {dropdown_options}")
                             else:
-                                dropdown_options = ['Yes', 'No', 'N/A']
-                                print(f"         📋 {cell.column_letter}: Generic dropdown - using Yes/No/N/A")
-                            
-                            print(f"         📋 {cell.column_letter}: Fallback dropdown options: {dropdown_options}")
-                    
-                    print(f"         🔍 {cell.column_letter}: '{label}' - Type: {field_type} - Blank: {is_empty} - Required: {is_required}")
-                    
-                    field = {
-                        "id": f"material_field_{col_idx}",
-                        "label": label.replace('*', '').strip(),
-                        "type": field_type,
-                        "required": is_required,
-                        "col": col_idx,
-                        "col_letter": cell.column_letter,
-                        "default_value": "" if is_empty else str(cell_value)
-                    }
-                    
-                    # Add dropdown options if available
-                    if dropdown_options:
-                        field["options"] = dropdown_options
-                    
-                    material_fields.append(field)
-                    rgb_str = f"RGB{rgb_tuple}" if rgb_tuple else "N/A"
-                    print(f"         ✅ {cell.column_letter}: '{label}' - Type: {field_type} - Required: {is_required} - {rgb_str}")
-            
-            # Summary of fields found
-            print(f"      📊 Material listing fields summary:")
-            print(f"         Total fields found: {len(material_fields)}")
-            
-            # File fields
-            file_fields = [f for f in material_fields if f['type'] == 'file']
-            if file_fields:
-                print(f"         📎 TDS/File fields (REQUIRED for all materials): {len(file_fields)}")
-                for ff in file_fields:
-                    print(f"            - {ff['label']}")
-            else:
-                print(f"         ⚠️  No TDS/file fields found - materials will not have file upload option!")
-            
-            # Dropdown fields
-            dropdown_fields = [f for f in material_fields if f['type'] == 'dropdown']
-            if dropdown_fields:
-                print(f"         📋 Dropdown fields: {len(dropdown_fields)}")
-                for df in dropdown_fields:
-                    options_preview = df.get('options', [])[:3]
-                    options_str = ', '.join(options_preview) + ('...' if len(df.get('options', [])) > 3 else '')
-                    print(f"            - {df['label']}: [{options_str}]")
-        
-        print(f"      ✅ Found {len(material_fields)} material listing fields from yellow cells")
+                                # Fallback: provide common options based on field name
+                                label_check = label.lower()
+                                if 'country' in label_check or 'origin' in label_check:
+                                    dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
+                                    print(f"          {cell.column_letter}: Detected COUNTRY field - using country list")
+                                elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
+                                    dropdown_options = ['Yes', 'No']
+                                    print(f"          {cell.column_letter}: Detected FACTORY field - using Yes/No")
+                                elif 'vendor' in label_check or 'local' in label_check:
+                                    dropdown_options = ['Yes', 'No']
+                                    print(f"          {cell.column_letter}: Detected VENDOR field - using Yes/No")
+                                else:
+                                    dropdown_options = ['Yes', 'No', 'N/A']
+                                    print(f"          {cell.column_letter}: Generic dropdown - using Yes/No/N/A")
+
+                                print(f"          {cell.column_letter}: Fallback dropdown options: {dropdown_options}")
+
+                        print(f"          {cell.column_letter}: '{label}' - Type: {field_type} - Blank: {is_empty} - Required: {is_required}")
+
+                        field = {
+                            "id": f"material_field_{col_idx}",
+                            "label": label.replace('*', '').strip(),
+                            "type": field_type,
+                            "required": is_required,
+                            "col": col_idx,
+                            "col_letter": cell.column_letter,
+                            "default_value": "" if is_empty else str(cell_value)
+                        }
+
+                        # Add dropdown options if available
+                        if dropdown_options:
+                            field["options"] = dropdown_options
+
+                        material_fields.append(field)
+                        rgb_str = f"RGB{rgb_tuple}" if rgb_tuple else "N/A"
+                        print(f"         [OK] {cell.column_letter}: '{label}' - Type: {field_type} - Required: {is_required} - {rgb_str}")
+
+                # Summary of fields found
+                print(f"       Material listing fields summary:")
+                print(f"         Total fields found: {len(material_fields)}")
+
+                # File fields
+                file_fields = [f for f in material_fields if f['type'] == 'file']
+                if file_fields:
+                    print(f"         [Attachment] TDS/File fields (REQUIRED for all materials): {len(file_fields)}")
+                    for ff in file_fields:
+                        print(f"            - {ff['label']}")
+                else:
+                    print(f"         [WARN]  No TDS/file fields found - materials will not have file upload option!")
+
+                # Dropdown fields
+                dropdown_fields = [f for f in material_fields if f['type'] == 'dropdown']
+                if dropdown_fields:
+                    print(f"          Dropdown fields: {len(dropdown_fields)}")
+                    for df in dropdown_fields:
+                        options_preview = df.get('options', [])[:3]
+                        options_str = ', '.join(options_preview) + ('...' if len(df.get('options', [])) > 3 else '')
+                        print(f"            - {df['label']}: [{options_str}]")
+            finally:
+                wb.close()
+
+        print(f"      [OK] Found {len(material_fields)} material listing fields from yellow cells")
         return material_fields
     
     except Exception as e:
-        print(f"      ❌ Error extracting material listing fields: {e}")
+        print(f"      [ERROR] Error extracting material listing fields: {e}")
         import traceback
         traceback.print_exc()
         return []
@@ -1915,7 +1977,7 @@ def parse_excel_for_dynamic_form(excel_path):
                 
                 if is_material_sheet:
                     # For material sheets, group by material and use column headers
-                    print(f"      🔍 Scanning MATERIAL sheet '{sheet_name}' for blank yellow cells...")
+                    print(f"       Scanning MATERIAL sheet '{sheet_name}' for blank yellow cells...")
                     section = parse_material_sheet_xls(sheet, sheet_idx, sheet_name, wb)
                     if section and section.get("materials"):
                         form_structure["sections"].append(section)
@@ -1928,7 +1990,7 @@ def parse_excel_for_dynamic_form(excel_path):
                         "fields": []
                     }
                     
-                    print(f"      🔍 Scanning sheet '{sheet_name}' for blank yellow cells...")
+                    print(f"       Scanning sheet '{sheet_name}' for blank yellow cells...")
                     yellow_count = 0
                     blank_yellow_count = 0
                     
@@ -1945,7 +2007,7 @@ def parse_excel_for_dynamic_form(excel_path):
                                 col_letter = chr(65 + col_idx) if col_idx < 26 else f"Col{col_idx}"
                                 rgb_str = f"RGB({color_rgb[0]}, {color_rgb[1]}, {color_rgb[2]})" if color_rgb else "N/A"
                                 value_str = f"'{cell_value}'" if cell_value else "(empty)"
-                                print(f"🟨 {col_letter}{row_idx+1}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
+                                print(f" {col_letter}{row_idx+1}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
                                 
                                 if is_empty:
                                     blank_yellow_count += 1
@@ -1988,9 +2050,9 @@ def parse_excel_for_dynamic_form(excel_path):
                                     
                                     section["fields"].append(field)
                                     form_structure["total_fields"] += 1
-                                    print(f"            ✅ INCLUDED in form - Label: '{label}' - Type: {field_type}")
+                                    print(f"            [OK] INCLUDED in form - Label: '{label}' - Type: {field_type}")
                     
-                    print(f"      📊 Sheet '{sheet_name}': {yellow_count} yellow cells, {blank_yellow_count} blank (included in form)")
+                    print(f"       Sheet '{sheet_name}': {yellow_count} yellow cells, {blank_yellow_count} blank (included in form)")
                     
                     if section["fields"]:
                         form_structure["sections"].append(section)
@@ -1998,94 +2060,96 @@ def parse_excel_for_dynamic_form(excel_path):
         else:
             # Parse .xlsx file with openpyxl
             from openpyxl import load_workbook
-            
+
             wb = load_workbook(excel_path, data_only=False)
-            
-            for sheet_idx, sheet_name in enumerate(wb.sheetnames):
-                # Skip certain sheets
-                if any(skip in sheet_name.lower() for skip in ['instruction', 'attachment', 'dv_sheet']):
-                    continue
-                
-                sheet = wb[sheet_name]
-                section = {
-                    "sheet_name": sheet_name,
-                    "sheet_index": sheet_idx,
-                    "fields": []
-                }
-                
-                # Find all BLANK yellow cells in this sheet (cells to fill)
-                print(f"      🔍 Scanning sheet '{sheet_name}' for blank yellow cells...")
-                yellow_count = 0
-                blank_yellow_count = 0
-                
-                for row in sheet.iter_rows():
-                    for cell in row:
-                        is_yellow, rgb_tuple = is_yellow_cell_xlsx(cell, debug=False)
-                        
-                        if is_yellow:
-                            yellow_count += 1
-                            # Check if cell is blank/empty
-                            cell_value = cell.value
-                            is_empty = (cell_value is None or cell_value == "" or 
-                                       (isinstance(cell_value, str) and cell_value.strip() == ""))
-                            
-                            # Debug output for all yellow cells
-                            rgb_str = f"RGB{rgb_tuple}" if rgb_tuple else "N/A"
-                            value_str = f"'{cell_value}'" if cell_value else "(empty)"
-                            print(f"         🟨 {cell.coordinate}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
-                            
-                            # Only include BLANK yellow cells (cells user needs to fill)
-                            if is_empty:
-                                blank_yellow_count += 1
-                                row_idx = cell.row - 1  # Convert to 0-indexed
-                                col_idx = cell.column - 1  # Convert to 0-indexed
-                                
-                                # Get label from adjacent cells
-                                label = get_cell_label(sheet, row_idx, col_idx, is_xlsx=True)
-                                field_type = infer_field_type(label)
-                                
-                                # Check for dropdown options from Excel data validation
-                                dropdown_options = None
-                                if field_type == 'dropdown':
-                                    dropdown_options = get_dropdown_options_xlsx(sheet, cell)
-                                    if not dropdown_options:
-                                        # Fallback: provide common options based on field name
-                                        label_check = label.lower()
-                                        if 'country' in label_check or 'origin' in label_check:
-                                            dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
-                                        elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
-                                            dropdown_options = ['Yes', 'No']
-                                        elif 'vendor' in label_check or 'local' in label_check:
-                                            dropdown_options = ['Yes', 'No']
-                                        else:
-                                            dropdown_options = ['Yes', 'No', 'N/A']
-                                
-                                field = {
-                                    "id": f"field_{sheet_idx}_{row_idx}_{col_idx}",
-                                    "label": label,
-                                    "type": field_type,
-                                    "required": True,
-                                    "row": row_idx,
-                                    "col": col_idx,
-                                    "sheet_index": sheet_idx,
-                                    "sheet_name": sheet_name
-                                }
-                                
-                                # Add dropdown options if available
-                                if dropdown_options:
-                                    field["options"] = dropdown_options
-                                
-                                section["fields"].append(field)
-                                form_structure["total_fields"] += 1
-                                print(f"            ✅ INCLUDED in form - Label: '{label}' - Type: {field_type}")
-                
-                print(f"      📊 Sheet '{sheet_name}': {yellow_count} yellow cells, {blank_yellow_count} blank (included in form)")
-                
-                if section["fields"]:
-                    form_structure["sections"].append(section)
-    
+            try:
+                for sheet_idx, sheet_name in enumerate(wb.sheetnames):
+                    # Skip certain sheets
+                    if any(skip in sheet_name.lower() for skip in ['instruction', 'attachment', 'dv_sheet']):
+                        continue
+
+                    sheet = wb[sheet_name]
+                    section = {
+                        "sheet_name": sheet_name,
+                        "sheet_index": sheet_idx,
+                        "fields": []
+                    }
+
+                    # Find all BLANK yellow cells in this sheet (cells to fill)
+                    print(f"       Scanning sheet '{sheet_name}' for blank yellow cells...")
+                    yellow_count = 0
+                    blank_yellow_count = 0
+
+                    for row in sheet.iter_rows():
+                        for cell in row:
+                            is_yellow, rgb_tuple = is_yellow_cell_xlsx(cell, debug=False)
+
+                            if is_yellow:
+                                yellow_count += 1
+                                # Check if cell is blank/empty
+                                cell_value = cell.value
+                                is_empty = (cell_value is None or cell_value == "" or
+                                           (isinstance(cell_value, str) and cell_value.strip() == ""))
+
+                                # Debug output for all yellow cells
+                                rgb_str = f"RGB{rgb_tuple}" if rgb_tuple else "N/A"
+                                value_str = f"'{cell_value}'" if cell_value else "(empty)"
+                                print(f"          {cell.coordinate}: {rgb_str} - Value: {value_str} - Blank: {is_empty}")
+
+                                # Only include BLANK yellow cells (cells user needs to fill)
+                                if is_empty:
+                                    blank_yellow_count += 1
+                                    row_idx = cell.row - 1  # Convert to 0-indexed
+                                    col_idx = cell.column - 1  # Convert to 0-indexed
+
+                                    # Get label from adjacent cells
+                                    label = get_cell_label(sheet, row_idx, col_idx, is_xlsx=True)
+                                    field_type = infer_field_type(label)
+
+                                    # Check for dropdown options from Excel data validation
+                                    dropdown_options = None
+                                    if field_type == 'dropdown':
+                                        dropdown_options = get_dropdown_options_xlsx(sheet, cell)
+                                        if not dropdown_options:
+                                            # Fallback: provide common options based on field name
+                                            label_check = label.lower()
+                                            if 'country' in label_check or 'origin' in label_check:
+                                                dropdown_options = ['Saudi Arabia', 'UAE', 'USA', 'China', 'Germany', 'Italy', 'France', 'UK', 'Japan', 'South Korea', 'India', 'Turkey', 'Spain', 'Canada', 'Brazil', 'Mexico', 'Other']
+                                            elif 'factory' in label_check or 'own factory' in label_check or 'product own' in label_check:
+                                                dropdown_options = ['Yes', 'No']
+                                            elif 'vendor' in label_check or 'local' in label_check:
+                                                dropdown_options = ['Yes', 'No']
+                                            else:
+                                                dropdown_options = ['Yes', 'No', 'N/A']
+
+                                    field = {
+                                        "id": f"field_{sheet_idx}_{row_idx}_{col_idx}",
+                                        "label": label,
+                                        "type": field_type,
+                                        "required": True,
+                                        "row": row_idx,
+                                        "col": col_idx,
+                                        "sheet_index": sheet_idx,
+                                        "sheet_name": sheet_name
+                                    }
+
+                                    # Add dropdown options if available
+                                    if dropdown_options:
+                                        field["options"] = dropdown_options
+
+                                    section["fields"].append(field)
+                                    form_structure["total_fields"] += 1
+                                    print(f"            [OK] INCLUDED in form - Label: '{label}' - Type: {field_type}")
+
+                    print(f"       Sheet '{sheet_name}': {yellow_count} yellow cells, {blank_yellow_count} blank (included in form)")
+
+                    if section["fields"]:
+                        form_structure["sections"].append(section)
+            finally:
+                wb.close()
+
     except Exception as e:
-        print(f"❌ Error parsing Excel for dynamic form: {e}")
+        print(f"[ERROR] Error parsing Excel for dynamic form: {e}")
         import traceback
         traceback.print_exc()
     
@@ -2097,13 +2161,16 @@ def _try_materials_from_dataverse(rfp_id: str):
     Returns dict (response body) if successful, None if fallback needed.
     """
     try:
+        from services.master_data_service import get_material_code_to_bahra_code_map
+        bahra_map = get_material_code_to_bahra_code_map()
+
         filter_val = rfp_id.replace("'", "''")
         result = DATAVERSE.query_rows(
-            RFP_ACTIVITY_LOG_TABLE_API,
+            get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
             filter_expr=f"RFP_ID eq '{filter_val}'",
             select="RFP_ID,Matched_Data",
             top=1,
-            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
             use_display_names=True
         )
         rows = result.get("value", []) if isinstance(result, dict) else []
@@ -2114,79 +2181,117 @@ def _try_materials_from_dataverse(rfp_id: str):
         if not matched_data_str:
             return None
 
-        items = json.loads(matched_data_str)
-        if not isinstance(items, list) or not items:
-            return None
+        data = json.loads(matched_data_str)
 
-        # Check if data has new format (is_matched field present)
-        has_new_format = any("is_matched" in item for item in items)
-        if not has_new_format:
-            return None  # Old format — fall back to live matching
-
-        # Transform stored data to dialog format
         materials_list = []
-        for item in items:
-            is_matched = bool(item.get("is_matched", True))
-            raw_method = item.get("MatchMethod")
 
-            if not is_matched:
-                match_method = None
-            elif raw_method and str(raw_method).lower() == "keyword":
-                match_method = "keyword"
-            else:
-                match_method = "exact_code"
+        # New categorized format (dict with summary)
+        if isinstance(data, dict) and "summary" in data:
+            for item in data.get("exact_matches", []):
+                code = item.get("material_code", "")
+                materials_list.append({
+                    "material_code": code,
+                    "bahra_item_code": bahra_map.get(code, ""),
+                    "name": item.get("excel_name", ""),
+                    "description": item.get("excel_description", ""),
+                    "is_matched": True,
+                    "match_method": "exact_code",
+                    "master_description": item.get("material_description", ""),
+                    "master_data": {},
+                    "selected": False,
+                    "reason": "",
+                })
+            for item in data.get("keyword_matches", []):
+                code = item.get("material_code", "")
+                materials_list.append({
+                    "material_code": code,
+                    "bahra_item_code": bahra_map.get(code, ""),
+                    "name": item.get("excel_name", ""),
+                    "description": item.get("excel_description", ""),
+                    "is_matched": True,
+                    "match_method": "keyword",
+                    "matched_keyword": item.get("matched_keyword", ""),
+                    "master_description": item.get("material_description", ""),
+                    "master_data": {},
+                    "selected": False,
+                    "reason": "",
+                })
+            for item in data.get("not_matched", []):
+                code = item.get("material_code", "")
+                materials_list.append({
+                    "material_code": code,
+                    "bahra_item_code": bahra_map.get(code, ""),
+                    "name": item.get("excel_name", ""),
+                    "description": item.get("excel_description", ""),
+                    "is_matched": False,
+                    "match_method": None,
+                    "master_description": "",
+                    "master_data": {},
+                    "selected": False,
+                    "reason": "",
+                })
 
-            mat_code = str(item.get("ExtractedMaterial") or item.get("Material") or "").strip()
-            name = str(item.get("ExcelName") or item.get("ColumnName") or "").strip()
-            description = str(item.get("ExcelDescription") or "").strip()
-
-            master_description = ""
-            if is_matched:
-                master_description = str(item.get("Material Description") or "").strip()
-
-            # Build master_data dict (exclude internal tracking fields)
-            internal_keys = {
-                "SourceFile", "RFP_Title", "RFP_End_Date", "TDS_file_path",
-                "RowNumber", "ColumnName", "ExtractedMaterial", "MatchMethod",
-                "is_matched", "ExcelName", "ExcelDescription"
+            s = data["summary"]
+            return {
+                "ok": True,
+                "rfp_id": rfp_id,
+                "total_materials": data.get("total_items", len(materials_list)),
+                "matched_count": s.get("exact_match_count", 0) + s.get("keyword_match_count", 0),
+                "unmatched_count": s.get("not_matched_count", 0),
+                "exact_code_matches": s.get("exact_match_count", 0),
+                "keyword_matches": s.get("keyword_match_count", 0),
+                "match_percentage": s.get("match_percentage", 0),
+                "materials": materials_list,
             }
-            master_data = {}
-            if is_matched:
-                master_data = {
-                    k: (None if (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) else v)
-                    for k, v in item.items()
-                    if k not in internal_keys
-                }
 
-            materials_list.append({
-                "material_code": mat_code,
-                "name": name,
-                "description": description,
-                "is_matched": is_matched,
-                "match_method": match_method,
-                "master_description": master_description,
-                "master_data": master_data,
-                "selected": False,
-                "reason": "",
-            })
+        # Old flat format (list) — backward compatibility
+        if isinstance(data, list) and data:
+            if not any("is_matched" in item for item in data):
+                return None
 
-        total_materials = len(materials_list)
-        matched_count = sum(1 for m in materials_list if m["is_matched"])
-        exact_code_matches = sum(1 for m in materials_list if m.get("match_method") == "exact_code")
-        keyword_matches = sum(1 for m in materials_list if m.get("match_method") == "keyword")
-        match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
+            for item in data:
+                is_matched = bool(item.get("is_matched", True))
+                raw_method = item.get("MatchMethod")
+                if not is_matched:
+                    match_method = None
+                elif raw_method and str(raw_method).lower() == "keyword":
+                    match_method = "keyword"
+                else:
+                    match_method = "exact_code"
 
-        return {
-            "ok": True,
-            "rfp_id": rfp_id,
-            "total_materials": total_materials,
-            "matched_count": matched_count,
-            "unmatched_count": total_materials - matched_count,
-            "exact_code_matches": exact_code_matches,
-            "keyword_matches": keyword_matches,
-            "match_percentage": match_percentage,
-            "materials": materials_list,
-        }
+                code = str(item.get("ExtractedMaterial") or item.get("Material") or "").strip()
+                materials_list.append({
+                    "material_code": code,
+                    "bahra_item_code": bahra_map.get(code, ""),
+                    "name": str(item.get("ExcelName") or item.get("ColumnName") or "").strip(),
+                    "description": str(item.get("ExcelDescription") or "").strip(),
+                    "is_matched": is_matched,
+                    "match_method": match_method,
+                    "master_description": str(item.get("Material Description") or "").strip() if is_matched else "",
+                    "master_data": {},
+                    "selected": False,
+                    "reason": "",
+                })
+
+            total_materials = len(materials_list)
+            matched_count = sum(1 for m in materials_list if m["is_matched"])
+            exact_code_matches = sum(1 for m in materials_list if m.get("match_method") == "exact_code")
+            keyword_matches_count = sum(1 for m in materials_list if m.get("match_method") == "keyword")
+            match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
+
+            return {
+                "ok": True,
+                "rfp_id": rfp_id,
+                "total_materials": total_materials,
+                "matched_count": matched_count,
+                "unmatched_count": total_materials - matched_count,
+                "exact_code_matches": exact_code_matches,
+                "keyword_matches": keyword_matches_count,
+                "match_percentage": match_percentage,
+                "materials": materials_list,
+            }
+
+        return None
 
     except Exception as e:
         print(f"[MaterialDialog] Dataverse read failed for {rfp_id}, falling back to live matching: {e}")
@@ -2213,8 +2318,8 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
         # FALLBACK PATH: Live matching (for old records without new format)
         # Initialize GraphClient for master file download
         graph_client = GraphClient(
-            CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-            SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+            get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+            get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", "")
         )
         graph_client.auth()
         graph_client.resolve_site_and_drive()
@@ -2227,8 +2332,8 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
             if found_company:
                 selected_company = found_company
             else:
-                selected_company = COMPANY_NAME
-                print(f"⚠️ Company not found for RFP {rfp_id}, using default: {selected_company}")
+                selected_company = get_setting("COMPANY_NAME", "")
+                print(f"[WARN] Company not found for RFP {rfp_id}, using default: {selected_company}")
 
         # Find Excel file — download from SharePoint if not local
         excel_path = ensure_rfp_excel_from_sharepoint(rfp_id, selected_company, graph_client)
@@ -2250,11 +2355,12 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
             })
 
         # Get cached master data (downloads only if needed)
-        master_csv_local = os.path.join(OUTPUT_DIR, "master_material.csv")
+        _output_dir = get_setting("OUTPUT_DIR", "")
+        master_csv_local = os.path.join(_output_dir, "master_material.csv")
         master = get_cached_master_data(graph_client, master_csv_local)
 
         # Get cached keywords (downloads only if needed)
-        keywords_csv_local = os.path.join(OUTPUT_DIR, "unique_keywords.csv")
+        keywords_csv_local = os.path.join(_output_dir, "unique_keywords.csv")
         keywords_list = get_cached_keywords(graph_client, keywords_csv_local)
 
         # Find 'material' column in master CSV
@@ -2264,6 +2370,10 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
                 status_code=500,
                 detail="No 'material' column found in master CSV"
             )
+
+        # Load bahra item code map (used to annotate each material in the response)
+        from services.master_data_service import get_material_code_to_bahra_code_map
+        bahra_map = get_material_code_to_bahra_code_map()
 
         # Match materials using same logic as download time (exact code + keyword)
         materials_list = []
@@ -2294,6 +2404,7 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
 
             material_info = {
                 "material_code": mat_code,
+                "bahra_item_code": bahra_map.get(mat_code, ""),
                 "name": name_text,
                 "description": description_text,
                 "is_matched": is_matched,
@@ -2331,6 +2442,79 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
         # Calculate matching percentage
         match_percentage = round((matched_count / total_materials * 100) if total_materials > 0 else 0, 1)
 
+        # Write back Matched_Data to Dataverse in categorized format
+        try:
+            wb_exact = []
+            wb_keyword = []
+            wb_not_matched = []
+            for m in materials_list:
+                item = {
+                    "material_code": m["material_code"],
+                    "excel_name": m.get("name", ""),
+                    "excel_description": m.get("description", ""),
+                    "row_number": 0,
+                    "column_name": "",
+                }
+                if m.get("match_method") == "exact_code":
+                    item["material_description"] = m.get("master_description", "")
+                    wb_exact.append(item)
+                elif m.get("match_method") == "keyword":
+                    item["material_description"] = m.get("master_description", "")
+                    item["matched_keyword"] = m.get("matched_keyword", "")
+                    wb_keyword.append(item)
+                else:
+                    wb_not_matched.append(item)
+
+            categorized = {
+                "rfp_id": rfp_id,
+                "source_file": os.path.basename(excel_path) if excel_path else "",
+                "rfp_end_date": "",
+                "total_items": total_materials,
+                "summary": {
+                    "exact_match_count": len(wb_exact),
+                    "keyword_match_count": len(wb_keyword),
+                    "not_matched_count": len(wb_not_matched),
+                    "match_percentage": match_percentage,
+                },
+                "exact_matches": wb_exact,
+                "keyword_matches": wb_keyword,
+                "not_matched": wb_not_matched,
+            }
+            matched_data_json = json.dumps(categorized)
+            filter_val = rfp_id.replace("'", "''")
+            existing = DATAVERSE.query_rows(
+                get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
+                filter_expr=f"RFP_ID eq '{filter_val}'",
+                select="RFP_ID,Matched_Data",
+                top=1,
+                table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
+                use_display_names=True
+            )
+            rows_found = existing.get("value", []) if isinstance(existing, dict) else []
+            if rows_found:
+                existing_md = (rows_found[0].get("Matched_Data") or "").strip()
+                if not existing_md:
+                    # Resolve primary key for update
+                    _logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
+                    try:
+                        _colmap = DATAVERSE.get_column_mapping(_logical)
+                        _logical_to_display = {v: k for k, v in _colmap.items()}
+                    except Exception:
+                        _logical_to_display = {}
+                    _pk_logical = f"{_logical}id"
+                    _pk_display = _logical_to_display.get(_pk_logical)
+                    record_id = (rows_found[0].get(_pk_display) if _pk_display else None) or rows_found[0].get(_pk_logical)
+                    if record_id:
+                        DATAVERSE.update_row(
+                            get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
+                            record_id,
+                            {"Matched_Data": matched_data_json},
+                            table_logical_name=_logical
+                        )
+                        print(f"[MaterialDialog] Wrote back Matched_Data for {rfp_id}")
+        except Exception as wb_err:
+            print(f"[MaterialDialog] Write-back failed for {rfp_id}: {wb_err}")
+
         return JSONResponse({
             "ok": True,
             "materials": materials_list,
@@ -2342,7 +2526,7 @@ async def get_rfp_materials(request: Request, rfp_id: str, company: str = None):
             "keyword_matches": keyword_matches,
             "match_percentage": match_percentage
         })
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -2360,7 +2544,7 @@ async def get_dynamic_form_structure(request: Request, rfp_id: str, company: str
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     try:
-        print(f"\n🔍 Generating dynamic form for RFP: {rfp_id}")
+        print(f"\n Generating dynamic form for RFP: {rfp_id}")
 
         # Resolve company - either from query param or by searching
         selected_company = (company or "").strip()
@@ -2370,8 +2554,8 @@ async def get_dynamic_form_structure(request: Request, rfp_id: str, company: str
             if found_company:
                 selected_company = found_company
             else:
-                selected_company = COMPANY_NAME
-                print(f"⚠️ Company not found for RFP {rfp_id}, using default: {selected_company}")
+                selected_company = get_setting("COMPANY_NAME", "")
+                print(f"[WARN] Company not found for RFP {rfp_id}, using default: {selected_company}")
 
         # Get ORIGINAL Excel file path (not unprotected) with company
         excel_path = get_rfp_excel_file_path(rfp_id, selected_company)
@@ -2382,12 +2566,12 @@ async def get_dynamic_form_structure(request: Request, rfp_id: str, company: str
                 detail=f"Excel file not found for RFP: {rfp_id}"
             )
         
-        print(f"📄 Parsing Excel: {excel_path}")
+        print(f" Parsing Excel: {excel_path}")
         
         # Parse Excel and generate form structure
         form_structure = parse_excel_for_dynamic_form(excel_path)
         
-        print(f"✅ Found {form_structure['total_fields']} yellow cells across {len(form_structure['sections'])} sheets")
+        print(f"[OK] Found {form_structure['total_fields']} yellow cells across {len(form_structure['sections'])} sheets")
         
         # Add RFP ID to response
         form_structure["rfp_id"] = rfp_id
@@ -2398,7 +2582,7 @@ async def get_dynamic_form_structure(request: Request, rfp_id: str, company: str
         })
     
     except Exception as e:
-        print(f"❌ Error generating dynamic form: {e}")
+        print(f"[ERROR] Error generating dynamic form: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generating form: {str(e)}")
@@ -2415,7 +2599,7 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     try:
-        rfp_id_list = [r.strip() for r in rfp_ids.split(',') if r.strip()]
+        rfp_id_list = [r.strip() for r in rfp_ids.split('|') if r.strip()]
 
         # Parse company mapping
         company_map = {}
@@ -2432,45 +2616,104 @@ async def get_batch_match_percentages(request: Request, rfp_ids: str = Query(...
             })
 
         # Initialize GraphClient once
-        graph_client = GraphClient(
-            CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-            SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
-        )
-        graph_client.auth()
-        graph_client.resolve_site_and_drive()
-
-        # Get cached master data (downloads only if needed)
-        master_csv_local = os.path.join(OUTPUT_DIR, "master_material.csv")
-        master = get_cached_master_data(graph_client, master_csv_local)
-        master_col = find_column_name(master.columns, "material")
-        if not master_col:
-            raise HTTPException(status_code=500, detail="No 'material' column found in master CSV")
-
-        # Get cached keywords (downloads only if needed)
-        keywords_csv_local = os.path.join(OUTPUT_DIR, "unique_keywords.csv")
-        keywords_list = get_cached_keywords(graph_client, keywords_csv_local)
-
-        # Calculate percentages for all RFPs
         results = {}
+
+        # Phase A: Collect cache hits
+        uncached_ids = []
         for rfp_id in rfp_id_list:
-            try:
-                rfp_company = company_map.get(rfp_id, None)
-                result = calculate_match_percentage_optimized(
-                    rfp_id, master, master_col, keywords_list,
-                    company=rfp_company, graph_client=graph_client
-                )
-                results[rfp_id] = {
-                    "match_percentage": result["match_percentage"],
-                    "total_materials": result["total_materials"],
-                    "matched_count": result["matched_count"]
+            if rfp_id in _MATCH_PERCENTAGE_CACHE:
+                cached = _MATCH_PERCENTAGE_CACHE[rfp_id]
+                if cached.get("cache_version") == _MATCH_CACHE_VERSION:
+                    results[rfp_id] = {
+                        "match_percentage": cached["match_percentage"],
+                        "total_materials": cached["total_materials"],
+                        "matched_count": cached["matched_count"]
+                    }
+                    continue
+            uncached_ids.append(rfp_id)
+
+        # Phase B: Batch Dataverse query for all uncached RFPs at once
+        fallback_ids = []
+        if uncached_ids:
+            dv_results = _batch_get_match_percentages_from_dataverse(uncached_ids)
+            for rfp_id in uncached_ids:
+                dv_result = dv_results.get(rfp_id)
+                if dv_result is not None:
+                    # Cache the Dataverse result
+                    dv_result["source"] = "dataverse"
+                    dv_result["cache_version"] = _MATCH_CACHE_VERSION
+                    _MATCH_PERCENTAGE_CACHE[rfp_id] = dv_result
+                    results[rfp_id] = {
+                        "match_percentage": dv_result["match_percentage"],
+                        "total_materials": dv_result["total_materials"],
+                        "matched_count": dv_result["matched_count"]
+                    }
+                else:
+                    fallback_ids.append(rfp_id)
+
+        # Phase C: Parallel Excel fallback for remaining RFPs
+        # Only init SharePoint + load master data when actually needed
+        if fallback_ids:
+            print(f"[BatchMatch] Excel fallback for {len(fallback_ids)} RFPs (parallel, max 5 workers)")
+
+            graph_client = GraphClient(
+                get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+                get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", "")
+            )
+            graph_client.auth()
+            graph_client.resolve_site_and_drive()
+
+            # Load materials from Dataverse first, fallback to SharePoint CSV
+            from services.master_data_service import get_all_materials_for_matching, get_all_keywords_for_matching
+            dv_materials = get_all_materials_for_matching()
+            if dv_materials:
+                master = pd.DataFrame({"material": dv_materials})
+                master_col = "material"
+            else:
+                _output_dir = get_setting("OUTPUT_DIR", "")
+                master = get_cached_master_data(graph_client, os.path.join(_output_dir, "master_material.csv"))
+                master_col = find_column_name(master.columns, "material")
+                if not master_col:
+                    raise HTTPException(status_code=500, detail="No 'material' column found in master CSV")
+
+            keywords_list = get_all_keywords_for_matching()
+            if not keywords_list:
+                _output_dir = get_setting("OUTPUT_DIR", "")
+                keywords_list = get_cached_keywords(graph_client, os.path.join(_output_dir, "unique_keywords.csv"))
+
+            master_code_set = set(master[master_col].astype(str))
+
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {
+                    executor.submit(
+                        calculate_match_percentage_optimized,
+                        rfp_id, master, master_col, keywords_list,
+                        company=company_map.get(rfp_id),
+                        graph_client=graph_client,
+                        master_code_set=master_code_set,
+                        skip_dataverse=True
+                    ): rfp_id
+                    for rfp_id in fallback_ids
                 }
-            except Exception as e:
-                results[rfp_id] = {
-                    "match_percentage": 0,
-                    "total_materials": 0,
-                    "matched_count": 0,
-                    "error": str(e)
-                }
+                for future in as_completed(futures):
+                    rfp_id = futures[future]
+                    try:
+                        result = future.result()
+                        results[rfp_id] = {
+                            "match_percentage": result["match_percentage"],
+                            "total_materials": result["total_materials"],
+                            "matched_count": result["matched_count"]
+                        }
+                    except Exception as e:
+                        print(f"[BatchMatch] Error for {rfp_id}: {e}")
+                        results[rfp_id] = {
+                            "match_percentage": 0,
+                            "total_materials": 0,
+                            "matched_count": 0,
+                            "error": str(e)
+                        }
+
+        print(f"[BatchMatch] Done: {len(results)} RFPs ({len(rfp_id_list) - len(uncached_ids)} cached, {len(uncached_ids) - len(fallback_ids)} from Dataverse, {len(fallback_ids)} from Excel)")
 
         return JSONResponse({
             "ok": True,
@@ -2526,11 +2769,10 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
 
         if not company:
             # Default to COMPANY_NAME if still not found
-            from config.config import COMPANY_NAME
-            company = COMPANY_NAME
-            print(f"   ⚠️ Company not provided, using default: {company}")
+            company = get_setting("COMPANY_NAME", "")
+            print(f"   [WARN] Company not provided, using default: {company}")
 
-        print(f"   📍 Company: {company}")
+        print(f"    Company: {company}")
 
         # Parse materials data from JSON string with error handling
         try:
@@ -2553,14 +2795,14 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                 tds_files.append(value)
                 tds_file_keys.append(key)
 
-        print(f"📝 Final RFP Submission Received:")
+        print(f" Final RFP Submission Received:")
         print(f"   RFP ID: {rfp_id}")
         print(f"   Company: {company}")
         print(f"   Dynamic Fields: {len(dynamic_fields)} fields")
         print(f"   Materials: {len(materials)} items")
         print(f"   TDS Files: {len(tds_files)} files")
         if tds_files:
-            print(f"   📎 TDS File keys found: {tds_file_keys}")
+            print(f"   [Attachment] TDS File keys found: {tds_file_keys}")
 
         # Get folders - now with company parameter
         tds_folder = get_rfp_tds_folder_path(rfp_id, company)
@@ -2571,7 +2813,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
             raise HTTPException(status_code=404, detail=f"Original Excel file not found for RFP: {rfp_id}")
         
         # 1. Save TDS files
-        print(f"💾 Saving TDS files to: {tds_folder}")
+        print(f"[Saved] Saving TDS files to: {tds_folder}")
         for upload_file in tds_files:
             # Read file content
             file_content = await upload_file.read()
@@ -2579,7 +2821,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
             # Sanitize filename to prevent directory traversal
             safe_filename = os.path.basename(upload_file.filename)
             if not safe_filename or ".." in safe_filename:
-                print(f"   ⚠️ Skipping invalid filename: {upload_file.filename}")
+                print(f"   [WARN] Skipping invalid filename: {upload_file.filename}")
                 continue
 
             # Save to TDS-files folder
@@ -2587,10 +2829,10 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
             with open(file_path, 'wb') as f:
                 f.write(file_content)
 
-            print(f"   ✅ Saved: {safe_filename}")
+            print(f"   [OK] Saved: {safe_filename}")
         
         # 2. Get the unprotected Excel file (not the original protected one)
-        print(f"📖 Looking for unprotected Excel file...")
+        print(f" Looking for unprotected Excel file...")
         
         # Find the unprotected version
         base_name = os.path.basename(original_excel_path)
@@ -2600,23 +2842,23 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
         
         # If unprotected version doesn't exist, use unprotect function
         if not os.path.exists(unprotected_path):
-            print(f"⚠️ Unprotected file not found, creating it...")
+            print(f"[WARN] Unprotected file not found, creating it...")
             try:
                 from helpers.unprotect_xls import unprotect_excel_file
                 unprotected_path = unprotect_excel_file(original_excel_path, unprotected_path)
             except Exception as e:
-                print(f"⚠️ Could not unprotect file: {e}. Using original file.")
+                print(f"[WARN] Could not unprotect file: {e}. Using original file.")
                 unprotected_path = original_excel_path
         
-        print(f"📖 Using file: {unprotected_path}")
+        print(f" Using file: {unprotected_path}")
         
         # 3. Copy unprotected file to rfp-upload-file folder (keep same format)
         import shutil
-        print(f"📋 Copying unprotected file to rfp-upload-file folder...")
+        print(f" Copying unprotected file to rfp-upload-file folder...")
         shutil.copy2(unprotected_path, saved_excel_path)
         
         # 4. Add submission details sheets - handle .xls and .xlsx differently
-        print(f"✍️ Adding submission data to Excel...")
+        print(f" Adding submission data to Excel...")
         
         is_old_format = saved_excel_path.endswith('.xls') and not saved_excel_path.endswith('.xlsx')
         
@@ -2634,10 +2876,10 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                 
                 # Find and update existing sheets
                 sheet_names = rb.sheet_names()
-                print(f"   📋 Found sheets: {sheet_names}")
+                print(f"    Found sheets: {sheet_names}")
                 
                 # Write dynamic form fields to their respective cells
-                print(f"   ✍️ Writing {len(dynamic_fields)} dynamic form fields...")
+                print(f"    Writing {len(dynamic_fields)} dynamic form fields...")
                 for field_id, field_data in dynamic_fields.items():
                     try:
                         sheet_idx = field_data['sheet_index']
@@ -2650,9 +2892,9 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         ws = wb.get_sheet(sheet_idx)
                         ws.write(row, col, value)
                         
-                        print(f"      ✅ {sheet_name} - Cell ({row}, {col}): {value}")
+                        print(f"      [OK] {sheet_name} - Cell ({row}, {col}): {value}")
                     except Exception as e:
-                        print(f"      ⚠️ Error writing field {field_id}: {e}")
+                        print(f"      [WARN] Error writing field {field_id}: {e}")
                 
                 # 3. Update "Other Content" sheet with material information
                 other_content_idx = None
@@ -2662,7 +2904,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         break
                 
                 if other_content_idx is not None:
-                    print(f"   ✍️ Updating Other Content sheet with material details...")
+                    print(f"    Updating Other Content sheet with material details...")
                     ws_content = wb.get_sheet(other_content_idx)
                     
                     # Read existing sheet to find where to place data
@@ -2684,7 +2926,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         except:
                             continue
                     
-                    print(f"   📊 Found {len(col_map)} column mappings")
+                    print(f"    Found {len(col_map)} column mappings")
                     
                     # Find rows with material codes and update them directly using column mapping
                     for row_idx in range(1, content_sheet.nrows):
@@ -2699,7 +2941,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                             for mat in materials:
                                 mat_code = mat.get('material_code', '')
                                 if mat_code and mat_code in row_text:
-                                    print(f"   ✅ Updating row {row_idx + 1} for material {mat_code}")
+                                    print(f"   [OK] Updating row {row_idx + 1} for material {mat_code}")
                                     
                                     # Get all dynamic fields from the material
                                     material_fields = mat.get('fields', {})
@@ -2723,27 +2965,27 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                                         if col_idx is not None:
                                             try:
                                                 ws_content.write(row_idx, col_idx, str(field_value))
-                                                print(f"      ✅ {field_label}: {field_value}")
+                                                print(f"      [OK] {field_label}: {field_value}")
                                                 fields_written += 1
                                             except Exception as e:
-                                                print(f"      ⚠️ Error writing {field_label}: {e}")
+                                                print(f"      [WARN] Error writing {field_label}: {e}")
                                         else:
-                                            print(f"      ⚠️ No column found for: {field_label}")
+                                            print(f"      [WARN] No column found for: {field_label}")
                                     
-                                    print(f"   📊 Material {mat_code}: {fields_written} fields written")
+                                    print(f"    Material {mat_code}: {fields_written} fields written")
                                     break  # Found and updated, move to next row
                         except Exception as e:
                             continue
                 
                 # Save the modified workbook
                 wb.save(saved_excel_path)
-                print(f"✅ Excel file (.xls) updated with user data: {saved_excel_path}")
+                print(f"[OK] Excel file (.xls) updated with user data: {saved_excel_path}")
                 
             except ImportError as ie:
-                print(f"⚠️ xlrd/xlwt/xlutils not installed: {ie}")
+                print(f"[WARN] xlrd/xlwt/xlutils not installed: {ie}")
                 print(f"   File copied but data not updated. Install: pip install xlrd xlwt xlutils")
             except Exception as e:
-                print(f"⚠️ Error updating .xls file: {e}")
+                print(f"[WARN] Error updating .xls file: {e}")
                 import traceback
                 traceback.print_exc()
                 print(f"   File was copied to: {saved_excel_path}")
@@ -2757,10 +2999,10 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                 # Load the workbook (preserves formatting)
                 wb = load_workbook(saved_excel_path)
                 
-                print(f"   📋 Found sheets: {wb.sheetnames}")
+                print(f"    Found sheets: {wb.sheetnames}")
                 
                 # Write dynamic form fields to their respective cells
-                print(f"   ✍️ Writing {len(dynamic_fields)} dynamic form fields...")
+                print(f"    Writing {len(dynamic_fields)} dynamic form fields...")
                 for field_id, field_data in dynamic_fields.items():
                     try:
                         sheet_name = field_data['sheet_name']
@@ -2772,11 +3014,11 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         if sheet_name in wb.sheetnames:
                             ws = wb[sheet_name]
                             ws.cell(row=row, column=col, value=value)
-                            print(f"      ✅ {sheet_name} - Cell ({row}, {col}): {value}")
+                            print(f"      [OK] {sheet_name} - Cell ({row}, {col}): {value}")
                         else:
-                            print(f"      ⚠️ Sheet '{sheet_name}' not found")
+                            print(f"      [WARN] Sheet '{sheet_name}' not found")
                     except Exception as e:
-                        print(f"      ⚠️ Error writing field {field_id}: {e}")
+                        print(f"      [WARN] Error writing field {field_id}: {e}")
                 
                 # 3. Update "Other Content" sheet with material information
                 content_sheet = None
@@ -2786,7 +3028,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         break
                 
                 if content_sheet:
-                    print(f"   ✍️ Updating Other Content sheet with material details...")
+                    print(f"    Updating Other Content sheet with material details...")
                     
                     # Find column indices by searching headers (map all columns dynamically)
                     header_row = 1  # Usually headers are in first row
@@ -2801,7 +3043,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                             normalized_header = header_val.replace('*', '').strip().lower()
                             col_map[normalized_header] = cell.column
                     
-                    print(f"   📊 Found {len(col_map)} column mappings")
+                    print(f"    Found {len(col_map)} column mappings")
                     
                     # Find rows with material codes and update them directly using column mapping
                     for row in content_sheet.iter_rows(min_row=2, max_row=content_sheet.max_row):
@@ -2812,7 +3054,7 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                         for mat in materials:
                             mat_code = mat.get('material_code', '')
                             if mat_code and mat_code in row_text:
-                                print(f"   ✅ Updating row {row[0].row} for material {mat_code}")
+                                print(f"   [OK] Updating row {row[0].row} for material {mat_code}")
                                 
                                 # Get all dynamic fields from the material
                                 material_fields = mat.get('fields', {})
@@ -2836,24 +3078,24 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                                     if col_num is not None:
                                         try:
                                             content_sheet.cell(row=row[0].row, column=col_num, value=str(field_value))
-                                            print(f"      ✅ {field_label}: {field_value}")
+                                            print(f"      [OK] {field_label}: {field_value}")
                                             fields_written += 1
                                         except Exception as e:
-                                            print(f"      ⚠️ Error writing {field_label}: {e}")
+                                            print(f"      [WARN] Error writing {field_label}: {e}")
                                     else:
-                                        print(f"      ⚠️ No column found for: {field_label}")
+                                        print(f"      [WARN] No column found for: {field_label}")
                                 
-                                print(f"   📊 Material {mat_code}: {fields_written} fields written")
+                                print(f"    Material {mat_code}: {fields_written} fields written")
                                 break  # Found and updated, move to next row
                 
                 # Save the workbook
                 wb.save(saved_excel_path)
                 wb.close()
                 
-                print(f"✅ Excel file (.xlsx) updated with user data: {saved_excel_path}")
+                print(f"[OK] Excel file (.xlsx) updated with user data: {saved_excel_path}")
                 
             except Exception as e:
-                print(f"⚠️ Error updating .xlsx file: {e}")
+                print(f"[WARN] Error updating .xlsx file: {e}")
                 import traceback
                 traceback.print_exc()
                 print(f"   File was copied to: {saved_excel_path}")
@@ -2863,12 +3105,12 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
         auto_submit_status = "pending"
 
         # 4. Upload to SharePoint
-        print(f"\n📤 Uploading files to SharePoint...")
+        print(f"\n[Upload] Uploading files to SharePoint...")
         try:
             # Initialize SharePoint client
             graph_client = GraphClient(
-                CLIENT_ID, CLIENT_SECRET, TENANT_ID,
-                SHAREPOINT_HOSTNAME, SITE_PATH, DRIVE_NAME
+                get_setting("CLIENT_ID", ""), get_setting("CLIENT_SECRET", ""), get_setting("TENANT_ID", ""),
+                get_setting("SHAREPOINT_HOSTNAME", ""), get_setting("SITE_PATH", ""), get_setting("DRIVE_NAME", "")
             )
             graph_client.auth()
             graph_client.resolve_site_and_drive()
@@ -2877,20 +3119,20 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
             if os.path.exists(saved_excel_path):
                 sp_savedrfp_path = get_sharepoint_rfp_savedrfp_path(rfp_id, company)
                 saved_excel_filename = os.path.basename(saved_excel_path)
-                print(f"☁️ Uploading Excel file to SharePoint: {sp_savedrfp_path}/{saved_excel_filename}")
+                print(f"[Upload] Uploading Excel file to SharePoint: {sp_savedrfp_path}/{saved_excel_filename}")
                 graph_client.upload_file_as(
                     saved_excel_path,
                     sp_savedrfp_path,
                     saved_excel_filename
                 )
-                print(f"✅ Excel file uploaded to SharePoint successfully")
+                print(f"[OK] Excel file uploaded to SharePoint successfully")
 
             # Upload TDS files to SharePoint TDS-files folder
             if os.path.exists(tds_folder):
                 sp_tds_path = get_sharepoint_rfp_tds_path(rfp_id, company)
                 tds_file_list = os.listdir(tds_folder)
                 if tds_file_list:
-                    print(f"☁️ Uploading {len(tds_file_list)} TDS files to SharePoint...")
+                    print(f"[Upload] Uploading {len(tds_file_list)} TDS files to SharePoint...")
                     for tds_filename in tds_file_list:
                         tds_file_path = os.path.join(tds_folder, tds_filename)
                         if os.path.isfile(tds_file_path):
@@ -2899,56 +3141,56 @@ async def submit_rfp_final(request: Request, user: dict = Depends(require_permis
                                 sp_tds_path,
                                 tds_filename
                             )
-                            print(f"   ✅ Uploaded: {tds_filename}")
-                    print(f"✅ All TDS files uploaded to SharePoint successfully")
+                            print(f"   [OK] Uploaded: {tds_filename}")
+                    print(f"[OK] All TDS files uploaded to SharePoint successfully")
                 else:
-                    print(f"ℹ️ No TDS files to upload")
+                    print(f"[INFO] No TDS files to upload")
             
-            print(f"✅ SharePoint upload completed successfully")
+            print(f"[OK] SharePoint upload completed successfully")
             sharepoint_status = "success"
         except Exception as e:
-            print(f"⚠️ SharePoint upload error: {e}")
+            print(f"[WARN] SharePoint upload error: {e}")
             import traceback
             traceback.print_exc()
             sharepoint_status = f"failed: {str(e)}"
             # Continue with the request but track the failure
 
         # 6. Trigger automatic RFP submission
-        print(f"\n🚀 Triggering automatic RFP submission...")
+        print(f"\n Triggering automatic RFP submission...")
         try:
             # Check if this specific RFP is already being submitted
             if _is_rfp_submitting(rfp_id):
-                print(f"⚠️ RFP {rfp_id} is already being submitted, skipping duplicate trigger")
+                print(f"[WARN] RFP {rfp_id} is already being submitted, skipping duplicate trigger")
             elif not os.path.exists(saved_excel_path):
-                print(f"⚠️ Saved Excel file not found, skipping automatic submission")
+                print(f"[WARN] Saved Excel file not found, skipping automatic submission")
             else:
                 # Add RFP to submitting set BEFORE creating task
                 _add_submitting_rfp(rfp_id)
-                print(f"✅ RFP {rfp_id} marked as submitting")
+                print(f"[OK] RFP {rfp_id} marked as submitting")
                 
                 # Trigger submission automation in background with state management
                 async def _submit_task():
                     try:
                         await run_automation_submit(rfp_id, company)
-                        print(f"✅ Automatic RFP submission completed for: {rfp_id}")
+                        print(f"[OK] Automatic RFP submission completed for: {rfp_id}")
                     except Exception as e:
-                        print(f"❌ Automatic submission failed for {rfp_id}: {e}")
+                        print(f"[ERROR] Automatic submission failed for {rfp_id}: {e}")
                         import traceback
                         traceback.print_exc()
                     finally:
                         _remove_submitting_rfp(rfp_id)
-                        print(f"✅ RFP {rfp_id} removed from submitting list")
+                        print(f"[OK] RFP {rfp_id} removed from submitting list")
                 
                 try:
                     asyncio.create_task(_submit_task())
-                    print(f"✅ Automatic RFP submission triggered in background for: {rfp_id}")
+                    print(f"[OK] Automatic RFP submission triggered in background for: {rfp_id}")
                 except Exception as task_error:
                     # If task creation fails, remove from submitting set
                     _remove_submitting_rfp(rfp_id)
                     raise task_error
             auto_submit_status = "started"
         except Exception as e:
-            print(f"⚠️ Failed to trigger automatic submission: {e}")
+            print(f"[WARN] Failed to trigger automatic submission: {e}")
             import traceback
             traceback.print_exc()
             auto_submit_status = f"failed: {str(e)}"

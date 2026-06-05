@@ -205,8 +205,11 @@ def send_rfp_deadline_reminders():
         print("❌ Missing RFP_End_Date column.")
         return
 
-    # Parse dates and compute time remaining
-    df["RFP_End_Date"] = pd.to_datetime(df["RFP_End_Date"], errors="coerce")
+    # Parse dates and compute time remaining.
+    # Dataverse now returns RFP_End_Date as ISO 8601 UTC (tz-aware) after the
+    # string→datetime column migration. Normalise via utc=True, then strip the
+    # tz so arithmetic with naive datetime.now() works.
+    df["RFP_End_Date"] = pd.to_datetime(df["RFP_End_Date"], errors="coerce", utc=True).dt.tz_localize(None)
     now = datetime.now()
     df["Hours_Left"] = (df["RFP_End_Date"] - now).dt.total_seconds() / 3600
 

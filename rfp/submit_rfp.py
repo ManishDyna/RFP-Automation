@@ -1,5 +1,6 @@
 import time
 import re
+import os
 import asyncio
 import tempfile
 from pathlib import Path
@@ -32,6 +33,24 @@ def fetch_from_sharepoint_temp(graph_client, sp_path: str):
     print(f"✅ File saved to temp: {temp_path}, size={len(data)} bytes")
     return str(temp_path)
 # ===== MAIN Submit RFP Code =====
+# 🔹 Utility: Read the Ariba PageErrorPanel message if visible
+async def get_page_error_panel_message(page: Page) -> Optional[str]:
+    try:
+        for sel in [
+            "#PageErrorPanel .msgText",
+            "#slidingErrorMsgContent .msgText",
+            "#slidingErrorMsg .msgText",
+        ]:
+            el = page.locator(f"{sel}:visible")
+            if await el.count() > 0:
+                text = (await el.first.inner_text()).strip()
+                if text:
+                    return text
+    except Exception:
+        pass
+    return None
+
+
 # 🔹 Utility: Safe click with retries
 async def safe_click(page: Page, selector: str, retries: int = 3, timeout: int = 10000):
     for attempt in range(retries):
@@ -307,11 +326,14 @@ async def upload_attachments_via_bidding_console(
 
         await page.wait_for_timeout(300)
 
-async def build_materials_dict_from_excel_reuse(excel_local_path: str, graph_client, rfp_title: str, company_name: str) -> Dict[str, str]:
+async def build_materials_dict_from_excel_reuse(excel_local_path: str, graph_client, rfp_title: str, company_name: str, allowed_tds_filenames: list[str] | None = None) -> Dict[str, str]:
     """
     Builds { material_code: local_pdf_path } by listing all PDFs in the TDS folder
     and matching them to material codes found in the Excel file.
     Matches when a material code appears anywhere in the filename.
+
+    If `allowed_tds_filenames` is provided, only files whose basename is in that
+    set are considered (user-selected subset from the Submit RFP dialog).
     """
     codes = extract_materials_from_excel(excel_local_path, include_details=False)
     print(f"📋 Material codes from Excel: {sorted(codes)}")
@@ -326,12 +348,19 @@ async def build_materials_dict_from_excel_reuse(excel_local_path: str, graph_cli
     print(f"📂 Listing TDS files in: {tds_folder}")
 
     try:
-        tds_files = graph_client.list_files_in_directory(tds_folder, ['.pdf'])
+        tds_files = graph_client.list_files_in_directory(tds_folder)
     except Exception as e:
         print(f"⚠ Could not list TDS folder: {e}")
         tds_files = []
 
-    print(f"📎 Found {len(tds_files)} PDF(s) in TDS folder: {[f['name'] for f in tds_files]}")
+    print(f"📎 Found {len(tds_files)} file(s) in TDS folder: {[f['name'] for f in tds_files]}")
+
+    # Restrict to user-selected files when caller provided an allow-list
+    if allowed_tds_filenames:
+        allowed = {os.path.basename(n).strip() for n in allowed_tds_filenames if (n or "").strip()}
+        before = len(tds_files)
+        tds_files = [f for f in tds_files if os.path.basename(f.get("name", "")).strip() in allowed]
+        print(f"🎯 Filtered TDS files by user selection: {len(tds_files)}/{before} kept (allow-list: {sorted(allowed)})")
 
     if not tds_files:
         print("⚠ No TDS files found in SharePoint folder")
@@ -373,7 +402,7 @@ async def build_materials_dict_from_excel_reuse(excel_local_path: str, graph_cli
 
 
 # 🔹 Main process flow
-async def flow_of_process_according_to_step(page, current_position: int, graph_client: Any, title: str, company_name: str, rfp_id: str = None) -> bool:
+async def flow_of_process_according_to_step(page, current_position: int, graph_client: Any, title: str, company_name: str, rfp_id: str = None, allowed_tds_filenames: list[str] | None = None) -> bool:
     # Log start of submit flow for this RFP
     try:
         log_event("RFP", "Submit", "Start", f"Begin submit flow for '{title}'", title)
@@ -439,18 +468,55 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
     except Exception:
         pass
 
-    await safe_click(page, "#text__rkuw9c")
-    print("✅ Currency dropdown opened")
-    await safe_click(page, "#_rkuw9c89")
-    print("✅ Selected SAR currency")
+    currency_name = "Saudi Riyal"
+
+    # Primary: anchor by the visible "Select event bidding currency" label so
+    # dynamic IDs (_rkuw9c, text__rkuw9c, Items__rkuw9c) don't matter at all.
+    currency_selected = False
+    try:
+        currency_combo = page.locator(
+            "tr:has-text('Select event bidding currency') [role='combobox']"
+        ).first
+        await currency_combo.click(timeout=10000)
+        print("✅ Currency dropdown opened (label-anchored)")
+
+        currency_option = currency_combo.locator(
+            "[role='listbox'] div.w-dropdown-item[role='option']",
+            has_text=currency_name,
+        ).first
+        try:
+            await currency_option.click(timeout=10000)
+            print(f"✅ Selected {currency_name} currency")
+        except Exception:
+            await currency_option.click(force=True, timeout=10000)
+            print(f"✅ Force-selected {currency_name} currency")
+        currency_selected = True
+    except Exception as e:
+        print(f"⚠️ Label-anchored currency selection failed, falling back: {e}")
+
+    # Fallback: hardcoded #text__rkuw9c / #Items__rkuw9c IDs (still selecting by visible text).
+    if not currency_selected:
+        await safe_click(page, "#text__rkuw9c")
+        print("✅ Currency dropdown opened (id fallback)")
+
+        currency_option = page.locator(
+            "#Items__rkuw9c div.w-dropdown-item[role='option']",
+            has_text=currency_name,
+        ).first
+        try:
+            await currency_option.click(timeout=10000)
+            print(f"✅ Selected {currency_name} currency (id fallback)")
+        except Exception:
+            await currency_option.click(force=True, timeout=10000)
+            print(f"✅ Force-selected {currency_name} currency (id fallback)")
     try:
         log_event("RFP", "Submit", "Success", "Currency set to SAR", title)
     except Exception:
         pass
 
     await page.wait_for_timeout(5000)
-    await page.get_by_text("Select Using Excel").click()
-    
+    await page.get_by_text("Select Using Excel").click(timeout=15000)
+
     await page.wait_for_timeout(5000)
     await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.2);")
     await page.wait_for_timeout(10000)
@@ -554,6 +620,50 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
 
     await page.wait_for_timeout(5000)
 
+    # ── Check if Ariba portal showed a validation error after Excel import ──
+    # Must check BEFORE proceeding — portal shows inline errors immediately after import
+    ariba_error_text = None
+    ariba_error_screenshot = None
+    try:
+        error_selectors = [
+            ".portletError",
+            ".messageError",
+            "[id*='errorMessage']",
+            ".alertMessage",
+            "[class*='errorMessageText']",
+            "[class*='error'][class*='text']",
+            ".w-messageBox.w-error",
+            "#PageErrorPanel .msgText",
+            "#slidingErrorMsgContent .msgText",
+            "#slidingErrorMsg .msgText",
+        ]
+        for selector in error_selectors:
+            err_el = page.locator(f"{selector}:visible")
+            if await err_el.count() > 0:
+                text = (await err_el.first.inner_text()).strip()
+                if text:
+                    ariba_error_text = text
+                    break
+    except Exception:
+        pass
+
+    if ariba_error_text:
+        # Capture screenshot RIGHT NOW — error dialog is still visible on screen
+        try:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            shot_dir = os.path.join(os.getcwd(), "LOGS")
+            os.makedirs(shot_dir, exist_ok=True)
+            ariba_error_screenshot = os.path.join(shot_dir, f"ariba_excel_error_{ts}.png")
+            await page.screenshot(path=ariba_error_screenshot, full_page=True)
+            print(f"[Screenshot] Ariba error captured: {ariba_error_screenshot}")
+        except Exception as ss_err:
+            print(f"[WARN] Could not capture Ariba error screenshot: {ss_err}")
+        try:
+            log_event("RFP", "Submit", "Fail", f"Ariba portal rejected Excel file: {ariba_error_text}", title)
+        except Exception:
+            pass
+        raise RuntimeError(f"Ariba portal rejected the Excel file — {ariba_error_text}")
+
     # Click "Use selected lots" - use safe_click with error handling
     lots_clicked = await safe_click(page, "button[title*='Use selected lots']")
     if lots_clicked:
@@ -565,6 +675,24 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
         log_event("RFP", "Submit", "Click", f"'Use selected lots' clicked: {lots_clicked}", title)
     except Exception:
         pass
+
+    # ── Check for Ariba portal page-level errors after "Use selected lots" ──
+    portal_error_after_lots = await get_page_error_panel_message(page)
+    if portal_error_after_lots:
+        try:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            shot_dir = os.path.join(os.getcwd(), "LOGS")
+            os.makedirs(shot_dir, exist_ok=True)
+            shot_path = os.path.join(shot_dir, f"ariba_portal_error_{ts}.png")
+            await page.screenshot(path=shot_path, full_page=True)
+            print(f"[Screenshot] Portal error captured: {shot_path}")
+        except Exception:
+            pass
+        try:
+            log_event("RFP", "Submit", "Fail", f"Ariba portal error: {portal_error_after_lots}", title)
+        except Exception:
+            pass
+        raise RuntimeError(f"Ariba portal error: {portal_error_after_lots}")
 
     # Handle currency change warning (may or may not appear — check twice with delay)
     currency_confirmed = False
@@ -598,6 +726,23 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
         print("✅ Import confirmation dialog confirmed")
     except Exception as e:
         print(f"⚠️ Import confirmation dialog not found or already dismissed: {e}")
+        # ── Check for portal page-level error that may have blocked the dialog ──
+        portal_error_msg = await get_page_error_panel_message(page)
+        if portal_error_msg:
+            try:
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                shot_dir = os.path.join(os.getcwd(), "LOGS")
+                os.makedirs(shot_dir, exist_ok=True)
+                shot_path = os.path.join(shot_dir, f"ariba_portal_error_{ts}.png")
+                await page.screenshot(path=shot_path, full_page=True)
+                print(f"[Screenshot] Portal error captured: {shot_path}")
+            except Exception:
+                pass
+            try:
+                log_event("RFP", "Submit", "Fail", f"Ariba portal error blocked import confirmation: {portal_error_msg}", title)
+            except Exception:
+                pass
+            raise RuntimeError(f"Ariba portal error: {portal_error_msg}")
         # Try alternate approach - click any visible OK button in the import confirmation
         try:
             await safe_click(page, '#importConfirmationId button[title="OK"]')
@@ -611,12 +756,12 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
     # Attached Files after uploading excel file with their respective sections
     # Use rfp_id for TDS lookup since that's how files were uploaded
     tds_title = rfp_id if rfp_id else title
-    materials_files = await build_materials_dict_from_excel_reuse(upload_path, graph_client, tds_title, company_name=company_name)
+    materials_files = await build_materials_dict_from_excel_reuse(upload_path, graph_client, tds_title, company_name=company_name, allowed_tds_filenames=allowed_tds_filenames)
     print("materials_files:-",materials_files)
     # If no materials found with rfp_id, try with portal title as fallback
     if not materials_files and rfp_id and rfp_id != title:
         print(f"🔄 No TDS files found with rfp_id '{rfp_id}', trying portal title '{title}'...")
-        materials_files = await build_materials_dict_from_excel_reuse(upload_path, graph_client, title, company_name=company_name)
+        materials_files = await build_materials_dict_from_excel_reuse(upload_path, graph_client, title, company_name=company_name, allowed_tds_filenames=allowed_tds_filenames)
         print("materials_files (fallback):-",materials_files)
 
     await upload_attachments_via_bidding_console(page, materials_files)
@@ -629,13 +774,52 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
     # await safe_click(page, "button[title*='Submit Entire Response']")
     # print("✅ Clicked Submit button")
     
-    await safe_click(page, "button[title*='Save your response; it will not be submitted to the owner']")
-    print("✅ Clicked Ok button")
+    save_clicked = await safe_click(page, "button[title*='Save your response; it will not be submitted to the owner']")
+    if not save_clicked:
+        print("❌ Save draft button not found or not clickable")
+        try:
+            log_event("RFP", "Submit", "Fail", "Save draft button not found", title)
+        except Exception:
+            pass
+        return False
+    print("✅ Clicked Save draft button")
+    await page.wait_for_timeout(5000)
+
+    # Verify save was accepted — check for portal error after save
+    save_error = None
+    try:
+        error_selectors = [".portletError", ".messageError", "[id*='errorMessage']", ".alertMessage"]
+        for selector in error_selectors:
+            err_el = page.locator(f"{selector}:visible")
+            if await err_el.count() > 0:
+                text = (await err_el.first.inner_text()).strip()
+                if text:
+                    save_error = text
+                    break
+    except Exception:
+        pass
+
+    if save_error:
+        try:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            shot_dir = os.path.join(os.getcwd(), "LOGS")
+            os.makedirs(shot_dir, exist_ok=True)
+            shot_path = os.path.join(shot_dir, f"ariba_save_error_{ts}.png")
+            await page.screenshot(path=shot_path, full_page=True)
+            print(f"[Screenshot] Save error captured: {shot_path}")
+        except Exception:
+            pass
+        try:
+            log_event("RFP", "Submit", "Fail", f"Ariba rejected save draft: {save_error}", title)
+        except Exception:
+            pass
+        raise RuntimeError(f"Ariba portal rejected save draft — {save_error}")
+
     try:
         log_event("RFP", "Submit", "Success", "Saved draft (not submitted)", title)
     except Exception:
         pass
-    
+
     try:
         log_event("RFP", "Submit", "Complete", f"Submit flow complete for '{title}'", title)
     except Exception:
@@ -643,7 +827,7 @@ async def flow_of_process_according_to_step(page, current_position: int, graph_c
     return True
 
 # 🔹 High-level RFP submission
-async def submit_rfp(page, data: List[Dict[str, str]], rfp_id: str, graph_client: Any, company_name: str) -> List[Dict[str, str]]:
+async def submit_rfp(page, data: List[Dict[str, str]], rfp_id: str, graph_client: Any, company_name: str, allowed_tds_filenames: list[str] | None = None) -> List[Dict[str, str]]:
    
     filtered_data = []
     for row in data:
@@ -658,48 +842,83 @@ async def submit_rfp(page, data: List[Dict[str, str]], rfp_id: str, graph_client
         # Return a failure indicator - NOT empty list (empty list = success)
         return [{"Title": rfp_id, "error": "RFP not found in scraped portal data. The portal scraping may have failed or the RFP does not exist."}]
 
-    async def attempt_submit_rfp(row: Dict[str, str], main_page) -> bool:
+    async def _screenshot_new_page(new_page, label: str) -> Optional[str]:
+        """Take a screenshot from the RFP tab before it's closed."""
+        try:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            shot_dir = os.path.join(os.getcwd(), "LOGS")
+            os.makedirs(shot_dir, exist_ok=True)
+            path = os.path.join(shot_dir, f"{label}_{ts}.png")
+            await new_page.screenshot(path=path, full_page=True)
+            print(f"[Screenshot] Captured from RFP tab: {path}")
+            return path
+        except Exception as ss_err:
+            print(f"[WARN] Could not capture RFP tab screenshot: {ss_err}")
+            return None
+
+    async def attempt_submit_rfp(row: Dict[str, str], main_page):
         title = (row.get("Title") or "").strip()
         link = (row.get("Link") or "").strip()
         print(f"\n➡ Processing RFP: {title}")
         if not link:
             print(f"⚠ No link for {title}, skipping.")
-            return False
+            return {"error": "No link found for this RFP", "screenshot": None}
 
+        new_page = None
         try:
             async with main_page.context.expect_page() as new_page_info:
                 await main_page.evaluate(f"window.open('{link}', '_blank');")
-            
+
             new_page = await new_page_info.value
             await new_page.wait_for_load_state()
 
             current_position = await get_wizstep_position(new_page)
-            if await flow_of_process_according_to_step(new_page, current_position, graph_client=graph_client, title=title, company_name=company_name, rfp_id=rfp_id):
-                
+            if await flow_of_process_according_to_step(new_page, current_position, graph_client=graph_client, title=title, company_name=company_name, rfp_id=rfp_id, allowed_tds_filenames=allowed_tds_filenames):
+
                 print(f"✅ RFP '{title}' processed successfully.")
                 # Update participation status to "saved_draft"
                 try:
                     from helpers.core_helper import update_rfp_participation_status
-                    # Use title here because RFP_ID in Dataverse is stored as full title
-                    status_updated = update_rfp_participation_status(rfp_id, "saved_draft")
+                    status_updated = update_rfp_participation_status(rfp_id, "saved_draft", category="submit", log_change=True)
                     if not status_updated:
                         print(f"⚠️ Could not update participation status for RFP: {rfp_id}")
                 except Exception as status_err:
                     print(f"⚠️ Error updating participation status: {status_err}")
-                    # Don't fail the submission if status update fails
+                try:
+                    await new_page.close()
+                except Exception:
+                    pass
                 return True
             else:
                 print(f"⚠ Failed to process RFP: {title}")
-                await new_page.close()
-                return False
+                shot = await _screenshot_new_page(new_page, "submit_rfp_failure")
+                try:
+                    await new_page.close()
+                except Exception:
+                    pass
+                return {"error": "Submission flow returned failure (check logs for details)", "screenshot": shot}
 
         except Exception as e:
             print(f"❌ Error processing RFP '{title}': {e}")
-            return False
+            shot = None
+            if new_page:
+                shot = await _screenshot_new_page(new_page, "submit_rfp_error")
+                try:
+                    await new_page.close()
+                except Exception:
+                    pass
+            return {"error": str(e), "screenshot": shot}
 
     missing = []
     for row in filtered_data:
-        if not await attempt_submit_rfp(row, page):
-            missing.append(row)
-           
+        result = await attempt_submit_rfp(row, page)
+        if result is not True:
+            row_copy = dict(row)
+            if isinstance(result, dict):
+                if result.get("error"):
+                    row_copy["submit_error"] = result["error"]
+                if result.get("screenshot"):
+                    row_copy["submit_screenshot"] = result["screenshot"]
+            missing.append(row_copy)
+
     return missing

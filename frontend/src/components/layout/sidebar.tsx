@@ -18,10 +18,11 @@ import {
   Activity,
   Package,
   Database,
+  SlidersHorizontal,
+  MailWarning,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { useHasPermission } from '@/hooks/use-auth'
@@ -47,6 +48,19 @@ export function Sidebar({
   onCollapsedChange,
 }: SidebarProps) {
   const location = useLocation()
+  // Main menu permissions
+  const canViewDashboard = useHasPermission('dashboard.view')
+  const canViewRfpInsights = useHasPermission('rfp.view')
+  const canViewMaterialInsights = useHasPermission('material_insights.view')
+  const canViewLogs = useHasPermission('logs.view')
+  const canViewOpenRfp = useHasPermission('rfp.open.view')
+
+  // RFP operation permissions
+  const canDownloadRfp = useHasPermission('rfp.download')
+  const canSubmitRfp = useHasPermission('rfp.submit')
+  const canDeclineRfp = useHasPermission('rfp.decline')
+
+  // Admin section permissions
   const canManageUsers = useHasPermission('user_management.view')
   const canManageRoles = useHasPermission('role_management.view')
   const canViewAuditLogs = useHasPermission('audit_logs.view')
@@ -54,8 +68,15 @@ export function Sidebar({
   const canViewSapLogs = useHasPermission('sap_password.view')
   const canSchedule = useHasPermission('schedule_automation.manage')
   const canChangeSapPassword = useHasPermission('sap_password.change')
-  const canManageMasterData = useHasPermission('master_data.view')
-  const showAdminSection = canManageUsers || canManageRoles || canViewAuditLogs || canViewAnalytics || canViewSapLogs || canManageMasterData
+  const canViewMaterialMaster = useHasPermission('material_master.view')
+  const canViewKeywordMaster = useHasPermission('keyword_master.view')
+  const canViewRfpTeam = useHasPermission('rfp_team.view')
+  const canViewColumnConfig = useHasPermission('column_config.view')
+  const canManageMasterData = canViewMaterialMaster || canViewKeywordMaster || canViewRfpTeam || canViewColumnConfig
+  const canViewSettings = useHasPermission('system_settings.view')
+  const showAdminSection = canManageUsers || canManageRoles || canViewAuditLogs || canViewAnalytics || canViewSapLogs || canManageMasterData || canViewSettings
+
+  const showQuickActions = canDownloadRfp || canSubmitRfp || canDeclineRfp
   const { data: automationStatus } = useAutomationStatus()
   const setCollapsed = onCollapsedChange
 
@@ -142,34 +163,51 @@ export function Sidebar({
             <div className="px-3 py-4">
               {/* Main Navigation */}
               <NavSection title="Menu" collapsed={collapsed}>
-                <NavItem
-                  path="/dashboard"
-                  icon={LayoutDashboard}
-                  label="Dashboard"
-                  active={location.pathname === '/dashboard'}
-                  collapsed={collapsed}
-                />
-                <NavItem
-                  path="/dashboard/rfp-insights"
-                  icon={FileSearch}
-                  label="RFP Insights"
-                  active={location.pathname === '/dashboard/rfp-insights'}
-                  collapsed={collapsed}
-                />
-                <NavItem
-                  path="/dashboard/material-insights"
-                  icon={Package}
-                  label="Material Insights"
-                  active={location.pathname === '/dashboard/material-insights'}
-                  collapsed={collapsed}
-                />
-                <NavItem
-                  path="/dashboard/logs"
-                  icon={ScrollText}
-                  label="Activity Logs"
-                  active={location.pathname === '/dashboard/logs'}
-                  collapsed={collapsed}
-                />
+                {canViewDashboard && (
+                  <NavItem
+                    path="/dashboard"
+                    icon={LayoutDashboard}
+                    label="Dashboard"
+                    active={location.pathname === '/dashboard'}
+                    collapsed={collapsed}
+                  />
+                )}
+                {canViewRfpInsights && (
+                  <NavItem
+                    path="/dashboard/rfp-insights"
+                    icon={FileSearch}
+                    label="RFP Insights"
+                    active={location.pathname === '/dashboard/rfp-insights'}
+                    collapsed={collapsed}
+                  />
+                )}
+                {canViewMaterialInsights && (
+                  <NavItem
+                    path="/dashboard/material-insights"
+                    icon={Package}
+                    label="Material Insights"
+                    active={location.pathname === '/dashboard/material-insights'}
+                    collapsed={collapsed}
+                  />
+                )}
+                {canViewLogs && (
+                  <NavItem
+                    path="/dashboard/logs"
+                    icon={ScrollText}
+                    label="Activity Logs"
+                    active={location.pathname === '/dashboard/logs'}
+                    collapsed={collapsed}
+                  />
+                )}
+                {canViewOpenRfp && (
+                  <NavItem
+                    path="/dashboard/open-rfps"
+                    icon={MailWarning}
+                    label="Open RFP"
+                    active={location.pathname === '/dashboard/open-rfps'}
+                    collapsed={collapsed}
+                  />
+                )}
               </NavSection>
 
               {/* Admin Section */}
@@ -229,46 +267,63 @@ export function Sidebar({
                       collapsed={collapsed}
                     />
                   )}
+                  {canViewSettings && (
+                    <NavItem
+                      path="/admin/system-settings"
+                      icon={SlidersHorizontal}
+                      label="System Config"
+                      active={location.pathname === '/admin/system-settings'}
+                      collapsed={collapsed}
+                    />
+                  )}
                 </NavSection>
               )}
 
               {/* Quick Actions */}
-              <div className={cn('mt-6', collapsed ? 'px-0' : 'px-1')}>
-                {!collapsed && (
-                  <div className="flex items-center gap-2 px-2 mb-3">
-                    <Zap className="h-3.5 w-3.5" style={{ color: '#fcb900' }} />
-                    <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#abb8c3' }}>
-                      Quick Actions
-                    </span>
+              {showQuickActions && (
+                <div className={cn('mt-6', collapsed ? 'px-0' : 'px-1')}>
+                  {!collapsed && (
+                    <div className="flex items-center gap-2 px-2 mb-3">
+                      <Zap className="h-3.5 w-3.5" style={{ color: '#fcb900' }} />
+                      <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#abb8c3' }}>
+                        Quick Actions
+                      </span>
+                    </div>
+                  )}
+                  <div className="space-y-1.5">
+                    {canDownloadRfp && (
+                      <QuickAction
+                        icon={Download}
+                        label="Download RFPs"
+                        onClick={onDownloadRfps}
+                        collapsed={collapsed}
+                        disabled={isDownloading}
+                        variant="primary"
+                      />
+                    )}
+                    {canSubmitRfp && (
+                      <QuickAction
+                        icon={Send}
+                        label="Submit RFP"
+                        onClick={onSubmitRfp}
+                        collapsed={collapsed}
+                        disabled={isSubmitting}
+                        variant="success"
+                      />
+                    )}
+                    {canDeclineRfp && (
+                      <QuickAction
+                        icon={Ban}
+                        label="Decline RFP"
+                        onClick={onDeclineRfp}
+                        collapsed={collapsed}
+                        disabled={isDeclining}
+                        variant="danger"
+                      />
+                    )}
                   </div>
-                )}
-                <div className="space-y-1.5">
-                  <QuickAction
-                    icon={Download}
-                    label="Download RFPs"
-                    onClick={onDownloadRfps}
-                    collapsed={collapsed}
-                    disabled={isDownloading}
-                    variant="primary"
-                  />
-                  <QuickAction
-                    icon={Send}
-                    label="Submit RFP"
-                    onClick={onSubmitRfp}
-                    collapsed={collapsed}
-                    disabled={isSubmitting}
-                    variant="success"
-                  />
-                  <QuickAction
-                    icon={Ban}
-                    label="Decline RFP"
-                    onClick={onDeclineRfp}
-                    collapsed={collapsed}
-                    disabled={isDeclining}
-                    variant="danger"
-                  />
                 </div>
-              </div>
+              )}
 
               {/* Settings Section */}
               {(canSchedule || canChangeSapPassword) && (

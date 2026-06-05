@@ -113,12 +113,93 @@ export const api = {
     return handleResponse<any>(response)
   },
 
+  exportRfpData: async (params: {
+    status?: string
+    company?: string
+    start_date?: string
+    end_date?: string
+    search?: string
+    material_match?: string
+    keyword_match?: string
+    participation?: string
+  }, format: 'csv' | 'excel') => {
+    const searchParams = new URLSearchParams()
+    searchParams.append('format', format)
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') searchParams.append(key, String(value))
+    })
+    const response = await fetch(`${ENDPOINTS.DASHBOARD.RFP_EXPORT}?${searchParams}`, {
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      let message = 'Export failed'
+      try {
+        const data = await response.json()
+        message = data.detail || data.message || message
+      } catch {}
+      throw { message, status: response.status }
+    }
+    const blob = await response.blob()
+    const disposition = response.headers.get('Content-Disposition') || ''
+    const filenameMatch = disposition.match(/filename=(.+)/)
+    const filename = filenameMatch ? filenameMatch[1] : `RFP_Data_Export.${format === 'excel' ? 'xlsx' : 'csv'}`
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  },
+
+  exportFullAnalysis: async () => {
+    const response = await fetch(ENDPOINTS.DASHBOARD.RFP_EXPORT_FULL_ANALYSIS, {
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      let message = 'Full analysis export failed'
+      try {
+        const data = await response.json()
+        message = data.detail || data.message || message
+      } catch {}
+      throw { message, status: response.status }
+    }
+    const blob = await response.blob()
+    const disposition = response.headers.get('Content-Disposition') || ''
+    const filenameMatch = disposition.match(/filename=(.+)/)
+    const filename = filenameMatch ? filenameMatch[1] : 'RFP-Analysis-Overall_with_UoM.xlsx'
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  },
+
   // ==================== Automation ====================
   getAutomationStatus: async () => {
     const response = await fetch(ENDPOINTS.AUTOMATION.STATUS, {
       credentials: 'include',
     })
-    return handleResponse<{ status: string; progress: number }>(response)
+    return handleResponse<{
+      status: string
+      progress: number
+      message?: string
+      download_running?: boolean
+      submit_running?: boolean
+      decline_running?: boolean
+      sync_running?: boolean
+      submitting_rfps?: string[]
+      progress_details?: {
+        download: { current: number; total: number; percentage: number; current_item: string; message: string } | null
+        submit:   { current: number; total: number; percentage: number; current_item: string; message: string } | null
+        decline:  { current: number; total: number; percentage: number; current_item: string; message: string } | null
+        sync:     { current: number; total: number; percentage: number; current_item: string; message: string } | null
+      }
+    }>(response)
   },
 
   downloadRfps: async (company?: string) => {
@@ -143,6 +224,16 @@ export const api = {
     return handleResponse(response)
   },
 
+  getRfpSharePointUrl: async (rfpId: string, company?: string) => {
+    const params = new URLSearchParams({ rfp_id: rfpId })
+    if (company) params.append('company', company)
+    const response = await fetch(
+      `${ENDPOINTS.SHAREPOINT.RFP_FOLDER}?${params.toString()}`,
+      { credentials: 'include' }
+    )
+    return handleResponse<{ ok: boolean; url: string; company: string }>(response)
+  },
+
   validateRfp: async (rfpId: string) => {
     const response = await fetch(
       `${ENDPOINTS.DASHBOARD.VALIDATE_RFP}?rfp_id=${encodeURIComponent(rfpId)}`,
@@ -158,6 +249,20 @@ export const api = {
       credentials: 'include',
     })
     return handleResponse(response)
+  },
+
+  listExistingTdsFiles: async (rfpId: string, company: string) => {
+    const params = new URLSearchParams({ rfp_id: rfpId, company: company || '' })
+    const response = await fetch(`${ENDPOINTS.DASHBOARD.LIST_TDS_FILES}?${params.toString()}`, {
+      credentials: 'include',
+    })
+    return handleResponse<{
+      ok: boolean
+      rfp_id: string
+      company: string
+      folder: string
+      files: Array<{ name: string; path: string }>
+    }>(response)
   },
 
   declineRfp: async (rfpTitle: string, company: string) => {
@@ -226,7 +331,7 @@ export const api = {
 
   // ==================== RFP Match Percentages ====================
   getBatchMatchPercentages: async (rfpIds: string[], companiesMap?: Record<string, string>) => {
-    const params = new URLSearchParams({ rfp_ids: rfpIds.join(',') })
+    const params = new URLSearchParams({ rfp_ids: rfpIds.join('|') })
     if (companiesMap && Object.keys(companiesMap).length > 0) {
       params.set('companies', JSON.stringify(companiesMap))
     }
@@ -251,6 +356,7 @@ export const api = {
       match_percentage: number
       materials: Array<{
         material_code: string
+        bahra_item_code?: string | null
         name: string
         description: string
         is_matched: boolean
@@ -309,9 +415,119 @@ export const api = {
     return handleResponse<any>(response)
   },
 
+  // ==================== Open RFP ====================
+  listOpenRfps: async () => {
+    const response = await fetch(ENDPOINTS.OPEN_RFP.LIST, { credentials: 'include' })
+    return handleResponse<{
+      ok: boolean
+      total: number
+      rfps: Array<{
+        rfp_id: string
+        company_name: string
+        rfp_end_date: string
+        owner_name: string
+        email_sent_at: string
+        email_status: string
+        participated: string
+        link: string
+        total_recipients: number
+        responded_count: number
+        pending_count: number
+      }>
+    }>(response)
+  },
+
+  getOpenRfpStatus: async (rfpId: string) => {
+    const response = await fetch(ENDPOINTS.OPEN_RFP.STATUS(rfpId), { credentials: 'include' })
+    return handleResponse<{
+      ok: boolean
+      rfp: {
+        rfp_id: string
+        company_name: string
+        rfp_end_date: string
+        owner_name: string
+        email_sent_at: string
+        email_status: string
+        participated: string
+        link: string
+      }
+      rows: Array<{
+        email: string
+        alternates?: string[]
+        name: string
+        product: string
+        readonly: boolean
+        status: 'responded' | 'pending'
+        results: string
+        remarks: string
+        responded_at: string
+        reminder_count: number
+        last_reminder_at: string
+        former: boolean
+        delegated_to_email?: string
+        delegated_to_name?: string
+        delegated_at?: string
+        delegated_by?: string
+        delegated_from_email?: string
+        delegated_from_name?: string
+      }>
+      reminders: Array<{
+        rfp_id: string
+        company_name: string
+        product: string
+        recipient_email: string
+        recipient_name: string
+        sent_at: string
+        sent_by_email: string
+        sent_by_name: string
+        status: string
+        error_message: string
+      }>
+    }>(response)
+  },
+
+  remindOpenRfp: async (rfpId: string, emails: string[]) => {
+    const response = await fetch(ENDPOINTS.OPEN_RFP.REMIND(rfpId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails }),
+      credentials: 'include',
+    })
+    return handleResponse<{
+      ok: boolean
+      reminded_count: number
+      results: Array<{ email: string; name?: string; status: string; error?: string }>
+    }>(response)
+  },
+
+  delegateOpenRfp: async (
+    rfpId: string,
+    body: { product: string; original_email: string; new_email: string; new_name: string }
+  ) => {
+    const response = await fetch(ENDPOINTS.OPEN_RFP.DELEGATE(rfpId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      credentials: 'include',
+    })
+    return handleResponse<{
+      ok: boolean
+      delegation: {
+        rfp_id: string
+        product: string
+        original_email: string
+        original_name: string
+        new_email: string
+        new_name: string
+      }
+      email_status: 'Sent' | 'Failed'
+      error: string
+    }>(response)
+  },
+
   // ==================== Error Files ====================
-  getErrorFiles: async (rfpId?: string) => {
-    const params = rfpId ? `?rfp_id=${encodeURIComponent(rfpId)}` : ''
+  getErrorFiles: async (runId?: string) => {
+    const params = runId ? `?run_id=${encodeURIComponent(runId)}` : ''
     const response = await fetch(`${ENDPOINTS.ERROR_FILES.LIST}${params}`, {
       credentials: 'include',
     })
@@ -336,15 +552,12 @@ export const api = {
   createUser: async (userData: {
     name: string
     email: string
-    mobile: string
     role: string
     password: string
   }) => {
-    // Map 'mobile' to 'mobile_number' for backend compatibility
     const payload = {
       name: userData.name,
       email: userData.email,
-      mobile_number: userData.mobile,
       role: userData.role,
       password: userData.password,
     }
@@ -358,12 +571,7 @@ export const api = {
   },
 
   updateUser: async (userId: string, userData: any) => {
-    // Map 'mobile' to 'mobile_number' for backend compatibility
     const payload = { ...userData }
-    if ('mobile' in payload) {
-      payload.mobile_number = payload.mobile
-      delete payload.mobile
-    }
     const response = await fetch(ENDPOINTS.USERS.UPDATE(userId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -484,6 +692,22 @@ export const api = {
     return handleResponse(response)
   },
 
+  toggleRoleStatus: async (id: string) => {
+    const response = await fetch(ENDPOINTS.ROLES.TOGGLE_STATUS(id), {
+      method: 'PATCH',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  hardDeleteRole: async (id: string) => {
+    const response = await fetch(ENDPOINTS.ROLES.HARD_DELETE(id), {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
   getRolePermissions: async (id: string) => {
     const response = await fetch(ENDPOINTS.ROLES.GET_PERMISSIONS(id), { credentials: 'include' })
     return handleResponse<{ ok: boolean; permissions: string[] }>(response)
@@ -559,7 +783,7 @@ export const api = {
     return handleResponse<{ ok: boolean; materials: any[]; page: number; page_size: number }>(response)
   },
 
-  createMaterial: async (data: { material_code: string; description?: string }) => {
+  createMaterial: async (data: { material_code: string; description?: string; bahra_item_code?: string }) => {
     const response = await fetch(ENDPOINTS.MASTER_DATA.MATERIALS.CREATE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -569,7 +793,7 @@ export const api = {
     return handleResponse(response)
   },
 
-  updateMaterial: async (id: string, data: { material_code: string; description?: string }) => {
+  updateMaterial: async (id: string, data: { material_code: string; description?: string; bahra_item_code?: string }) => {
     const response = await fetch(ENDPOINTS.MASTER_DATA.MATERIALS.UPDATE(id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -764,6 +988,66 @@ export const api = {
       credentials: 'include',
     })
     return handleResponse(response)
+  },
+
+  // ==================== System Settings ====================
+  getSystemSettings: async () => {
+    const response = await fetch(ENDPOINTS.SYSTEM_SETTINGS.LIST, { credentials: 'include' })
+    return handleResponse<{
+      ok: boolean
+      settings: Array<{
+        key: string
+        value: string
+        label: string
+        section: string
+        sub_section: string
+        data_type: string
+        description: string
+        is_editable: boolean
+        is_sensitive: boolean
+        id: string
+      }>
+      sections: string[]
+    }>(response)
+  },
+
+  revealSetting: async (key: string) => {
+    const response = await fetch(ENDPOINTS.SYSTEM_SETTINGS.REVEAL(key), { credentials: 'include' })
+    return handleResponse<{ ok: boolean; key: string; value: string }>(response)
+  },
+
+  updateSetting: async (key: string, value: string) => {
+    const response = await fetch(ENDPOINTS.SYSTEM_SETTINGS.UPDATE(key), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value }),
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  reloadSettingsCache: async () => {
+    const response = await fetch(ENDPOINTS.SYSTEM_SETTINGS.RELOAD_CACHE, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  seedSystemSettings: async () => {
+    const response = await fetch(ENDPOINTS.SYSTEM_SETTINGS.SEED, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    return handleResponse(response)
+  },
+
+  // ==================== Config ====================
+  getCompanyOptions: async () => {
+    const response = await fetch(ENDPOINTS.CONFIG.COMPANY_OPTIONS, {
+      credentials: 'include',
+    })
+    return handleResponse<{ ok: boolean; options: string[] }>(response)
   },
 
   // ==================== Audit Logs ====================

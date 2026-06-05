@@ -27,6 +27,41 @@ export function formatDateTime(date: string | Date): string {
   })
 }
 
+/**
+ * Format a date string to M/D/YYYY h:mm AM/PM (no leading zeros).
+ * Reads the wall-clock components from the string AS-IS (Saudi time stored
+ * in the DB) — no timezone conversion. A trailing Z or offset is ignored.
+ */
+export function formatDateMDY(date: string | Date | null | undefined): string {
+  if (!date) return '-'
+
+  if (typeof date === 'string') {
+    const m = date.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?)?/)
+    if (m) {
+      const year = Number(m[1])
+      const month = Number(m[2])
+      const day = Number(m[3])
+      if (m[4] === undefined) return `${month}/${day}/${year}`
+      let hours = Number(m[4])
+      const minutes = m[5]
+      const ampm = hours >= 12 ? 'PM' : 'AM'
+      hours = hours % 12 || 12
+      return `${month}/${day}/${year} ${hours}:${minutes} ${ampm}`
+    }
+  }
+
+  const d = date instanceof Date ? date : new Date(date)
+  if (isNaN(d.getTime())) return String(date)
+  const month = d.getMonth() + 1
+  const day = d.getDate()
+  const year = d.getFullYear()
+  let hours = d.getHours()
+  const minutes = d.getMinutes().toString().padStart(2, '0')
+  const ampm = hours >= 12 ? 'PM' : 'AM'
+  hours = hours % 12 || 12
+  return `${month}/${day}/${year} ${hours}:${minutes} ${ampm}`
+}
+
 export function getStatusColor(status: string): string {
   const statusColors: Record<string, string> = {
     open: 'bg-warning text-warning-foreground',

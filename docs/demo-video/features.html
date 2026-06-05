@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartRFP — Full Feature Walkthrough</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #0A0D13; overflow: hidden; }
+  #root { position: fixed; inset: 0; }
+</style>
+</head>
+<body style="font-size: 15px">
+<div id="root"></div>
+
+<script>window.__PROD_REACT = new URLSearchParams(location.search).get('render') === '1';</script>
+<script>
+  (function () {
+    var base = 'https://unpkg.com/';
+    var rv = window.__PROD_REACT ? 'react@18.3.1/umd/react.production.min.js' : 'react@18.3.1/umd/react.development.js';
+    var rdv = window.__PROD_REACT ? 'react-dom@18.3.1/umd/react-dom.production.min.js' : 'react-dom@18.3.1/umd/react-dom.development.js';
+    document.write('<scr' + 'ipt src="' + base + rv + '" crossorigin="anonymous"></scr' + 'ipt>');
+    document.write('<scr' + 'ipt src="' + base + rdv + '" crossorigin="anonymous"></scr' + 'ipt>');
+  })();
+</script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="animations.jsx"></script>
+<script type="text/babel" src="smartrfp-kit.jsx"></script>
+<script type="text/babel" src="sc-open.jsx"></script>
+<script type="text/babel" src="sc-flow.jsx"></script>
+<script type="text/babel" src="sc-ingest.jsx"></script>
+<script type="text/babel" src="sc-app.jsx"></script>
+<script type="text/babel" src="sc-emails.jsx"></script>
+<script type="text/babel" src="sc-comms.jsx"></script>
+<script type="text/babel" src="sc-insight.jsx"></script>
+<script type="text/babel" src="sc-admin.jsx"></script>
+<script type="text/babel" src="sc-value.jsx"></script>
+<script type="text/babel" src="sc-process.jsx"></script>
+<script type="text/babel" src="sc-tour.jsx"></script>
+<script type="text/babel" src="sc-demo.jsx"></script>
+<script type="text/babel" src="sc-lead.jsx"></script>
+
+<script type="text/babel">
+// Snappy walkthrough: each feature = a quick cinematic "manual way → SmartRFP"
+// lead, then the real product demo (real screenshots, fast inputs + click + result).
+const LEAD = 4;
+
+const ITEMS = [
+  { id:'download', dur:13, chip:false,
+    lead:{ n:1, title:'Discover & Download',
+      old:'Every morning, log into each supplier portal by hand to check for new tenders.',
+      now:'SmartRFP scrapes every portal and downloads the BOQs automatically.' },
+    demo:(p)=><DemoShot {...p} chapter="Discover & Download" title="Download Open RFPs" url="app · /dashboard" resultUrl="app · /activity-logs"
+      img="Download-RFP-Button-Page.png" result="Activity-log-page.png"
+      inputs={[{x:640,y:314,w:240,h:34,at:1.6,label:'Select company'}]}
+      hotspot={{x:699,y:535}} clickAt={4.0} approach={{x:980,y:300}} />,
+    narr:[ {at:0.8,text:'Discovery starts here — open the download panel.'},
+           {at:2.0,text:'Pick the company you want — say, Saudi Energy.'},
+           {at:4.2,text:'Click Start Download: it logs in, scrapes the open RFPs and downloads every BOQ.'},
+           {at:8.0,text:'Every run lands in the Activity Log — files to SharePoint, records to Dataverse.'} ] },
+
+  { id:'match', dur:15, chip:true,
+    lead:{ n:2, title:'Material Matching',
+      old:'Look up hundreds of BOQ lines in SAP, one material code at a time.',
+      now:'It auto-matches every line to your material master in seconds.' },
+    demo:(p)=><SceneMatch {...p}/>,
+    narr:[ {at:0.8,text:'Every BOQ line is matched to your SAP material master in two tiers.'},
+           {at:5.0,text:'Exact code first, then keyword matching when it misses — each with a confidence score.'},
+           {at:10,text:'Most match with no lookup; the rest are flagged for a one-click review.'} ] },
+
+  { id:'storage', dur:15, chip:true,
+    lead:{ n:3, title:'Database & SharePoint',
+      old:"Files sit in inboxes and personal drives — no one's sure of the latest version.",
+      now:'Every file and record lands in SharePoint and Dataverse — one source of truth.' },
+    demo:(p)=><SceneStorage {...p}/>,
+    narr:[ {at:0.8,text:'Everything persists to one source of truth.'},
+           {at:4.0,text:'Structured records to Dataverse; every file to SharePoint under ALLRFPs, per company and RFP.'},
+           {at:9.0,text:'Downloaded RFP, datasheets, pricing and the uploaded package — attributed and timestamped.'} ] },
+
+  { id:'email', dur:24, chip:true,
+    lead:{ n:4, title:'Actionable Email',
+      old:'Chase each bidder across long email threads; replies get lost.',
+      now:'An actionable card collects every response straight into the system.' },
+    demo:(p)=><SceneEmailReal {...p} swap={12}/>,
+    narr:[ {at:0.8,text:'The RFP is routed to bidders — who never leave Outlook.'},
+           {at:3.5,text:'Set the result, add a remark, attach a file — right in the card.'},
+           {at:8.5,text:'The moment they answer, it is written to Dataverse.'},
+           {at:13,text:'Every teammate sees who has answered — three of five in.'},
+           {at:19,text:'A built-in Refresh Status keeps the team aligned — no follow-up calls.'} ] },
+
+  { id:'reminders', dur:17, chip:true,
+    lead:{ n:5, title:'Deadline Reminders',
+      old:"Deadlines live in someone's memory — tenders slip when they forget.",
+      now:'Automatic reminders fire before every due date.' },
+    demo:(p)=><SceneRemindersReal {...p}/>,
+    narr:[ {at:0.8,text:'Deadlines are guarded automatically.'},
+           {at:4.0,text:'A reminder fires three days before the due date, and again one day before.'},
+           {at:8.5,text:'Hours out, an urgent notice lists every at-risk RFP and how long is left.'},
+           {at:13,text:'No spam, no missed tenders — zero missed on coordination since go-live.'} ] },
+
+  { id:'submit', dur:16, chip:false,
+    lead:{ n:6, title:'Submit Response',
+      old:"Re-upload files to the portal by hand and hope it's the right version.",
+      now:'One click sends the package to SharePoint and the customer portal.' },
+    demo:(p)=><DemoShot {...p} chapter="Bidding" title="Submit a Response" url="app · /submit"
+      img="Submit-RFP-page.png"
+      inputs={[{x:646,y:277,w:300,h:32,at:1.6,label:'Open RFP'},
+               {x:646,y:409,w:300,h:60,at:3.0,label:'Upload Excel'},
+               {x:641,y:505,w:297,h:60,at:4.4,label:'Auto-saved to SharePoint TDS'}]}
+      hotspot={{x:739,y:565}} clickAt={6.2} approach={{x:560,y:300}}
+      toast="Submitted — package sent to SharePoint TDS and posted to the customer portal." />,
+    narr:[ {at:0.8,text:'Open Submit RFP — choose the open RFP and the customer.'},
+           {at:3.0,text:'Upload the priced Excel; technical PDFs auto-save to the SharePoint TDS folder.'},
+           {at:6.4,text:'Click Submit — the package is posted to the customer portal.'},
+           {at:10,text:'Status flips to Submitted, and the whole action is logged.'} ] },
+
+  { id:'decline', dur:12, chip:false,
+    lead:{ n:7, title:'Decline Participation',
+      old:'Pass on a tender and leave no record of why.',
+      now:'Decline in one click — reason and owner logged for audit.' },
+    demo:(p)=><DemoShot {...p} chapter="Bidding" title="Decline Participation" url="app · /decline"
+      img="Decline-RFP-page.png"
+      inputs={[{x:634,y:387,w:240,h:30,at:1.8,label:'Select RFP'}]}
+      hotspot={{x:709,y:434}} clickAt={3.8} approach={{x:900,y:250}}
+      toast="Declined — customer notified and recorded in Dataverse." />,
+    narr:[ {at:0.8,text:'Open Decline RFP and pick the open RFP.'},
+           {at:3.8,text:'One click records the no-bid and notifies the customer.'},
+           {at:7.0,text:'Reason and owner are logged in Dataverse — auditable, just like a win.'} ] },
+
+  { id:'schedule', dur:13, chip:false,
+    lead:{ n:8, title:'Schedule Automation',
+      old:'Someone has to remember to run the download every single day.',
+      now:'Set a schedule once; it runs unattended, Sunday to Thursday.' },
+    demo:(p)=><DemoShot {...p} chapter="Automation" title="Schedule Automation" url="app · /settings/schedule"
+      img="Schedule-Automation-page.png"
+      inputs={[{x:713,y:309,w:160,h:32,at:1.6,label:'Frequency'},{x:640,y:358,w:290,h:32,at:3.0,label:'Time zone'}]}
+      hotspot={{x:738,y:532}} clickAt={5.0} approach={{x:950,y:250}}
+      toast="Schedule saved — runs every morning, Sun–Thu at 08:00 AST." />,
+    narr:[ {at:0.8,text:'Discovery can run unattended — open Schedule Automation.'},
+           {at:2.6,text:'Set the frequency, time zone and start time…'},
+           {at:5.2,text:'…then Save. A Power Automate cron runs it every morning, Sun–Thu.'},
+           {at:9.0,text:'Set it once — it polls the portals for you, every day.'} ] },
+
+  { id:'analytics', dur:10, chip:false,
+    lead:{ n:9, title:'Analytics & Insights',
+      old:'No clear view of win rate, cycle time, or what customers want.',
+      now:'A live dashboard turns the pipeline into evidence.' },
+    demo:(p)=><DemoShot {...p} chapter="Analytics" title="Outcomes & Win-Rate" url="app · /analytics"
+      img="Analytics-Dashboard-Page.png" panFrom={{fx:0.32,fy:0.18,s:1.06}} panTo={{fx:0.62,fy:0.58,s:1.2}} />,
+    narr:[ {at:0.8,text:'For managers, the Analytics dashboard turns the pipeline into evidence.'},
+           {at:4.0,text:'Win rate, cycle time, volume by customer and the status mix — at a glance.'},
+           {at:7.5,text:'Exportable in one click for the board pack.'} ] },
+];
+
+// ── Assemble timeline ─────────────────────────────────────────────────────────
+const SEG = []; let acc = 0;
+const push = (s) => { SEG.push({ ...s, t0: acc }); acc += s.dur; };
+const NARRATION = [];
+
+push({ id:'intro', label:'SmartRFP', chip:false, dur:5, render:(p)=><FeatIntro {...p}/> });
+NARRATION.push({ t: SEG[0].t0 + 1.2, text:'The full SmartRFP walkthrough — the manual problem, then the real product, for every step.' });
+NARRATION.push({ t: SEG[0].t0 + 3.4, text:'One RFP, discovery to submission, plus decline, scheduling and analytics.' });
+
+push({ id:'sysproblem', label:'The Problem', chip:false, dur:16, render:(p)=><SceneProblem {...p} statsAt={9}/> });
+{ const t = SEG[SEG.length-1].t0; [
+  [0.8,'Today, a single RFP is spread across five disconnected tools.'],
+  [4,'The BOQ is re-keyed from a PDF, Excel versions multiply, and codes are looked up in SAP by hand.'],
+  [9,'The cost: about two and a half hours per RFP, and roughly five tenders a month missed.'],
+  [13,'The real work is pricing. Everything else is plumbing — and that is what SmartRFP removes.'],
+].forEach(([a,x])=>NARRATION.push({ t:t+a, text:x })); }
+
+for (const it of ITEMS) {
+  push({ id: it.id+'-lead', label: it.lead.title, chip:false, dur: LEAD, render:(p)=><FeatLead {...p} {...it.lead}/> });
+  NARRATION.push({ t: SEG[SEG.length-1].t0 + 0.7, text: it.lead.now });
+  push({ id: it.id, label: it.lead.title, chip: it.chip, dur: it.dur, render: it.demo });
+  const dt0 = SEG[SEG.length-1].t0;
+  for (const n of it.narr) NARRATION.push({ t: dt0 + n.at, text: n.text });
+}
+
+push({ id:'outro', label:'SmartRFP', chip:false, dur:7, render:(p)=><FeatOutro {...p}/> });
+{ const t = SEG[SEG.length-1].t0;
+  NARRATION.push({ t:t+1.0, text:'Nine features, one governed pipeline, and not a single manual re-entry.' });
+  NARRATION.push({ t:t+4.0, text:'SmartRFP — from RFP to quote, automated end to end. Thank you for watching.' }); }
+
+const TOTAL = acc;
+
+// ── Chrome ────────────────────────────────────────────────────────────────────
+function Chrome(){
+  const time=useTime(); let cur=SEG[0]; for(const s of SEG) if(time>=s.t0) cur=s;
+  let fi=0; for(const it of ITEMS){ fi++; if(it.id===cur.id) break; }
+  return (<>
+    {cur.chip && (
+      <div style={{ position:'absolute', top:24, left:28, zIndex:60, display:'flex', alignItems:'center', gap:10,
+        padding:'7px 13px 7px 9px', borderRadius:9, background:'rgba(8,11,16,0.6)', border:`1px solid ${C.hair}`, backdropFilter:'blur(8px)' }}>
+        <span style={{ fontFamily:F.mono, fontSize:10.5, fontWeight:700, color:C.red, background:C.redSoft, borderRadius:5, padding:'3px 7px' }}>{String(fi).padStart(2,'0')}/09</span>
+        <span style={{ fontFamily:F.ui, fontSize:13.5, fontWeight:600, color:C.inv }}>{cur.label}</span>
+      </div>
+    )}
+    <div style={{ position:'absolute', top:22, right:28, zIndex:60, opacity:0.92 }}><Logo size={26}/></div>
+    <div style={{ position:'absolute', bottom:14, left:28, right:28, zIndex:60 }}>
+      <div style={{ height:3, borderRadius:2, background:'rgba(255,255,255,0.12)', overflow:'hidden' }}>
+        <div style={{ width:`${(time/TOTAL)*100}%`, height:'100%', background:C.red }}/></div>
+    </div>
+  </>);
+}
+
+function Movie(){
+  return (<>
+    {SEG.map((s,i)=><React.Fragment key={i}>{s.render({ t0:s.t0, dur:s.dur })}</React.Fragment>)}
+    <Chrome/>
+    <CaptionBar script={NARRATION}/>
+  </>);
+}
+
+// ── Render harness ────────────────────────────────────────────────────────────
+const RENDER = new URLSearchParams(location.search).get('render')==='1';
+function RenderStage(){
+  const [t,setT]=React.useState(0); const tRef=React.useRef(0);
+  React.useEffect(()=>{
+    window.__setTime=(x)=>{ tRef.current=x; setT(x); };
+    window.__duration=TOTAL; window.__ready=true;
+    window.__play=()=>{ let last=null,raf; const step=(ts)=>{ if(last==null)last=ts; const dt=(ts-last)/1000; last=ts;
+      let nx=tRef.current+dt; if(nx>=TOTAL){ nx=TOTAL; window.__setTime(nx); window.__done=true; return; } window.__setTime(nx); raf=requestAnimationFrame(step); };
+      window.__done=false; raf=requestAnimationFrame(step); };
+  },[]);
+  const ctx=React.useMemo(()=>({ time:t, duration:TOTAL, playing:false, setTime:setT, setPlaying:()=>{} }),[t]);
+  return <div id="rfp-canvas" style={{ position:'fixed', top:0, left:0, width:1280, height:720, background:C.bg, overflow:'hidden', fontFamily:F.ui, color:C.inv }}>
+    <TimelineContext.Provider value={ctx}><Movie/></TimelineContext.Provider></div>;
+}
+if (RENDER) {
+  ReactDOM.createRoot(document.getElementById('root')).render(<RenderStage/>);
+} else {
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    <Stage width={1280} height={720} duration={TOTAL} background={C.bg} persistKey="smartrfp-features"><Movie/></Stage>
+  );
+}
+window.__TOTAL = TOTAL;
+</script>
+</body>
+</html>

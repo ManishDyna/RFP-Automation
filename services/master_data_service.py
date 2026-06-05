@@ -11,18 +11,37 @@ setup_master_data_tables.py.
 
 import json
 import requests
+import threading
 from datetime import datetime, timezone
 from typing import Optional, List, Dict
 
 from helpers.core_helper import DATAVERSE
-from config.config import (
-    MATERIAL_MASTER_TABLE_API,
-    MATERIAL_MASTER_TABLE_LOGICAL,
-    KEYWORDS_TABLE_API,
-    KEYWORDS_TABLE_LOGICAL,
-    RFP_TEAM_DV_TABLE_API,
-    RFP_TEAM_DV_TABLE_LOGICAL,
-)
+from services.system_settings_service import get_setting
+
+# ---------------------------------------------------------------------------
+# TTL Cache for list operations (5-minute, thread-safe)
+# ---------------------------------------------------------------------------
+_MATERIALS_CACHE = {"data": None, "ts": 0, "key": None}
+_KEYWORDS_CACHE = {"data": None, "ts": 0, "key": None}
+_BAHRA_MAP_CACHE = {"data": None, "ts": 0}
+_CACHE_TTL = 300  # 5 minutes
+_MATERIALS_LOCK = threading.Lock()
+_KEYWORDS_LOCK = threading.Lock()
+_BAHRA_MAP_LOCK = threading.Lock()
+
+
+def _invalidate_materials_cache():
+    _MATERIALS_CACHE["data"] = None
+    _MATERIALS_CACHE["ts"] = 0
+    _MATERIALS_CACHE["key"] = None
+    _BAHRA_MAP_CACHE["data"] = None
+    _BAHRA_MAP_CACHE["ts"] = 0
+
+
+def _invalidate_keywords_cache():
+    _KEYWORDS_CACHE["data"] = None
+    _KEYWORDS_CACHE["ts"] = 0
+    _KEYWORDS_CACHE["key"] = None
 
 
 # ---------------------------------------------------------------------------
@@ -34,12 +53,9 @@ def _now_iso() -> str:
 
 
 def _get_primary_id(table_logical: str) -> str:
-    try:
-        url = f"{DATAVERSE.api_url}EntityDefinitions(LogicalName='{table_logical}')?$select=PrimaryIdAttribute"
-        resp = requests.get(url, headers=DATAVERSE._headers())
-        return resp.json().get("PrimaryIdAttribute", "")
-    except Exception:
-        return ""
+    """Get primary ID attribute name for a table (cached)."""
+    from helpers.metadata_cache import get_primary_id
+    return get_primary_id(table_logical)
 
 
 def _extract_record_id(row: dict, pk_logical: str) -> str:
@@ -64,11 +80,21 @@ def _hard_delete(table_api: str, record_id: str) -> bool:
 # Material Master
 # ---------------------------------------------------------------------------
 
-def list_materials(search: Optional[str] = None, page: int = 1, page_size: int = 100) -> dict:
+def list_materials(search: Optional[str] = None, page: int = 1, page_size: int = 100, force_refresh: bool = False) -> dict:
     """
-    Return paginated materials.
+    Return paginated materials with TTL caching.
+    Cache is used for default queries (no search, page 1). Searches bypass cache.
     Response: {"materials": [...], "total": int, "page": int, "page_size": int}
     """
+    from time import time as _now
+    cache_key = f"{search}:{page}:{page_size}"
+    now = _now()
+
+    # Use cache for repeated identical queries
+    if not force_refresh and not search:
+        if _MATERIALS_CACHE["data"] is not None and _MATERIALS_CACHE["key"] == cache_key and (now - _MATERIALS_CACHE["ts"]) < _CACHE_TTL:
+            return _MATERIALS_CACHE["data"]
+
     filter_expr = "is_active eq 'true'"
     if search:
         escaped = search.replace("'", "''")
@@ -80,36 +106,45 @@ def list_materials(search: Optional[str] = None, page: int = 1, page_size: int =
     skip = (page - 1) * page_size
 
     result = DATAVERSE.query_rows(
-        table_api_name=MATERIAL_MASTER_TABLE_API,
+        table_api_name=get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'),
         filter_expr=filter_expr,
-        select="material_code,description,is_active,created_date,updated_date",
+        select="material_code,description,bahra_item_code,is_active,created_date,updated_date",
         top=page_size,
         skip=skip,
         order_by="created_date desc",
-        table_logical_name=MATERIAL_MASTER_TABLE_LOGICAL,
+        table_logical_name=get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master'),
         use_display_names=True,
     )
 
     rows = result.get("value", []) if isinstance(result, dict) else []
 
     # Attach record_id (uses display-name-aware helper)
-    pk_logical = f"{MATERIAL_MASTER_TABLE_LOGICAL}id"
+    pk_logical = f"{get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master')}id"
     for row in rows:
         row["record_id"] = _extract_record_id(row, pk_logical)
 
-    return {"materials": rows, "page": page, "page_size": page_size}
+    data = {"materials": rows, "page": page, "page_size": page_size}
+
+    # Cache non-search results
+    if not search:
+        with _MATERIALS_LOCK:
+            _MATERIALS_CACHE["data"] = data
+            _MATERIALS_CACHE["ts"] = now
+            _MATERIALS_CACHE["key"] = cache_key
+
+    return data
 
 
 def get_material(record_id: str) -> Optional[dict]:
-    pk_logical = f"{MATERIAL_MASTER_TABLE_LOGICAL}id"
-    url = f"{DATAVERSE.api_url}{MATERIAL_MASTER_TABLE_API}({record_id})"
+    pk_logical = f"{get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master')}id"
+    url = f"{DATAVERSE.api_url}{get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters')}({record_id})"
     resp = requests.get(url, headers=DATAVERSE._headers())
     if resp.status_code != 200:
         return None
 
     row = resp.json()
     try:
-        colmap = DATAVERSE.get_column_mapping(MATERIAL_MASTER_TABLE_LOGICAL)
+        colmap = DATAVERSE.get_column_mapping(get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master'))
         logical_to_display = {v: k for k, v in colmap.items()}
         mapped = {logical_to_display.get(k, k): v for k, v in row.items()}
         mapped["record_id"] = record_id
@@ -124,55 +159,63 @@ def material_code_exists(code: str, exclude_record_id: str = "") -> bool:
     escaped = code.strip().replace("'", "''")
     filter_expr = f"material_code eq '{escaped}' and is_active eq 'true'"
     result = DATAVERSE.query_rows(
-        table_api_name=MATERIAL_MASTER_TABLE_API,
+        table_api_name=get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'),
         filter_expr=filter_expr,
         select="material_code",
         top=5,
-        table_logical_name=MATERIAL_MASTER_TABLE_LOGICAL,
+        table_logical_name=get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master'),
         use_display_names=True,
     )
     rows = result.get("value", []) if isinstance(result, dict) else []
-    pk_logical = f"{MATERIAL_MASTER_TABLE_LOGICAL}id"
+    pk_logical = f"{get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master')}id"
     for row in rows:
-        rid = row.get(pk_logical, "")
+        rid = _extract_record_id(row, pk_logical)
         if rid != exclude_record_id:
             return True
     return False
 
 
-def create_material(code: str, description: str = "") -> bool:
+def create_material(code: str, description: str = "", bahra_item_code: str = "") -> bool:
     data = {
         "material_code": code.strip(),
         "description": description.strip(),
+        "bahra_item_code": bahra_item_code.strip(),
         "is_active": "true",
         "created_date": _now_iso(),
         "updated_date": _now_iso(),
     }
-    return DATAVERSE.insert_row(
-        table_api_name=MATERIAL_MASTER_TABLE_API,
+    result = DATAVERSE.insert_row(
+        table_api_name=get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'),
         data=data,
-        table_logical_name=MATERIAL_MASTER_TABLE_LOGICAL,
+        table_logical_name=get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master'),
         use_display_names=True,
     )
+    _invalidate_materials_cache()
+    return result
 
 
-def update_material(record_id: str, code: str, description: str = "") -> bool:
+def update_material(record_id: str, code: str, description: str = "", bahra_item_code: str = "") -> bool:
     data = {
         "material_code": code.strip(),
         "description": description.strip(),
+        "bahra_item_code": bahra_item_code.strip(),
         "updated_date": _now_iso(),
     }
-    return DATAVERSE.update_row(
-        table_api_name=MATERIAL_MASTER_TABLE_API,
+    result = DATAVERSE.update_row(
+        table_api_name=get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'),
         record_id=record_id,
         data=data,
-        table_logical_name=MATERIAL_MASTER_TABLE_LOGICAL,
+        table_logical_name=get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master'),
         use_display_names=True,
     )
+    _invalidate_materials_cache()
+    return result
 
 
 def delete_material(record_id: str) -> bool:
-    return _hard_delete(MATERIAL_MASTER_TABLE_API, record_id)
+    result = _hard_delete(get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'), record_id)
+    _invalidate_materials_cache()
+    return result
 
 
 def bulk_import_materials(rows: List[Dict]) -> dict:
@@ -186,6 +229,7 @@ def bulk_import_materials(rows: List[Dict]) -> dict:
     for row in rows:
         code = str(row.get("material_code") or "").strip()
         desc = str(row.get("description") or "").strip()
+        bahra_code = str(row.get("bahra_item_code") or "").strip()
 
         if not code:
             skipped += 1
@@ -196,7 +240,7 @@ def bulk_import_materials(rows: List[Dict]) -> dict:
             continue
 
         try:
-            ok = create_material(code, desc)
+            ok = create_material(code, desc, bahra_code)
             if ok:
                 created += 1
             else:
@@ -209,6 +253,46 @@ def bulk_import_materials(rows: List[Dict]) -> dict:
     return {"created": created, "skipped": skipped, "failed": failed, "errors": errors}
 
 
+def get_material_code_to_bahra_code_map(force_refresh: bool = False) -> Dict[str, str]:
+    """
+    Return {material_code: bahra_item_code} for all active materials.
+    Empty bahra_item_code values are omitted so callers can use .get() with no default.
+    Cached for 5 minutes; invalidated alongside the materials cache.
+    """
+    from time import time as _now
+    now = _now()
+
+    if not force_refresh:
+        cached = _BAHRA_MAP_CACHE["data"]
+        if cached is not None and (now - _BAHRA_MAP_CACHE["ts"]) < _CACHE_TTL:
+            return cached
+
+    try:
+        rows = DATAVERSE.get_all_rows(
+            table_api_name=get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'),
+            select_columns=["material_code", "bahra_item_code", "is_active"],
+            table_logical_name=get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master'),
+            use_display_names=True,
+        )
+        mapping: Dict[str, str] = {}
+        for r in rows:
+            if str(r.get("is_active", "")).lower() != "true":
+                continue
+            code = str(r.get("material_code", "") or "").strip()
+            bahra = str(r.get("bahra_item_code", "") or "").strip()
+            if code and bahra:
+                mapping[code] = bahra
+    except Exception as e:
+        print(f"[MasterData] Could not fetch bahra map from Dataverse: {e}")
+        mapping = {}
+
+    with _BAHRA_MAP_LOCK:
+        _BAHRA_MAP_CACHE["data"] = mapping
+        _BAHRA_MAP_CACHE["ts"] = now
+
+    return mapping
+
+
 def get_all_materials_for_matching() -> List[str]:
     """
     Return all active material codes as a flat list.
@@ -216,9 +300,9 @@ def get_all_materials_for_matching() -> List[str]:
     """
     try:
         rows = DATAVERSE.get_all_rows(
-            table_api_name=MATERIAL_MASTER_TABLE_API,
+            table_api_name=get_setting('MATERIAL_MASTER_TABLE_API', 'cr673_bahra_material_masters'),
             select_columns=["material_code", "is_active"],
-            table_logical_name=MATERIAL_MASTER_TABLE_LOGICAL,
+            table_logical_name=get_setting('MATERIAL_MASTER_TABLE_LOGICAL', 'cr673_bahra_material_master'),
             use_display_names=True,
         )
         return [
@@ -236,7 +320,15 @@ def get_all_materials_for_matching() -> List[str]:
 # Keywords
 # ---------------------------------------------------------------------------
 
-def list_keywords(search: Optional[str] = None, page: int = 1, page_size: int = 200) -> dict:
+def list_keywords(search: Optional[str] = None, page: int = 1, page_size: int = 200, force_refresh: bool = False) -> dict:
+    from time import time as _now
+    cache_key = f"{search}:{page}:{page_size}"
+    now = _now()
+
+    if not force_refresh and not search:
+        if _KEYWORDS_CACHE["data"] is not None and _KEYWORDS_CACHE["key"] == cache_key and (now - _KEYWORDS_CACHE["ts"]) < _CACHE_TTL:
+            return _KEYWORDS_CACHE["data"]
+
     filter_expr = "is_active eq 'true'"
     if search:
         escaped = search.replace("'", "''")
@@ -245,32 +337,40 @@ def list_keywords(search: Optional[str] = None, page: int = 1, page_size: int = 
     skip = (page - 1) * page_size
 
     result = DATAVERSE.query_rows(
-        table_api_name=KEYWORDS_TABLE_API,
+        table_api_name=get_setting('KEYWORDS_TABLE_API', 'cr673_bahra_keywordses'),
         filter_expr=filter_expr,
         select="keyword,is_active,created_date,updated_date",
         top=page_size,
         skip=skip,
         order_by="created_date desc",
-        table_logical_name=KEYWORDS_TABLE_LOGICAL,
+        table_logical_name=get_setting('KEYWORDS_TABLE_LOGICAL', 'cr673_bahra_keywords'),
         use_display_names=True,
     )
 
     rows = result.get("value", []) if isinstance(result, dict) else []
-    pk_logical = f"{KEYWORDS_TABLE_LOGICAL}id"
+    pk_logical = f"{get_setting('KEYWORDS_TABLE_LOGICAL', 'cr673_bahra_keywords')}id"
     for row in rows:
         row["record_id"] = _extract_record_id(row, pk_logical)
 
-    return {"keywords": rows, "page": page, "page_size": page_size}
+    data = {"keywords": rows, "page": page, "page_size": page_size}
+
+    if not search:
+        with _KEYWORDS_LOCK:
+            _KEYWORDS_CACHE["data"] = data
+            _KEYWORDS_CACHE["ts"] = now
+            _KEYWORDS_CACHE["key"] = cache_key
+
+    return data
 
 
 def get_keyword(record_id: str) -> Optional[dict]:
-    url = f"{DATAVERSE.api_url}{KEYWORDS_TABLE_API}({record_id})"
+    url = f"{DATAVERSE.api_url}{get_setting('KEYWORDS_TABLE_API', 'cr673_bahra_keywordses')}({record_id})"
     resp = requests.get(url, headers=DATAVERSE._headers())
     if resp.status_code != 200:
         return None
     row = resp.json()
     try:
-        colmap = DATAVERSE.get_column_mapping(KEYWORDS_TABLE_LOGICAL)
+        colmap = DATAVERSE.get_column_mapping(get_setting('KEYWORDS_TABLE_LOGICAL', 'cr673_bahra_keywords'))
         logical_to_display = {v: k for k, v in colmap.items()}
         mapped = {logical_to_display.get(k, k): v for k, v in row.items()}
         mapped["record_id"] = record_id
@@ -284,17 +384,17 @@ def keyword_exists(kw: str, exclude_record_id: str = "") -> bool:
     escaped = kw.strip().upper().replace("'", "''")
     filter_expr = f"keyword eq '{escaped}' and is_active eq 'true'"
     result = DATAVERSE.query_rows(
-        table_api_name=KEYWORDS_TABLE_API,
+        table_api_name=get_setting('KEYWORDS_TABLE_API', 'cr673_bahra_keywordses'),
         filter_expr=filter_expr,
         select="keyword",
         top=5,
-        table_logical_name=KEYWORDS_TABLE_LOGICAL,
+        table_logical_name=get_setting('KEYWORDS_TABLE_LOGICAL', 'cr673_bahra_keywords'),
         use_display_names=True,
     )
     rows = result.get("value", []) if isinstance(result, dict) else []
-    pk_logical = f"{KEYWORDS_TABLE_LOGICAL}id"
+    pk_logical = f"{get_setting('KEYWORDS_TABLE_LOGICAL', 'cr673_bahra_keywords')}id"
     for row in rows:
-        rid = row.get(pk_logical, "")
+        rid = _extract_record_id(row, pk_logical)
         if rid != exclude_record_id:
             return True
     return False
@@ -307,12 +407,14 @@ def create_keyword(keyword: str) -> bool:
         "created_date": _now_iso(),
         "updated_date": _now_iso(),
     }
-    return DATAVERSE.insert_row(
-        table_api_name=KEYWORDS_TABLE_API,
+    result = DATAVERSE.insert_row(
+        table_api_name=get_setting('KEYWORDS_TABLE_API', 'cr673_bahra_keywordses'),
         data=data,
-        table_logical_name=KEYWORDS_TABLE_LOGICAL,
+        table_logical_name=get_setting('KEYWORDS_TABLE_LOGICAL', 'cr673_bahra_keywords'),
         use_display_names=True,
     )
+    _invalidate_keywords_cache()
+    return result
 
 
 def update_keyword(record_id: str, keyword: str) -> bool:
@@ -320,17 +422,21 @@ def update_keyword(record_id: str, keyword: str) -> bool:
         "keyword": keyword.strip().upper(),
         "updated_date": _now_iso(),
     }
-    return DATAVERSE.update_row(
-        table_api_name=KEYWORDS_TABLE_API,
+    result = DATAVERSE.update_row(
+        table_api_name=get_setting('KEYWORDS_TABLE_API', 'cr673_bahra_keywordses'),
         record_id=record_id,
         data=data,
-        table_logical_name=KEYWORDS_TABLE_LOGICAL,
+        table_logical_name=get_setting('KEYWORDS_TABLE_LOGICAL', 'cr673_bahra_keywords'),
         use_display_names=True,
     )
+    _invalidate_keywords_cache()
+    return result
 
 
 def delete_keyword(record_id: str) -> bool:
-    return _hard_delete(KEYWORDS_TABLE_API, record_id)
+    result = _hard_delete(get_setting('KEYWORDS_TABLE_API', 'cr673_bahra_keywordses'), record_id)
+    _invalidate_keywords_cache()
+    return result
 
 
 def bulk_import_keywords(keywords: List[str]) -> dict:
@@ -372,9 +478,9 @@ def get_all_keywords_for_matching() -> List[str]:
     """
     try:
         rows = DATAVERSE.get_all_rows(
-            table_api_name=KEYWORDS_TABLE_API,
+            table_api_name=get_setting('KEYWORDS_TABLE_API', 'cr673_bahra_keywordses'),
             select_columns=["keyword", "is_active"],
-            table_logical_name=KEYWORDS_TABLE_LOGICAL,
+            table_logical_name=get_setting('KEYWORDS_TABLE_LOGICAL', 'cr673_bahra_keywords'),
             use_display_names=True,
         )
         return [
@@ -408,18 +514,18 @@ def list_rfp_team(search: Optional[str] = None, page: int = 1, page_size: int = 
     skip = (page - 1) * page_size
 
     result = DATAVERSE.query_rows(
-        table_api_name=RFP_TEAM_DV_TABLE_API,
+        table_api_name=get_setting('RFP_TEAM_DV_TABLE_API', 'cr673_bahra_rfp_teams'),
         filter_expr=filter_expr,
         select="product,name,email,extra_data,is_active,created_date,updated_date",
         top=page_size,
         skip=skip,
         order_by="created_date desc",
-        table_logical_name=RFP_TEAM_DV_TABLE_LOGICAL,
+        table_logical_name=get_setting('RFP_TEAM_DV_TABLE_LOGICAL', 'cr673_bahra_rfp_team'),
         use_display_names=True,
     )
 
     rows = result.get("value", []) if isinstance(result, dict) else []
-    pk_logical = f"{RFP_TEAM_DV_TABLE_LOGICAL}id"
+    pk_logical = f"{get_setting('RFP_TEAM_DV_TABLE_LOGICAL', 'cr673_bahra_rfp_team')}id"
     for row in rows:
         row["record_id"] = _extract_record_id(row, pk_logical)
         # Merge extra_data JSON into the row for frontend consumption
@@ -435,13 +541,13 @@ def list_rfp_team(search: Optional[str] = None, page: int = 1, page_size: int = 
 
 
 def get_rfp_team_member(record_id: str) -> Optional[dict]:
-    url = f"{DATAVERSE.api_url}{RFP_TEAM_DV_TABLE_API}({record_id})"
+    url = f"{DATAVERSE.api_url}{get_setting('RFP_TEAM_DV_TABLE_API', 'cr673_bahra_rfp_teams')}({record_id})"
     resp = requests.get(url, headers=DATAVERSE._headers())
     if resp.status_code != 200:
         return None
     row = resp.json()
     try:
-        colmap = DATAVERSE.get_column_mapping(RFP_TEAM_DV_TABLE_LOGICAL)
+        colmap = DATAVERSE.get_column_mapping(get_setting('RFP_TEAM_DV_TABLE_LOGICAL', 'cr673_bahra_rfp_team'))
         logical_to_display = {v: k for k, v in colmap.items()}
         mapped = {logical_to_display.get(k, k): v for k, v in row.items()}
         mapped["record_id"] = record_id
@@ -462,18 +568,20 @@ def rfp_team_member_exists(product: str, email: str, exclude_record_id: str = ""
         f"is_active eq 'true'"
     )
     result = DATAVERSE.query_rows(
-        table_api_name=RFP_TEAM_DV_TABLE_API,
+        table_api_name=get_setting('RFP_TEAM_DV_TABLE_API', 'cr673_bahra_rfp_teams'),
         filter_expr=filter_expr,
         select="product,email",
         top=5,
-        table_logical_name=RFP_TEAM_DV_TABLE_LOGICAL,
+        table_logical_name=get_setting('RFP_TEAM_DV_TABLE_LOGICAL', 'cr673_bahra_rfp_team'),
         use_display_names=True,
     )
     rows = result.get("value", []) if isinstance(result, dict) else []
-    pk_logical = f"{RFP_TEAM_DV_TABLE_LOGICAL}id"
+    if not exclude_record_id:
+        return len(rows) > 0
+    pk_logical = f"{get_setting('RFP_TEAM_DV_TABLE_LOGICAL', 'cr673_bahra_rfp_team')}id"
     for row in rows:
-        rid = row.get(pk_logical, "")
-        if rid != exclude_record_id:
+        rid = _extract_record_id(row, pk_logical)
+        if rid and rid != exclude_record_id:
             return True
     return False
 
@@ -491,9 +599,9 @@ def create_rfp_team_member(product: str, name: str, email: str, extra_fields: Di
     if extra_fields:
         data["extra_data"] = json.dumps(extra_fields)
     return DATAVERSE.insert_row(
-        table_api_name=RFP_TEAM_DV_TABLE_API,
+        table_api_name=get_setting('RFP_TEAM_DV_TABLE_API', 'cr673_bahra_rfp_teams'),
         data=data,
-        table_logical_name=RFP_TEAM_DV_TABLE_LOGICAL,
+        table_logical_name=get_setting('RFP_TEAM_DV_TABLE_LOGICAL', 'cr673_bahra_rfp_team'),
         use_display_names=True,
     )
 
@@ -509,16 +617,16 @@ def update_rfp_team_member(record_id: str, product: str, name: str, email: str, 
     if extra_fields is not None:
         data["extra_data"] = json.dumps(extra_fields) if extra_fields else ""
     return DATAVERSE.update_row(
-        table_api_name=RFP_TEAM_DV_TABLE_API,
+        table_api_name=get_setting('RFP_TEAM_DV_TABLE_API', 'cr673_bahra_rfp_teams'),
         record_id=record_id,
         data=data,
-        table_logical_name=RFP_TEAM_DV_TABLE_LOGICAL,
+        table_logical_name=get_setting('RFP_TEAM_DV_TABLE_LOGICAL', 'cr673_bahra_rfp_team'),
         use_display_names=True,
     )
 
 
 def delete_rfp_team_member(record_id: str) -> bool:
-    return _hard_delete(RFP_TEAM_DV_TABLE_API, record_id)
+    return _hard_delete(get_setting('RFP_TEAM_DV_TABLE_API', 'cr673_bahra_rfp_teams'), record_id)
 
 
 def bulk_import_rfp_team(rows: List[Dict]) -> dict:
@@ -565,26 +673,28 @@ def get_all_rfp_team_for_emails() -> List[Dict[str, str]]:
     Applies EMAIL_MODE logic: in dev mode, overrides all emails with DEV_EMAIL.
     Falls back to the static config table if Dataverse fetch fails.
     """
-    from config.config import EMAIL_MODE, DEV_EMAIL, RFP_TEAM_TABLE as STATIC_FALLBACK
+    from config.config import RFP_TEAM_TABLE as STATIC_FALLBACK
 
     try:
         rows = DATAVERSE.get_all_rows(
-            table_api_name=RFP_TEAM_DV_TABLE_API,
+            table_api_name=get_setting('RFP_TEAM_DV_TABLE_API', 'cr673_bahra_rfp_teams'),
             select_columns=["product", "name", "email", "extra_data", "is_active"],
-            table_logical_name=RFP_TEAM_DV_TABLE_LOGICAL,
+            table_logical_name=get_setting('RFP_TEAM_DV_TABLE_LOGICAL', 'cr673_bahra_rfp_team'),
             use_display_names=True,
         )
         team = []
+        pk_logical = f"{get_setting('RFP_TEAM_DV_TABLE_LOGICAL', 'cr673_bahra_rfp_team')}id"
         for r in rows:
             if str(r.get("is_active", "")).lower() != "true":
                 continue
             if not r.get("product") or not r.get("name") or not r.get("email"):
                 continue
             member = {
+                "record_id": _extract_record_id(r, pk_logical),
                 "product": str(r.get("product", "")).strip(),
                 "name": str(r.get("name", "")).strip(),
                 "email": (
-                    DEV_EMAIL if EMAIL_MODE != "prod"
+                    get_setting('DEV_EMAIL', 'KSAGov.tenders@bahra-cables.com') if get_setting('EMAIL_MODE', 'dev') != "prod"
                     else str(r.get("email", "")).strip()
                 ),
             }

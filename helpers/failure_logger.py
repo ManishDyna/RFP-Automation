@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from config.config import FAILURE_LOGS_DIR, SP_FAILURE_LOGS_FOLDER, AUTOMATION_LOG_TABLE_API, AUTOMATION_LOG_TABLE_LOGICAL
+from services.system_settings_service import get_setting
 from helpers.core_helper import DATAVERSE
 
 
@@ -23,9 +23,24 @@ def _normalize_automation_label(name: Optional[str]) -> str:
     return safe or "automation"
 
 
+def _resolve_run_id(run_id: Optional[str]) -> str:
+    if run_id:
+        return str(run_id).strip()
+    try:
+        from core.log_events import get_current_run_id
+        return get_current_run_id() or ""
+    except Exception:
+        return ""
+
+
+def _run_prefix(run_id: Optional[str]) -> str:
+    rid = _resolve_run_id(run_id)
+    return f"run_{rid}_" if rid else ""
+
+
 def _create_error_folder(folder_name: str) -> str:
     """Create a unique error folder locally and return its path."""
-    folder_path = os.path.join(FAILURE_LOGS_DIR, folder_name)
+    folder_path = os.path.join(get_setting("FAILURE_LOGS_DIR", os.path.join(os.getcwd(), "LOGS")), folder_name)
     os.makedirs(folder_path, exist_ok=True)
     return folder_path
 
@@ -39,10 +54,10 @@ async def capture_screenshot(page, save_path: str) -> Optional[str]:
         return None
     try:
         await page.screenshot(path=save_path, full_page=True)
-        print(f"📸 Screenshot saved: {save_path}")
+        print(f"[Screenshot] Screenshot saved: {save_path}")
         return save_path
     except Exception as e:
-        print(f"⚠️  Could not capture screenshot: {e}")
+        print(f"[WARN] Could not capture screenshot: {e}")
         return None
 
 
@@ -56,7 +71,7 @@ def capture_screenshot_sync(page, save_path: str) -> Optional[str]:
     try:
         return asyncio.run(capture_screenshot(page, save_path))
     except Exception as e:
-        print(f"⚠️  Could not capture screenshot (sync): {e}")
+        print(f"[WARN] Could not capture screenshot (sync): {e}")
         return None
 
 
@@ -72,7 +87,7 @@ def _upload_folder_to_sharepoint(graph_client, local_folder: str, sp_folder: str
                 graph_client.upload_file_as(fpath, sp_folder, fname)
                 uploaded.append(fname)
             except Exception as e:
-                print(f"⚠️  Could not upload {fname} to SharePoint: {e}")
+                print(f"[WARN] Could not upload {fname} to SharePoint: {e}")
     return uploaded
 
 
@@ -108,13 +123,14 @@ def record_failure_log(
     context: Optional[Dict[str, Any]] = None,
     graph_client: Any = None,
     screenshot_path: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Create a dedicated error folder with JSON log and optional screenshot,
     persist locally, and optionally upload the entire folder to SharePoint.
     Returns metadata about the created artifacts.
     """
-    os.makedirs(FAILURE_LOGS_DIR, exist_ok=True)
+    os.makedirs(get_setting("FAILURE_LOGS_DIR", os.path.join(os.getcwd(), "LOGS")), exist_ok=True)
 
     context = context or {}
     details = _extract_exception_details(exc)
@@ -127,7 +143,7 @@ def record_failure_log(
 
     automation_label = _normalize_automation_label(context.get("automation"))
     slug = _unique_slug()
-    folder_name = f"{automation_label}_error_{slug}"
+    folder_name = f"{_run_prefix(run_id)}{automation_label}_error_{slug}"
 
     # Create dedicated error folder
     error_folder = _create_error_folder(folder_name)
@@ -145,7 +161,7 @@ def record_failure_log(
         if os.path.abspath(screenshot_path) != os.path.abspath(screenshot_dest):
             shutil.copy2(screenshot_path, screenshot_dest)
         details["screenshot"] = "screenshot.png"
-        print(f"📸 Screenshot included in error folder: {folder_name}")
+        print(f"[Screenshot] Screenshot included in error folder: {folder_name}")
 
     sharepoint_path = None
     sharepoint_full_path = None
@@ -154,12 +170,12 @@ def record_failure_log(
     # Upload entire error folder to SharePoint
     if graph_client:
         try:
-            sp_error_folder = f"{SP_FAILURE_LOGS_FOLDER}/{folder_name}"
+            sp_error_folder = f"{get_setting('SP_FAILURE_LOGS_FOLDER', 'RFP-logs/automation-error-logs')}/{folder_name}"
             uploaded = _upload_folder_to_sharepoint(graph_client, error_folder, sp_error_folder)
             if uploaded:
                 sharepoint_path = sp_error_folder
                 sharepoint_full_path = f"/Shared Documents/{sp_error_folder}"
-                print(f"✅ Error folder uploaded to SharePoint: {sp_error_folder} ({len(uploaded)} files)")
+                print(f"[OK] Error folder uploaded to SharePoint: {sp_error_folder} ({len(uploaded)} files)")
         except Exception as upload_exc:  # noqa: BLE001
             upload_error = str(upload_exc)
 
@@ -180,6 +196,7 @@ def create_rfp_error_log_file(
     context: Optional[Dict[str, Any]] = None,
     graph_client: Any = None,
     screenshot_path: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Create a dedicated error folder with enhanced error log (JSON + TXT) and optional screenshot
@@ -187,7 +204,7 @@ def create_rfp_error_log_file(
     Uses enhanced error analysis to identify exactly where automation failed.
     Returns metadata about the created log file.
     """
-    os.makedirs(FAILURE_LOGS_DIR, exist_ok=True)
+    os.makedirs(get_setting("FAILURE_LOGS_DIR", os.path.join(os.getcwd(), "LOGS")), exist_ok=True)
 
     context = context or {}
 
@@ -195,17 +212,17 @@ def create_rfp_error_log_file(
     logs = []
     try:
         rows = DATAVERSE.get_rows_from_dataverse(
-            table_api_name=AUTOMATION_LOG_TABLE_API,
+            table_api_name=get_setting("AUTOMATION_LOG_TABLE_API", "cr673_bahra_automation_log1s"),
             filter_by={"RFP_ID": rfp_id},
             select_columns=["RunID", "Timestamp", "Category", "Action", "automation_status", "Message", "RFP_ID"],
             top=500,
             order_by="Timestamp desc",
-            table_logical_name=AUTOMATION_LOG_TABLE_LOGICAL,
+            table_logical_name=get_setting("AUTOMATION_LOG_TABLE_LOGICAL", "cr673_bahra_automation_log1"),
             use_display_names=True
         )
         logs = rows if rows else []
     except Exception as e:
-        print(f"⚠️  Could not fetch automation logs for RFP {rfp_id}: {e}")
+        print(f"[WARN] Could not fetch automation logs for RFP {rfp_id}: {e}")
         logs = []
 
     # Use enhanced error analysis
@@ -217,13 +234,13 @@ def create_rfp_error_log_file(
         log_data = create_enhanced_error_report(rfp_id, logs, context)
 
         print("\n" + "=" * 80)
-        print("📊 ENHANCED ERROR REPORT GENERATED")
+        print("ENHANCED ERROR REPORT GENERATED")
         print("=" * 80)
         print(format_error_report_for_display(log_data))
         print("=" * 80 + "\n")
 
     except Exception as e:
-        print(f"⚠️  Could not create enhanced error report: {e}")
+        print(f"[WARN] Could not create enhanced error report: {e}")
         log_data = {
             "rfp_id": rfp_id,
             "timestamp": datetime.utcnow().isoformat(),
@@ -236,7 +253,7 @@ def create_rfp_error_log_file(
     # Create dedicated error folder
     safe_rfp_id = _normalize_automation_label(rfp_id)
     slug = _unique_slug()
-    folder_name = f"rfp_error_{safe_rfp_id}_{slug}"
+    folder_name = f"{_run_prefix(run_id)}rfp_error_{safe_rfp_id}_{slug}"
     error_folder = _create_error_folder(folder_name)
 
     # Write JSON log inside the folder
@@ -252,9 +269,9 @@ def create_rfp_error_log_file(
         if format_error_report_for_display:
             with open(txt_local_path, "w", encoding="utf-8") as fp:
                 fp.write(format_error_report_for_display(log_data))
-            print(f"✅ Human-readable report saved: {txt_local_path}")
+            print(f"[OK] Human-readable report saved: {txt_local_path}")
     except Exception as e:
-        print(f"⚠️  Could not create text report: {e}")
+        print(f"[WARN] Could not create text report: {e}")
 
     # Copy screenshot into the error folder if provided
     if screenshot_path and os.path.isfile(screenshot_path):
@@ -263,7 +280,7 @@ def create_rfp_error_log_file(
         if os.path.abspath(screenshot_path) != os.path.abspath(screenshot_dest):
             shutil.copy2(screenshot_path, screenshot_dest)
         log_data["screenshot"] = "screenshot.png"
-        print(f"📸 Screenshot included in error folder: {folder_name}")
+        print(f"[Screenshot] Screenshot included in error folder: {folder_name}")
 
     sharepoint_path = None
     sharepoint_full_path = None
@@ -272,15 +289,15 @@ def create_rfp_error_log_file(
     # Upload entire error folder to SharePoint
     if graph_client:
         try:
-            sp_error_folder = f"{SP_FAILURE_LOGS_FOLDER}/{folder_name}"
+            sp_error_folder = f"{get_setting('SP_FAILURE_LOGS_FOLDER', 'RFP-logs/automation-error-logs')}/{folder_name}"
             uploaded = _upload_folder_to_sharepoint(graph_client, error_folder, sp_error_folder)
             if uploaded:
                 sharepoint_path = sp_error_folder
                 sharepoint_full_path = f"/Shared Documents/{sp_error_folder}"
-                print(f"✅ Error folder uploaded to SharePoint: {sp_error_folder} ({len(uploaded)} files)")
+                print(f"[OK] Error folder uploaded to SharePoint: {sp_error_folder} ({len(uploaded)} files)")
         except Exception as upload_exc:
             upload_error = str(upload_exc)
-            print(f"⚠️  Could not upload error log to SharePoint: {upload_error}")
+            print(f"[WARN] Could not upload error log to SharePoint: {upload_error}")
 
     return {
         "file_name": file_name,

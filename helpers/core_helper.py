@@ -1,6 +1,9 @@
 from core.common_imports import *
 from helpers.dataverse_helper import DataverseClient
 from config.config import *
+def get_setting(key, default=None):
+    from services.system_settings_service import get_setting as _get_setting
+    return _get_setting(key, default)
 from datetime import datetime
 import logging
 
@@ -85,7 +88,7 @@ def get_rfp_folder_path(rfp_title: str, company_name: str) -> str:
     """Get the RFP folder path: ALLRFPs/CompanyName/RFP_title"""
     clean_title = clean_rfp_title(rfp_title)
     safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip().rstrip('.')
-    return os.path.join(OUTPUT_DIR, safe_company_name, clean_title)
+    return os.path.join(get_setting("OUTPUT_DIR", os.path.join(os.getcwd(), "ALLRFPs")), safe_company_name, clean_title)
 
 def get_rfp_material_file_path(rfp_title: str, company_name: str, filename: str = None) -> str:
     """Get the downloaded-rfp folder path for an RFP: ALLRFPs/CompanyName/RFP_title/downloaded-rfp/"""
@@ -141,19 +144,20 @@ def find_rfp_file_across_companies(rfp_id: str) -> tuple[str | None, str | None]
     Returns (file_path, company_name) or (None, None) if not found.
     """
     clean_title = clean_rfp_title(rfp_id)
-    if not os.path.exists(OUTPUT_DIR):
+    _output_dir = get_setting("OUTPUT_DIR", os.path.join(os.getcwd(), "ALLRFPs"))
+    if not os.path.exists(_output_dir):
         return None, None
-    
+
     # Try to get company from database first
     company_name = get_rfp_company_name(rfp_id)
     if company_name:
         file_path = get_rfp_excel_file_path(rfp_id, company_name)
         if os.path.exists(file_path):
             return file_path, company_name
-    
+
     # Search through all company folders
-    for company_folder in os.listdir(OUTPUT_DIR):
-        company_path = os.path.join(OUTPUT_DIR, company_folder)
+    for company_folder in os.listdir(_output_dir):
+        company_path = os.path.join(_output_dir, company_folder)
         if not os.path.isdir(company_path):
             continue
         
@@ -182,7 +186,7 @@ def get_sharepoint_rfp_path(rfp_title: str, company_name: str) -> str:
     """Get SharePoint base path for RFP: RFP-logs/ALLRFPs/CompanyName/RFP_title"""
     clean_title = clean_rfp_title(rfp_title)
     safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip().rstrip('.')
-    return f"{SP_BASE_FOLDER}/ALLRFPs/{safe_company_name}/{clean_title}"
+    return f"{get_setting('SP_BASE_FOLDER', 'RFP-logs')}/ALLRFPs/{safe_company_name}/{clean_title}"
 
 def get_sharepoint_rfp_material_path(rfp_title: str, company_name: str, filename: str = None) -> str:
     """Get SharePoint downloaded-rfp path: RFP-logs/ALLRFPs/CompanyName/RFP_title/downloaded-rfp/"""
@@ -199,6 +203,14 @@ def get_sharepoint_rfp_tds_path(rfp_title: str, company_name: str, material_code
     if material_code:
         return f"{tds_path}/{material_code}_TDS.pdf"
     return tds_path
+
+def get_sharepoint_rfp_pricing_path(rfp_title: str, company_name: str, filename: str = None) -> str:
+    """Get SharePoint pricing-files path: RFP-logs/ALLRFPs/CompanyName/RFP_title/pricing-files/"""
+    base_path = get_sharepoint_rfp_path(rfp_title, company_name)
+    pricing_path = f"{base_path}/pricing-files"
+    if filename:
+        return f"{pricing_path}/{filename}"
+    return pricing_path
 
 def get_sharepoint_rfp_savedrfp_path(rfp_title: str, company_name: str, filename: str = None) -> str:
     """Get SharePoint rfp-upload-file path: RFP-logs/ALLRFPs/CompanyName/RFP_title/rfp-upload-file/"""
@@ -232,11 +244,59 @@ def get_rfp_activity_data_from_db(top: int = 5000, skip: int = 0):
         List of dicts with display names as keys
     """
     return DATAVERSE.get_all_rows(
-        table_api_name=RFP_ACTIVITY_LOG_TABLE_API,
-        select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link", "Material_Matched", "Keyword_Matched", "Matched_Data", "Material_Code", "Material_Description", "Matched_Keywords"],
-        table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+        table_api_name=get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
+        select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link", "Matched_Data"],
+        table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
         use_display_names=True
     )
+
+
+def get_rfp_activity_data_lightweight():
+    """
+    Get RFP activity data WITHOUT Matched_Data (lightweight for dashboard overview).
+    Matched_Data is the heaviest column — excluding it saves significant bandwidth.
+    """
+    return DATAVERSE.get_all_rows(
+        table_api_name=get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
+        select_columns=["RFP_ID", "Email_Status", "RFP_End_Date", "owner_name", "publish_time", "Company_Name", "participated", "Link"],
+        table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
+        use_display_names=True
+    )
+
+
+def get_matched_data_for_rfps(rfp_ids: list):
+    """
+    Fetch Matched_Data only for specific RFP_IDs (for deriving match flags).
+    Used to avoid fetching Matched_Data for all 2689 rows.
+    """
+    if not rfp_ids:
+        return {}
+
+    result_map = {}
+    # Chunk into groups of 15 to avoid URL length limits
+    chunk_size = 15
+    for i in range(0, len(rfp_ids), chunk_size):
+        chunk = rfp_ids[i:i + chunk_size]
+        filter_parts = [f"RFP_ID eq '{rid.replace(chr(39), chr(39)*2)}'" for rid in chunk]
+        filter_expr = " or ".join(filter_parts)
+        try:
+            result = DATAVERSE.query_rows(
+                get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s"),
+                filter_expr=filter_expr,
+                select="RFP_ID,Matched_Data",
+                top=chunk_size,
+                table_logical_name=get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2"),
+                use_display_names=True
+            )
+            rows = result.get("value", []) if isinstance(result, dict) else []
+            for row in rows:
+                rfp_id = row.get("RFP_ID", "")
+                if rfp_id:
+                    result_map[rfp_id] = row.get("Matched_Data", "")
+        except Exception as e:
+            print(f"[LightweightFetch] Batch Matched_Data query failed: {e}")
+
+    return result_map
 
 def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, category: str = "Status Change"):
     """
@@ -253,7 +313,9 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
         now_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # Get column mapping to use correct display names
-        column_map = DATAVERSE.get_column_mapping(RFP_STATUS_TABLE_LOGICAL)
+        _rfp_status_logical = get_setting("RFP_STATUS_TABLE_LOGICAL", "cr673_bhara_rfp_status")
+        _rfp_status_api = get_setting("RFP_STATUS_TABLE_API", "cr673_bhara_rfp_statuses")
+        column_map = DATAVERSE.get_column_mapping(_rfp_status_logical)
         
         # Check if category is a choice field and get its integer value
         category_value = None
@@ -270,18 +332,17 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
                     break
             
             if category_logical:
-                choice_options = DATAVERSE.get_choice_options(RFP_STATUS_TABLE_LOGICAL, category_logical)
+                choice_options = DATAVERSE.get_choice_options(_rfp_status_logical, category_logical)
                 # Convert category to lowercase for matching
                 category_lower = category.lower().strip()
                 # Map common category names to potential choice labels
                 category_mapping = {
                     "draft saved": "submit",
-                    "saved draft": "submit", 
+                    "saved draft": "submit",
                     "submitted": "submit",
-                    "declined": "submit",
-                    "status change": "submit",
-                    "synced from portal": "submit",
-                    "initial status": "submit"
+                    "submit": "submit",
+                    "declined": "decline",
+                    "decline": "decline",
                 }
                 
                 # Try to find matching label
@@ -299,13 +360,11 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
                             break
                 
                 if category_value is None:
-                    # If no match found, try using the first option or default
-                    if label_to_value:
-                        # Use first available option as fallback
-                        category_value = list(label_to_value.values())[0]
-                        logger.warning(f"Category '{category}' not found in choice options, using first option: {category_value}")
-                    else:
-                        logger.warning("No choice options found for category field, will try without choice value")
+                    logger.error(
+                        f"Category '{category}' (search '{search_label}') not found in choice options "
+                        f"{list(label_to_value.keys())}. Skipping log row to avoid polluting dashboard counts."
+                    )
+                    return False
         except Exception as e:
             logger.warning(f"Could not get choice options for category field: {e}")
             # Continue without choice value - will try as string
@@ -397,9 +456,9 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
         
         # Insert into status tracking table
         success = DATAVERSE.insert_row(
-            table_api_name=RFP_STATUS_TABLE_API,
+            table_api_name=_rfp_status_api,
             data=status_data,
-            table_logical_name=RFP_STATUS_TABLE_LOGICAL,
+            table_logical_name=_rfp_status_logical,
             use_display_names=True
         )
         if success:
@@ -414,14 +473,23 @@ def log_rfp_status_change(rfp_id: str, from_status: str, to_status: str, categor
         return False
 
 # Check if RFP IDs match
-def update_rfp_participation_status(rfp_id: str, status: str, category: str = None):
+def update_rfp_participation_status(rfp_id: str, status: str, category: str = None, log_change: bool = False):
     """
-    Update participation status for a specific RFP in the rfp_activity_log table and log the change.
+    Update participation status for a specific RFP in the rfp_activity_log table.
 
     Args:
         rfp_id: The RFP identifier
         status: New status to set
-        category: Optional category for the status change log. If not provided, will be auto-determined.
+        category: Optional category for the history row. Only used when log_change=True.
+            If omitted, derived from `status` ('declined' -> 'decline', else 'submit').
+        log_change: If True, also write a history row to cr673_bhara_rfp_status.
+            Logging policy:
+              - Submit automation (rfp/submit_rfp.py)  -> log with category='submit'
+              - Decline automation (rfp/decline_rfp.py) -> log with category='decline'
+              - User-driven UI updates (routes/dashboard.py) -> log; category derived from status
+              - Sync from portal (automation_logic.py) -> MUST NOT log (sync reflects external
+                portal state, not actions taken by our system, so it would inflate the
+                dashboard's "by-system" counts)
 
     Returns:
         bool: True if update was successful, False otherwise
@@ -449,13 +517,15 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
     try:
         # Sanitize rfp_id to prevent injection
         safe_rfp_id = sanitize_filter_value(rfp_id)
+        _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+        _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
 
         # Check for existing record
         existing_result = DATAVERSE.query_rows(
-            RFP_ACTIVITY_LOG_TABLE_API,
+            _act_api,
             filter_expr=f"RFP_ID eq '{safe_rfp_id}'",
             top=1,
-            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            table_logical_name=_act_logical,
             use_display_names=True
         )
         old_status = ""
@@ -465,13 +535,13 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
             # NOTE: query used use_display_names=True, so row keys are DISPLAY names, not logical
             # Build reverse map (logical -> display) to look up primary key and participated field
             try:
-                colmap = DATAVERSE.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)  # display -> logical
+                colmap = DATAVERSE.get_column_mapping(_act_logical)  # display -> logical
             except Exception:
                 colmap = {}
             logical_to_display = {v: k for k, v in colmap.items()}
 
             # Get record_id: primary key may have been remapped to its display name
-            pk_logical = f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"
+            pk_logical = f"{_act_logical}id"
             pk_display = logical_to_display.get(pk_logical)
             record_id = (existing_row.get(pk_display) if pk_display else None) or existing_row.get(pk_logical)
             if not record_id:
@@ -492,10 +562,10 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
             # Perform update with error handling
             try:
                 update_success = DATAVERSE.update_row(
-                    RFP_ACTIVITY_LOG_TABLE_API,
+                    _act_api,
                     record_id,
                     update_data,
-                    table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
+                    table_logical_name=_act_logical
                 )
                 if not update_success:
                     logger.error(f"Failed to update RFP {rfp_id} participation status")
@@ -505,23 +575,17 @@ def update_rfp_participation_status(rfp_id: str, status: str, category: str = No
                 raise
 
             logger.info(f"Updated RFP {rfp_id} participation status to: {status}")
-            
-            # Log status change if status actually changed
-            if old_status.lower() != status.lower():
-                # Determine category if not provided - use lowercase "submit" to match table
+
+            # Log status change only when explicitly requested. See log_change docstring
+            # for the policy (submit/decline automation + UI log; sync does NOT log).
+            if log_change and old_status.lower() != status.lower():
                 if not category:
-                    # All status changes map to "submit" category based on table structure
-                    category = "submit"
-                
+                    category = "decline" if status.lower() == "declined" else "submit"
                 log_rfp_status_change(rfp_id, old_status, status, category)
-            
+
             return True
         else:
             logger.warning(f"No RFP record found with ID: {rfp_id}")
-            # Log initial status if this is a new record
-            if status:
-                initial_category = category or "submit"
-                log_rfp_status_change(rfp_id, "", status, initial_category)
             return False
 
     except ValueError:
@@ -552,6 +616,8 @@ def update_sync_timestamp(rfp_id: str, company_name: str = None) -> bool:
         # Sanitize values to prevent injection
         safe_rfp_id = sanitize_filter_value(rfp_id)
         filter_expr = f"RFP_ID eq '{safe_rfp_id}'"
+        _act_api = get_setting("RFP_ACTIVITY_LOG_TABLE_API", "cr673_bahra_rfps_v2s")
+        _act_logical = get_setting("RFP_ACTIVITY_LOG_TABLE_LOGICAL", "cr673_bahra_rfps_v2")
 
         if company_name:
             safe_company = sanitize_filter_value(company_name.strip())
@@ -559,10 +625,10 @@ def update_sync_timestamp(rfp_id: str, company_name: str = None) -> bool:
 
         # Query for existing record
         existing_result = DATAVERSE.query_rows(
-            RFP_ACTIVITY_LOG_TABLE_API,
+            _act_api,
             filter_expr=filter_expr,
             top=1,
-            table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL,
+            table_logical_name=_act_logical,
             use_display_names=True
         )
 
@@ -570,11 +636,11 @@ def update_sync_timestamp(rfp_id: str, company_name: str = None) -> bool:
             existing_row = existing_result["value"][0]
             # Row keys are display names (use_display_names=True) — resolve primary key via reverse map
             try:
-                colmap = DATAVERSE.get_column_mapping(RFP_ACTIVITY_LOG_TABLE_LOGICAL)
+                colmap = DATAVERSE.get_column_mapping(_act_logical)
                 logical_to_display = {v: k for k, v in colmap.items()}
             except Exception:
                 logical_to_display = {}
-            pk_logical = f"{RFP_ACTIVITY_LOG_TABLE_LOGICAL}id"
+            pk_logical = f"{_act_logical}id"
             pk_display = logical_to_display.get(pk_logical)
             record_id = (existing_row.get(pk_display) if pk_display else None) or existing_row.get(pk_logical)
             if not record_id:
@@ -587,10 +653,10 @@ def update_sync_timestamp(rfp_id: str, company_name: str = None) -> bool:
             }
 
             update_success = DATAVERSE.update_row(
-                RFP_ACTIVITY_LOG_TABLE_API,
+                _act_api,
                 record_id,
                 update_data,
-                table_logical_name=RFP_ACTIVITY_LOG_TABLE_LOGICAL
+                table_logical_name=_act_logical
             )
 
             if update_success:
@@ -638,46 +704,52 @@ def _find_other_content_sheet_name(excel_path: str):
             if "other" in ln and "content" in ln:
                 return name
     except Exception as e:
-        print(f"⚠ Could not enumerate sheets: {e}")
+        print(f"[WARN] Could not enumerate sheets: {e}")
     return None
 
 def extract_keywords_from_text(
-    text: str, 
-    delimiter: str = ',', 
+    text: str,
+    delimiter: str = ',',
     to_upper: bool = True,
     strip_whitespace: bool = True
 ) -> list:
     """
     Extract keywords from delimited text.
-    
+    Splits on the given delimiter AND semicolons, so both
+    "CABLE,ELEC,CU" and "CABLE; ELECTRICAL; LOW VOLTAGE" are handled.
+
     Args:
         text: Text containing delimited keywords
-        delimiter: Delimiter to split on (default: comma)
+        delimiter: Primary delimiter to split on (default: comma)
         to_upper: Convert keywords to uppercase (default: True)
         strip_whitespace: Remove leading/trailing whitespace (default: True)
-    
+
     Returns:
         List of extracted keywords
-    
+
     Examples:
         >>> extract_keywords_from_text("CABLE,ELEC,CU")
         ['CABLE', 'ELEC', 'CU']
-        
-        >>> extract_keywords_from_text("cable;elec;cu", delimiter=';')
-        ['CABLE', 'ELEC', 'CU']
+
+        >>> extract_keywords_from_text("CABLE; ELECTRICAL; LOW VOLTAGE")
+        ['CABLE', 'ELECTRICAL', 'LOW VOLTAGE']
     """
+    import re as _re
     import pandas as pd
     if not text or pd.isna(text):
         return []
-    
+
+    # Split on comma, semicolon, or the provided delimiter
+    parts = _re.split(r'[,;]' if delimiter == ',' else f'[{_re.escape(delimiter)};]', str(text))
+
     keywords = []
-    for part in str(text).split(delimiter):
+    for part in parts:
         kw = part.strip() if strip_whitespace else part
         if to_upper:
             kw = kw.upper()
-        if kw:  # Only add non-empty keywords
+        if kw:
             keywords.append(kw)
-    
+
     return keywords
 
 def extract_materials_from_excel(excel_path: str, include_details: bool = False, filter_by_intent: bool = True):
@@ -698,46 +770,100 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
     import pandas as pd
     import re
 
-    sheet = _find_other_content_sheet_name(excel_path) or "Other Content"
-    try:
-        df = pd.read_excel(excel_path, sheet_name=sheet)
-    except Exception as e:
-        print(f"⚠ Could not read sheet '{sheet}' from {excel_path}: {e}")
+    sheet = _find_other_content_sheet_name(excel_path)
+    df = None
+
+    if sheet:
+        try:
+            df = pd.read_excel(excel_path, sheet_name=sheet)
+        except Exception as e:
+            print(f"[WARN] Could not read sheet '{sheet}' from {excel_path}: {e}")
+
+    # Fallback: find sheet containing expected columns (same logic as download_rfp.py)
+    if df is None:
+        EXPECTED_COLUMNS = ["intend to respond", "currency", "material number", "price", "quantity"]
+        try:
+            all_sheets = pd.ExcelFile(excel_path).sheet_names
+            for s in all_sheets:
+                try:
+                    sheet_df = pd.read_excel(excel_path, sheet_name=s)
+                    sheet_cols_lower = [str(c).lower().strip() for c in sheet_df.columns]
+                    matches = sum(1 for ec in EXPECTED_COLUMNS if any(ec in sc for sc in sheet_cols_lower))
+                    if matches >= 2:
+                        df = sheet_df
+                        print(f"[OK] Fallback sheet '{s}' matched ({matches} columns) in {excel_path}")
+                        break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"[WARN] Could not enumerate sheets in {excel_path}: {e}")
+
+    if df is None:
+        print(f"[WARN] No suitable sheet found in {excel_path}")
         return [] if include_details else set()
 
     name_col = find_column_name(df.columns, "name")
     if not name_col:
-        print("⚠ 'name' column not found; no materials extracted.")
+        print("[WARN] 'name' column not found; no materials extracted.")
         return [] if include_details else set()
 
-    if filter_by_intent:
-        # Try to find the intent column with tolerant matching
-        intent_col = (
-            find_column_name(df.columns, "intend to respond")
-            or find_column_name(df.columns, "intend")
-            or find_column_name(df.columns, "respond intend")
-        )
-        if not intent_col:
-            print("⚠ 'Intend To Respond' column not found; no materials selected.")
-            return [] if include_details else set()
+    # Resolve intent column regardless of filter mode so per-row intent can be reported
+    intent_col = (
+        find_column_name(df.columns, "intend to respond")
+        or find_column_name(df.columns, "intend")
+        or find_column_name(df.columns, "respond intend")
+    )
 
-        def is_yes(v) -> bool:
-            s = str(v).strip().lower()
-            return s in {"yes", "y", "true", "1"}
+    def is_yes(v) -> bool:
+        s = str(v).strip().lower()
+        return s in {"yes", "y", "true", "1"}
+
+    def is_no(v) -> bool:
+        s = str(v).strip().lower()
+        return s in {"no", "n", "false", "0"}
+
+    if filter_by_intent:
+        if not intent_col:
+            print("[WARN] 'Intend To Respond' column not found; no materials selected.")
+            return [] if include_details else set()
 
         # Keep only rows where intent indicates Yes
         try:
             filtered = df[df[intent_col].map(is_yes)]
         except Exception as e:
-            print(f"⚠ Could not filter by intent column '{intent_col}': {e}")
+            print(f"[WARN] Could not filter by intent column '{intent_col}': {e}")
             return [] if include_details else set()
     else:
         # Use ALL rows — no intent filtering
         filtered = df
 
+    # Fallback columns: Material Number / Material Code (resolved once, reused per row).
+    # Used only when the Name column has no 9-digit code for that row.
+    mat_num_col = find_column_name(df.columns, "materialnumber")
+    mat_code_col = find_column_name(df.columns, "materialcode")
+
+    def _extract_row_codes(row) -> list:
+        """Try Name first; fall back to Material Number, then Material Code."""
+        name_val = row.get(name_col)
+        if name_val is not None and not pd.isna(name_val):
+            codes = re.findall(r"\d{9}", str(name_val))
+            if codes:
+                return codes
+        for fb_col in (mat_num_col, mat_code_col):
+            if not fb_col:
+                continue
+            fb_val = row.get(fb_col)
+            if fb_val is None or pd.isna(fb_val):
+                continue
+            codes = re.findall(r"\d{9}", str(fb_val))
+            if codes:
+                return codes
+        return []
+
     if include_details:
         # Return list of dicts with details
         desc_col = find_column_name(df.columns, "description")
+        qty_col = find_column_name(df.columns, "quantity")
         materials_data = []
         seen_codes = set()
 
@@ -745,27 +871,42 @@ def extract_materials_from_excel(excel_path: str, include_details: bool = False,
         for row in filtered.to_dict('records'):
             name_value = str(row.get(name_col, "")) if not pd.isna(row.get(name_col)) else ""
             desc_value = str(row.get(desc_col, "")) if desc_col and not pd.isna(row.get(desc_col)) else ""
+            qty_value = row.get(qty_col) if qty_col else None
+            if qty_value is None or pd.isna(qty_value):
+                qty_value = ""
 
-            # Extract 9-digit material codes
-            for mat_code in re.findall(r"\d{9}", name_value):
+            if intent_col:
+                raw_intent = row.get(intent_col)
+                if raw_intent is None or pd.isna(raw_intent):
+                    intent_value = ""
+                elif is_yes(raw_intent):
+                    intent_value = "Yes"
+                elif is_no(raw_intent):
+                    intent_value = "No"
+                else:
+                    intent_value = str(raw_intent).strip()
+            else:
+                intent_value = ""
+
+            for mat_code in _extract_row_codes(row):
                 if mat_code not in seen_codes:
                     seen_codes.add(mat_code)
                     materials_data.append({
                         "material_code": mat_code,
                         "name": name_value,
-                        "description": desc_value
+                        "description": desc_value,
+                        "quantity": qty_value,
+                        "intent": intent_value,
                     })
 
-        print(f"🧾 Materials extracted (filter_by_intent={filter_by_intent}): {len(materials_data)}")
+        print(f"Materials extracted (filter_by_intent={filter_by_intent}): {len(materials_data)}")
         return materials_data
     else:
         # Return set of material codes only
         materials = set()
-        for _, value in filtered[name_col].items():
-            if pd.isna(value):
-                continue
-            for mat in re.findall(r"\d{9}", str(value)):
+        for row in filtered.to_dict('records'):
+            for mat in _extract_row_codes(row):
                 materials.add(mat)
 
-        print(f"🧾 Materials extracted (filter_by_intent={filter_by_intent}): {sorted(materials)}")
+        print(f"Materials extracted (filter_by_intent={filter_by_intent}): {sorted(materials)}")
         return materials
