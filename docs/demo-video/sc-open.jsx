@@ -82,10 +82,10 @@ function PainCard({ at, x, y, rot, icon, app, note, color }) {
   );
 }
 
-function SceneProblem({ t0, dur }) {
+function SceneProblem({ t0, dur, statsAt: statsAtRel = 16 }) {
   const time = useTime();
-  // Phase A (0-16): scattered tools. Phase B (16+): collapse to stats.
-  const statsAt = t0 + 16;
+  // Phase A: scattered tools. Phase B: collapse to stats. (statsAtRel = when stats begin)
+  const statsAt = t0 + statsAtRel;
   const showStats = time >= statsAt - 0.5;
   return (
     <SceneWrap t0={t0} dur={dur} bg={C.bgGrad}>

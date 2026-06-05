@@ -202,23 +202,6 @@ function VideoChrome({ chapters, total }) {
       <div style={{ position: 'absolute', top: 24, right: 30, zIndex: 60, opacity: 0.92 }}>
         <Logo size={26} />
       </div>
-      {/* chapter progress segments bottom */}
-      <div style={{
-        position: 'absolute', bottom: 22, left: 30, right: 30, zIndex: 60,
-        display: 'flex', gap: 5,
-      }}>
-        {chapters.map((c, i) => {
-          const segStart = chapters.slice(0, i).reduce((a, b) => a + b.dur, 0);
-          const p = clamp((time - segStart) / c.dur, 0, 1);
-          return (
-            <div key={i} style={{ flex: c.dur, height: 3, borderRadius: 2,
-                                   background: 'rgba(255,255,255,0.12)', overflow: 'hidden' }}>
-              <div style={{ width: `${p * 100}%`, height: '100%',
-                            background: i === idx ? C.red : 'rgba(255,255,255,0.45)' }} />
-            </div>
-          );
-        })}
-      </div>
     </>
   );
 }

@@ -45,114 +45,115 @@
 <script type="text/babel" src="sc-lead.jsx"></script>
 
 <script type="text/babel">
-// Each feature = a cinematic "manual way → SmartRFP" lead card, then the real
-// product demo (real screenshots, animated inputs + click + result).
-const LEAD = 5.5;
+// Snappy walkthrough: each feature = a quick cinematic "manual way → SmartRFP"
+// lead, then the real product demo (real screenshots, fast inputs + click + result).
+const LEAD = 4;
 
 const ITEMS = [
-  { id:'download', dur:22, chip:false,
+  { id:'download', dur:13, chip:false,
     lead:{ n:1, title:'Discover & Download',
       old:'Every morning, log into each supplier portal by hand to check for new tenders.',
       now:'SmartRFP scrapes every portal and downloads the BOQs automatically.' },
     demo:(p)=><DemoShot {...p} chapter="Discover & Download" title="Download Open RFPs" url="app · /dashboard" resultUrl="app · /activity-logs"
       img="Download-RFP-Button-Page.png" result="Activity-log-page.png"
-      inputs={[{x:590,y:409,w:240,h:26,at:2.2,label:'Select company'}]}
-      hotspot={{x:699,y:535}} clickAt={5.6} approach={{x:980,y:300}} />,
-    narr:[ {at:0.8,text:'It starts with discovery — open the download panel.'},
-           {at:2.4,text:'Pick the company you want — say, Saudi Energy.'},
-           {at:6.0,text:'Click Start Download: SmartRFP logs in, scrapes the open RFPs and downloads every BOQ.'},
-           {at:10,text:'Each run is tracked in the Activity Log — files to SharePoint, records to Dataverse.'} ] },
+      inputs={[{x:640,y:314,w:240,h:34,at:1.6,label:'Select company'}]}
+      hotspot={{x:699,y:535}} clickAt={4.0} approach={{x:980,y:300}} />,
+    narr:[ {at:0.8,text:'Discovery starts here — open the download panel.'},
+           {at:2.0,text:'Pick the company you want — say, Saudi Energy.'},
+           {at:4.2,text:'Click Start Download: it logs in, scrapes the open RFPs and downloads every BOQ.'},
+           {at:8.0,text:'Every run lands in the Activity Log — files to SharePoint, records to Dataverse.'} ] },
 
-  { id:'match', dur:26, chip:true,
+  { id:'match', dur:15, chip:true,
     lead:{ n:2, title:'Material Matching',
       old:'Look up hundreds of BOQ lines in SAP, one material code at a time.',
       now:'It auto-matches every line to your material master in seconds.' },
     demo:(p)=><SceneMatch {...p}/>,
-    narr:[ {at:0.8,text:'Every BOQ line is checked against your SAP material master in two tiers.'},
-           {at:5.5,text:'An exact match on the nine-digit SAP code first — then keyword matching when the code misses.'},
-           {at:11,text:'Each line gets a confidence score; the rest are flagged for a one-click review — never silently wrong.'} ] },
+    narr:[ {at:0.8,text:'Every BOQ line is matched to your SAP material master in two tiers.'},
+           {at:5.0,text:'Exact code first, then keyword matching when it misses — each with a confidence score.'},
+           {at:10,text:'Most match with no lookup; the rest are flagged for a one-click review.'} ] },
 
-  { id:'storage', dur:22, chip:true,
+  { id:'storage', dur:15, chip:true,
     lead:{ n:3, title:'Database & SharePoint',
       old:"Files sit in inboxes and personal drives — no one's sure of the latest version.",
       now:'Every file and record lands in SharePoint and Dataverse — one source of truth.' },
     demo:(p)=><SceneStorage {...p}/>,
-    narr:[ {at:0.8,text:'Everything is persisted to one source of truth.'},
-           {at:4.5,text:'Structured records go to Microsoft Dataverse — RFPs, line items and responses.'},
-           {at:9,text:'Every file goes to SharePoint, organised per RFP — BOQ, datasheets and error bundles.'},
-           {at:15,text:'Attributed and timestamped — a full audit trail, automatically.'} ] },
+    narr:[ {at:0.8,text:'Everything persists to one source of truth.'},
+           {at:4.0,text:'Structured records to Dataverse; every file to SharePoint under ALLRFPs, per company and RFP.'},
+           {at:9.0,text:'Downloaded RFP, datasheets, pricing and the uploaded package — attributed and timestamped.'} ] },
 
-  { id:'email', dur:34, chip:true,
+  { id:'email', dur:24, chip:true,
     lead:{ n:4, title:'Actionable Email',
       old:'Chase each bidder across long email threads; replies get lost.',
       now:'An actionable card collects every response straight into the system.' },
-    demo:(p)=><SceneEmailReal {...p}/>,
-    narr:[ {at:0.8,text:'The RFP is routed to bidders — who never have to leave Outlook.'},
-           {at:4.0,text:'Each product line is an actionable card: set the result, add a remark, attach a file.'},
-           {at:9.5,text:'The moment they answer, the response is written straight to Dataverse.'},
-           {at:17.5,text:'Every teammate sees who has answered — here, three of five responsibilities are in.'},
-           {at:26.0,text:'A built-in Refresh Status keeps the team aligned without a single follow-up call.'} ] },
+    demo:(p)=><SceneEmailReal {...p} swap={12}/>,
+    narr:[ {at:0.8,text:'The RFP is routed to bidders — who never leave Outlook.'},
+           {at:3.5,text:'Set the result, add a remark, attach a file — right in the card.'},
+           {at:8.5,text:'The moment they answer, it is written to Dataverse.'},
+           {at:13,text:'Every teammate sees who has answered — three of five in.'},
+           {at:19,text:'A built-in Refresh Status keeps the team aligned — no follow-up calls.'} ] },
 
-  { id:'reminders', dur:26, chip:true,
+  { id:'reminders', dur:17, chip:true,
     lead:{ n:5, title:'Deadline Reminders',
       old:"Deadlines live in someone's memory — tenders slip when they forget.",
       now:'Automatic reminders fire before every due date.' },
     demo:(p)=><SceneRemindersReal {...p}/>,
     narr:[ {at:0.8,text:'Deadlines are guarded automatically.'},
            {at:4.0,text:'A reminder fires three days before the due date, and again one day before.'},
-           {at:8.5,text:'Hours from the deadline, an urgent notice lists every at-risk RFP and how long is left.'},
-           {at:14,text:'Sent-flags nudge each bidder once per window. Since go-live, zero RFPs missed on coordination.'} ] },
+           {at:8.5,text:'Hours out, an urgent notice lists every at-risk RFP and how long is left.'},
+           {at:13,text:'No spam, no missed tenders — zero missed on coordination since go-live.'} ] },
 
-  { id:'submit', dur:20, chip:false,
+  { id:'submit', dur:16, chip:false,
     lead:{ n:6, title:'Submit Response',
       old:"Re-upload files to the portal by hand and hope it's the right version.",
       now:'One click sends the package to SharePoint and the customer portal.' },
     demo:(p)=><DemoShot {...p} chapter="Bidding" title="Submit a Response" url="app · /submit"
       img="Submit-RFP-page.png"
-      inputs={[{x:646,y:243,w:300,h:30,at:2.0,label:'Open RFP'},{x:646,y:398,w:300,h:58,at:3.9,label:'Upload Excel'}]}
-      hotspot={{x:739,y:565}} clickAt={6.6} approach={{x:560,y:300}}
+      inputs={[{x:646,y:277,w:300,h:32,at:1.6,label:'Open RFP'},
+               {x:646,y:409,w:300,h:60,at:3.0,label:'Upload Excel'},
+               {x:641,y:505,w:297,h:60,at:4.4,label:'Auto-saved to SharePoint TDS'}]}
+      hotspot={{x:739,y:565}} clickAt={6.2} approach={{x:560,y:300}}
       toast="Submitted — package sent to SharePoint TDS and posted to the customer portal." />,
-    narr:[ {at:0.8,text:'Open Submit RFP and choose the open RFP and customer.'},
-           {at:3.9,text:'Upload the priced Excel and any technical PDFs.'},
-           {at:6.6,text:'Click Submit — files go to SharePoint and the package is posted to the portal.'},
-           {at:11,text:'Status flips to Submitted, and the whole action is logged.'} ] },
+    narr:[ {at:0.8,text:'Open Submit RFP — choose the open RFP and the customer.'},
+           {at:3.0,text:'Upload the priced Excel; technical PDFs auto-save to the SharePoint TDS folder.'},
+           {at:6.4,text:'Click Submit — the package is posted to the customer portal.'},
+           {at:10,text:'Status flips to Submitted, and the whole action is logged.'} ] },
 
-  { id:'decline', dur:16, chip:false,
+  { id:'decline', dur:12, chip:false,
     lead:{ n:7, title:'Decline Participation',
       old:'Pass on a tender and leave no record of why.',
       now:'Decline in one click — reason and owner logged for audit.' },
     demo:(p)=><DemoShot {...p} chapter="Bidding" title="Decline Participation" url="app · /decline"
       img="Decline-RFP-page.png"
-      inputs={[{x:622,y:411,w:290,h:30,at:2.2,label:'Select RFP'}]}
-      hotspot={{x:709,y:434}} clickAt={4.6} approach={{x:900,y:250}}
+      inputs={[{x:634,y:387,w:240,h:30,at:1.8,label:'Select RFP'}]}
+      hotspot={{x:709,y:434}} clickAt={3.8} approach={{x:900,y:250}}
       toast="Declined — customer notified and recorded in Dataverse." />,
-    narr:[ {at:0.8,text:'Open Decline RFP and select the open RFP.'},
-           {at:4.6,text:'One click on Decline records the no-bid and notifies the customer.'},
-           {at:9,text:'The reason and owner are logged in Dataverse — auditable, just like a win.'} ] },
+    narr:[ {at:0.8,text:'Open Decline RFP and pick the open RFP.'},
+           {at:3.8,text:'One click records the no-bid and notifies the customer.'},
+           {at:7.0,text:'Reason and owner are logged in Dataverse — auditable, just like a win.'} ] },
 
-  { id:'schedule', dur:20, chip:false,
+  { id:'schedule', dur:13, chip:false,
     lead:{ n:8, title:'Schedule Automation',
       old:'Someone has to remember to run the download every single day.',
       now:'Set a schedule once; it runs unattended, Sunday to Thursday.' },
     demo:(p)=><DemoShot {...p} chapter="Automation" title="Schedule Automation" url="app · /settings/schedule"
       img="Schedule-Automation-page.png"
-      inputs={[{x:748,y:289,w:120,h:28,at:2.0,label:'Frequency'},{x:630,y:356,w:280,h:28,at:3.7,label:'Time zone'}]}
-      hotspot={{x:738,y:532}} clickAt={5.6} approach={{x:950,y:250}}
+      inputs={[{x:713,y:309,w:160,h:32,at:1.6,label:'Frequency'},{x:640,y:358,w:290,h:32,at:3.0,label:'Time zone'}]}
+      hotspot={{x:738,y:532}} clickAt={5.0} approach={{x:950,y:250}}
       toast="Schedule saved — runs every morning, Sun–Thu at 08:00 AST." />,
-    narr:[ {at:0.8,text:'Open Schedule Automation.'},
+    narr:[ {at:0.8,text:'Discovery can run unattended — open Schedule Automation.'},
            {at:2.6,text:'Set the frequency, time zone and start time…'},
-           {at:5.7,text:'…then Save. A Power Automate cron runs it every morning, Sun–Thu.'},
-           {at:11,text:'Set it once — it polls the portals for you, every day.'} ] },
+           {at:5.2,text:'…then Save. A Power Automate cron runs it every morning, Sun–Thu.'},
+           {at:9.0,text:'Set it once — it polls the portals for you, every day.'} ] },
 
-  { id:'analytics', dur:15, chip:false,
+  { id:'analytics', dur:10, chip:false,
     lead:{ n:9, title:'Analytics & Insights',
       old:'No clear view of win rate, cycle time, or what customers want.',
       now:'A live dashboard turns the pipeline into evidence.' },
     demo:(p)=><DemoShot {...p} chapter="Analytics" title="Outcomes & Win-Rate" url="app · /analytics"
-      img="Analytics-Dashboard-Page.png" panFrom={{fx:0.32,fy:0.18,s:1.05}} panTo={{fx:0.6,fy:0.55,s:1.18}} />,
+      img="Analytics-Dashboard-Page.png" panFrom={{fx:0.32,fy:0.18,s:1.06}} panTo={{fx:0.62,fy:0.58,s:1.2}} />,
     narr:[ {at:0.8,text:'For managers, the Analytics dashboard turns the pipeline into evidence.'},
-           {at:5.0,text:'Win rate, cycle time, volume by customer and the status mix — at a glance.'},
-           {at:10,text:'Exportable in one click for the board pack.'} ] },
+           {at:4.0,text:'Win rate, cycle time, volume by customer and the status mix — at a glance.'},
+           {at:7.5,text:'Exportable in one click for the board pack.'} ] },
 ];
 
 // ── Assemble timeline ─────────────────────────────────────────────────────────
@@ -160,38 +161,36 @@ const SEG = []; let acc = 0;
 const push = (s) => { SEG.push({ ...s, t0: acc }); acc += s.dur; };
 const NARRATION = [];
 
-push({ id:'intro', label:'SmartRFP', chip:false, dur:7, render:(p)=><FeatIntro {...p}/> });
-NARRATION.push({ t: SEG[0].t0 + 1.5, text:'This is the full SmartRFP feature walkthrough — the manual problem, then the real product, for every step.' });
-NARRATION.push({ t: SEG[0].t0 + 4.2, text:"We'll follow one RFP from discovery to submission, then cover decline, scheduling and analytics." });
+push({ id:'intro', label:'SmartRFP', chip:false, dur:5, render:(p)=><FeatIntro {...p}/> });
+NARRATION.push({ t: SEG[0].t0 + 1.2, text:'The full SmartRFP walkthrough — the manual problem, then the real product, for every step.' });
+NARRATION.push({ t: SEG[0].t0 + 3.4, text:'One RFP, discovery to submission, plus decline, scheduling and analytics.' });
 
-push({ id:'sysproblem', label:'The Problem', chip:false, dur:22, render:(p)=><SceneProblem {...p}/> });
+push({ id:'sysproblem', label:'The Problem', chip:false, dur:16, render:(p)=><SceneProblem {...p} statsAt={9}/> });
 { const t = SEG[SEG.length-1].t0; [
-  [1,'Today, a single RFP is spread across five disconnected tools.'],
-  [5.5,'The BOQ is re-keyed from a PDF, Excel versions multiply, and each code is looked up in SAP by hand.'],
-  [11,"Hand-offs happen over email, deadlines slip, and there's no record of who quoted what."],
-  [16.8,"That's about two and a half hours per RFP — and roughly five tenders a month missed on coordination."],
-  [20,'The real work is pricing. Everything else is plumbing — and that is what SmartRFP removes.'],
+  [0.8,'Today, a single RFP is spread across five disconnected tools.'],
+  [4,'The BOQ is re-keyed from a PDF, Excel versions multiply, and codes are looked up in SAP by hand.'],
+  [9,'The cost: about two and a half hours per RFP, and roughly five tenders a month missed.'],
+  [13,'The real work is pricing. Everything else is plumbing — and that is what SmartRFP removes.'],
 ].forEach(([a,x])=>NARRATION.push({ t:t+a, text:x })); }
 
 for (const it of ITEMS) {
   push({ id: it.id+'-lead', label: it.lead.title, chip:false, dur: LEAD, render:(p)=><FeatLead {...p} {...it.lead}/> });
-  NARRATION.push({ t: SEG[SEG.length-1].t0 + 0.8, text: it.lead.now });
+  NARRATION.push({ t: SEG[SEG.length-1].t0 + 0.7, text: it.lead.now });
   push({ id: it.id, label: it.lead.title, chip: it.chip, dur: it.dur, render: it.demo });
   const dt0 = SEG[SEG.length-1].t0;
   for (const n of it.narr) NARRATION.push({ t: dt0 + n.at, text: n.text });
 }
 
-push({ id:'outro', label:'SmartRFP', chip:false, dur:10, render:(p)=><FeatOutro {...p}/> });
+push({ id:'outro', label:'SmartRFP', chip:false, dur:7, render:(p)=><FeatOutro {...p}/> });
 { const t = SEG[SEG.length-1].t0;
-  NARRATION.push({ t:t+1.2, text:'Nine features, one governed pipeline, and not a single manual re-entry between them.' });
-  NARRATION.push({ t:t+5.5, text:'SmartRFP — from RFP to quote, automated end to end. Thank you for watching.' }); }
+  NARRATION.push({ t:t+1.0, text:'Nine features, one governed pipeline, and not a single manual re-entry.' });
+  NARRATION.push({ t:t+4.0, text:'SmartRFP — from RFP to quote, automated end to end. Thank you for watching.' }); }
 
 const TOTAL = acc;
 
 // ── Chrome ────────────────────────────────────────────────────────────────────
 function Chrome(){
   const time=useTime(); let cur=SEG[0]; for(const s of SEG) if(time>=s.t0) cur=s;
-  // count which feature we're on (for the "NN/09" chip)
   let fi=0; for(const it of ITEMS){ fi++; if(it.id===cur.id) break; }
   return (<>
     {cur.chip && (

@@ -47,7 +47,7 @@ step-by-step "what happens" explanation:
 
 1. **Discover & Download** — click *Sync Portals* → live log (login → scrape → download BOQ → SharePoint → Dataverse).
 2. **Material Matching** — two-tier logic (exact SAP code → keyword fallback) with confidence scores.
-3. **Database & SharePoint** — records to Dataverse (OData) + files to SharePoint folders, attributed & timestamped.
+3. **Database & SharePoint** — records to Dataverse (OData) + files to SharePoint under the real tree `ALLRFPs/<Company>/<RFP>/download-file`, `TDS-files`, `Pricing-file`, `upload-rfp-file`.
 4. **Actionable Email** — the real Bahra cards: set Result/Remark, attach file → written to Dataverse; team 3/5 status + Refresh.
 5. **Deadline Reminders** — 3-day / 1-day timeline + the real URGENT notice; zero missed.
 6. **Submit Response** — upload priced Excel + PDFs, click *Submit* → SharePoint TDS → portal post → status Submitted.

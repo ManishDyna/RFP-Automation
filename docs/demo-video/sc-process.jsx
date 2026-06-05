@@ -130,12 +130,20 @@ function SceneStorage({ t0, dur }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
             <span style={{ width: 30, height: 30, borderRadius: 8, background: C.greenSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2"><path d="M3 7a2 2 0 012-2h5l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></span>
-            <div style={{ fontFamily: F.ui, fontWeight: 800, fontSize: 14, color: C.ink }}>SharePoint · /RFP-logs</div>
+            <div style={{ fontFamily: F.ui, fontWeight: 800, fontSize: 14, color: C.ink }}>SharePoint · /ALLRFPs</div>
             <Pill color={C.green} bg={C.greenSoft} style={{ marginLeft: 'auto' }}>via MS Graph</Pill>
           </div>
-          <div style={{ fontFamily: F.mono, fontSize: 12, color: C.text }}>
-            {[['📁 RFP-C001744045/', 0], ['   📁 BOQ/  ·  source workbooks', 1], ['   📁 TDS/  ·  technical datasheets', 2], ['   📁 failures/  ·  error bundles', 3]].map(([line, i]) => (
-              <div key={i} style={{ padding: '4px 0', opacity: lt > 3.9 + i * 0.35 ? 1 : 0.25, color: i === 0 ? C.ink : C.mute, fontWeight: i === 0 ? 700 : 500 }}>{line}</div>
+          <div style={{ fontFamily: F.mono, fontSize: 11.5, color: C.text }}>
+            {[['📁 ALLRFPs / Saudi Energy /', 0, 'company portal'],
+              ['   📁 SEC RFP-C001744045 / download-file /', 1, 'downloaded RFP .xls'],
+              ['   📁 TDS-files /', 1, 'technical datasheets'],
+              ['   📁 Pricing-file /', 1, 'priced workbook'],
+              ['   📁 upload-rfp-file /', 1, 'submitted package']].map(([line, depth, note], i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '4px 0',
+                opacity: lt > 3.9 + i * 0.3 ? 1 : 0.25, color: depth === 0 ? C.ink : C.mute, fontWeight: depth === 0 ? 700 : 500 }}>
+                <span>{line}</span>
+                <span style={{ fontFamily: F.ui, fontSize: 10.5, color: C.faint, whiteSpace: 'nowrap', marginLeft: 10 }}>· {note}</span>
+              </div>
             ))}
           </div>
         </div>

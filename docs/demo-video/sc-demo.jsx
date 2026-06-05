@@ -9,8 +9,8 @@ function DemoShot({ t0, dur, chapter, title, url, resultUrl, img, result,
   const FR = { x: 96, y: 84, w: 1088, h: 556 }, TAB = 38;
   const CW = FR.w;
 
-  const intro = Easing.easeOutCubic(clamp(lt / 0.5, 0, 1));
-  const outro = 1 - Easing.easeInCubic(clamp((lt - (dur - 0.45)) / 0.45, 0, 1));
+  const intro = Easing.easeOutCubic(clamp(lt / 0.42, 0, 1));
+  const outro = 1 - Easing.easeInCubic(clamp((lt - (dur - 0.4)) / 0.4, 0, 1));
   const env = Math.min(intro, outro);
 
   const hasResult = !!result;
@@ -55,7 +55,7 @@ function DemoShot({ t0, dur, chapter, title, url, resultUrl, img, result,
 
       {/* browser frame */}
       <div style={{ position: 'absolute', left: FR.x, top: FR.y, width: FR.w, height: FR.h, opacity: env,
-        transform: `translateY(${(1 - intro) * 14}px)`, borderRadius: 14, overflow: 'hidden',
+        transform: `translateY(${(1 - intro) * 22}px) scale(${lerp(0.975, 1, intro)})`, transformOrigin: '50% 60%', borderRadius: 14, overflow: 'hidden',
         boxShadow: '0 40px 90px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.05)', background: C.card,
         display: 'flex', flexDirection: 'column' }}>
         <div style={{ height: TAB, background: '#EDEFF4', borderBottom: `1px solid ${C.line}`, display: 'flex', alignItems: 'center', padding: '0 14px', gap: 8, flexShrink: 0 }}>

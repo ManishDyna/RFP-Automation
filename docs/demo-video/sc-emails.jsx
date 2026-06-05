@@ -219,10 +219,10 @@ function EmailReminder({ lt }) {
 }
 
 // ── Scene: Adaptive-Card / Real Email flow (replaces SceneEmail) ─────────────
-function SceneEmailReal({ t0, dur }) {
+function SceneEmailReal({ t0, dur, swap = 17 }) {
   const time = useTime();
   const lt = time - t0;
-  const SWAP = 17; // switch from new-RFP card to team-status email
+  const SWAP = swap; // switch from new-RFP card to team-status email
   const showStatus = lt > SWAP;
   // cursor for the interactive new-RFP beat
   const cursor = [
