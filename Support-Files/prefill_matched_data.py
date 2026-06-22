@@ -240,19 +240,22 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
     Returns categorized dict: { summary, exact_matches, keyword_matches, not_matched }
     """
     from helpers.core_helper import (
-        _find_other_content_sheet_name, find_column_name,
-        extract_keywords_from_text, get_sharepoint_rfp_tds_path,
+        _find_other_content_sheet_name, find_column_name, find_uom_column,
+        find_header_row, extract_keywords_from_text, get_sharepoint_rfp_tds_path,
     )
 
     file_name = os.path.basename(excel_path)
 
-    # Read the "Other Content" sheet (with column-based fallback)
+    # Pick the best line-item sheet (skips Aramco's stub "Other Content"), then
+    # read it with the correct header row (handles the manual "Price Schedule"
+    # template whose header sits below several metadata rows).
     sheet = _find_other_content_sheet_name(excel_path)
     df = None
 
     if sheet:
         try:
-            df = pd.read_excel(excel_path, sheet_name=sheet)
+            hdr = find_header_row(excel_path, sheet)
+            df = pd.read_excel(excel_path, sheet_name=sheet, header=hdr)
         except Exception as e:
             print(f"    [WARN] Cannot read sheet '{sheet}': {e}")
 
@@ -263,7 +266,8 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
             all_sheets = pd.ExcelFile(excel_path).sheet_names
             for s in all_sheets:
                 try:
-                    sheet_df = pd.read_excel(excel_path, sheet_name=s)
+                    hdr = find_header_row(excel_path, s)
+                    sheet_df = pd.read_excel(excel_path, sheet_name=s, header=hdr)
                     sheet_cols_lower = [str(c).lower().strip() for c in sheet_df.columns]
                     matches = sum(1 for ec in EXPECTED_COLUMNS if any(ec in sc for sc in sheet_cols_lower))
                     if matches >= 2:
@@ -279,20 +283,35 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
         print(f"    [WARN] No suitable sheet found in {file_name}")
         return None
 
-    col_name = find_column_name(df.columns, "name")
+    # Iterate over the Name column; fall back to Description for templates that
+    # have no dedicated Name column (e.g. the manual "Price Schedule").
+    col_name = find_column_name(df.columns, "name") or find_column_name(df.columns, "description")
     if not col_name:
-        print(f"    [WARN] No 'Name' column found in {file_name}")
+        print(f"    [WARN] No 'Name'/'Description' column found in {file_name}")
         return None
 
     col_desc = find_column_name(df.columns, "description")
     desc_col_master = find_column_name(master.columns, "description") or find_column_name(master.columns, "material description")
 
     col_qty = find_column_name(df.columns, "quantity")
-    col_uom = (find_column_name(df.columns, "unitofmeasure")
-               or find_column_name(df.columns, "unitofmeasurement")
-               or find_column_name(df.columns, "uom"))
+    col_uom = find_uom_column(df.columns)
+    # Material code/number column — an extra source of codes for templates whose
+    # Name field carries no embedded 9-digit code (e.g. "Price Schedule").
+    col_mat = find_column_name(df.columns, "materialnumber") or find_column_name(df.columns, "materialcode")
 
-    def _cell(col, idx):
+    def _norm_qty(val):
+        # Quantities arrive as "3,000" / "2,000" strings in some exports.
+        if isinstance(val, str):
+            s = val.strip().replace(",", "")
+            if s:
+                try:
+                    f = float(s)
+                    return int(f) if f.is_integer() else f
+                except ValueError:
+                    return val.strip()
+        return val
+
+    def _cell(col, idx, normalize_qty=False):
         if not col:
             return ""
         val = df.iloc[idx][col]
@@ -301,8 +320,34 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
         # Convert numpy scalars (int64, float64, bool_) to native Python types
         # so json.dumps() can serialize them.
         if hasattr(val, "item"):
-            return val.item()
+            val = val.item()
+        if normalize_qty:
+            val = _norm_qty(val)
         return val
+
+    def _codes_from_material_col(idx):
+        """Extract candidate material codes from the dedicated material column."""
+        if not col_mat:
+            return []
+        raw = df.iloc[idx][col_mat]
+        if pd.isna(raw):
+            return []
+        # Aramco numbers read back as floats (6000012340.0) — drop the .0 tail.
+        if isinstance(raw, float):
+            raw = format(int(raw), "d")
+        return re.findall(r"\d{8,12}", str(raw))
+
+    def _is_real_line_item(qty, uom):
+        """A row with no catalog match is still a genuine priced line item
+        (worth recording so its qty/uom is kept) if it carries a positive
+        numeric quantity, or a real unit that isn't the echoed column header."""
+        try:
+            if qty not in (None, "") and float(str(qty).replace(",", "")) > 0:
+                return True
+        except (ValueError, TypeError):
+            pass
+        u = str(uom).strip().lower().replace(" ", "")
+        return bool(u) and u not in ("unitofmeasure", "unit", "nan", "none")
 
     exact_matches = []
     keyword_matches = []
@@ -315,10 +360,15 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
         name_text = str(value)
         description_text = str(df.iloc[idx][col_desc]) if col_desc and not pd.isna(df.iloc[idx][col_desc]) else ""
 
+        # Codes embedded in the Name text, plus any from a dedicated material
+        # column (templates whose Name carries no embedded code).
         material_codes = re.findall(r'\d{9}', name_text)
+        for c in _codes_from_material_col(idx):
+            if c not in material_codes:
+                material_codes.append(c)
 
         if material_codes:
-            # --- Rows WITH 9-digit material codes ---
+            # --- Rows WITH material codes ---
             for mat in material_codes:
                 base_item = {
                     "material_code": mat,
@@ -326,7 +376,7 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
                     "excel_description": description_text,
                     "row_number": idx + 2,
                     "column_name": col_name,
-                    "quantity": _cell(col_qty, idx),
+                    "quantity": _cell(col_qty, idx, normalize_qty=True),
                     "unit_of_measurement": _cell(col_uom, idx),
                 }
 
@@ -362,12 +412,12 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
 
         else:
             # --- Rows WITHOUT 9-digit codes: try keyword matching on Name + Description ---
-            if not keywords_list:
-                continue
-
             matched_keyword = _try_keyword_match(
                 name_text, description_text, keywords_list, extract_keywords_from_text
-            )
+            ) if keywords_list else None
+
+            qty_val = _cell(col_qty, idx, normalize_qty=True)
+            uom_val = _cell(col_uom, idx)
 
             if matched_keyword:
                 mat_desc = _find_description_by_keyword(
@@ -380,13 +430,27 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
                     "excel_description": description_text,
                     "row_number": idx + 2,
                     "column_name": col_name,
-                    "quantity": _cell(col_qty, idx),
-                    "unit_of_measurement": _cell(col_uom, idx),
+                    "quantity": qty_val,
+                    "unit_of_measurement": uom_val,
                     "matched_keyword": matched_keyword,
                     "material_description": mat_desc,
                 }
                 keyword_matches.append(base_item)
-            # else: no code and no keyword match — skip (header/instruction row)
+            elif _is_real_line_item(qty_val, uom_val):
+                # Not in the material catalog and no keyword hit, but it is a real
+                # priced line item (SEC items often carry the code inside the Name
+                # with a line-number prefix, or none at all). Record it so its
+                # quantity/UoM is preserved.
+                not_matched.append({
+                    "material_code": "",
+                    "excel_name": name_text,
+                    "excel_description": description_text,
+                    "row_number": idx + 2,
+                    "column_name": col_name,
+                    "quantity": qty_val,
+                    "unit_of_measurement": uom_val,
+                })
+            # else: no code, no keyword, no qty/uom — skip (header/instruction row)
 
     total = len(exact_matches) + len(keyword_matches) + len(not_matched)
     matched_total = len(exact_matches) + len(keyword_matches)
@@ -413,8 +477,11 @@ def match_materials_for_rfp(excel_path, rfp_id, rfp_end_date, company,
 # Backfill helpers
 # ---------------------------------------------------------------------------
 def _items_have_qty_uom(matched_data_str):
-    """Return True iff every item in the categorized JSON already carries
-    both 'quantity' and 'unit_of_measurement' keys. Empty/invalid JSON → False."""
+    """Return True iff the categorized JSON looks fully populated: every item
+    carries both 'quantity' and 'unit_of_measurement' keys AND at least one
+    item has a non-blank value. An all-blank result (e.g. the old stub-sheet bug
+    that wrote empty keys) is treated as incomplete so it gets reprocessed.
+    Empty/invalid JSON → False."""
     if not matched_data_str or not matched_data_str.strip():
         return False
     try:
@@ -423,13 +490,18 @@ def _items_have_qty_uom(matched_data_str):
         return False
     buckets = ("exact_matches", "keyword_matches", "not_matched")
     total = 0
+    any_value = False
     for b in buckets:
         items = data.get(b) or []
         total += len(items)
         for item in items:
             if "quantity" not in item or "unit_of_measurement" not in item:
                 return False
-    return total > 0
+            q = str(item.get("quantity", "")).strip().lower()
+            u = str(item.get("unit_of_measurement", "")).strip().lower()
+            if q not in ("", "nan", "none") or u not in ("", "nan", "none"):
+                any_value = True
+    return total > 0 and any_value
 
 
 # ---------------------------------------------------------------------------

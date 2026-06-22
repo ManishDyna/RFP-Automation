@@ -436,14 +436,30 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
         except Exception:
             rfp_file_stats[rfp_id] = {}
 
+        df = None
         try:
-            df = pd.read_excel(excel_path, sheet_name="Other Content")
-            log_event("RFP", "Process File", "Success", f"Read sheet 'Other Content' from: {file_name}", rfp_id)
-            files_processed += 1
+            oc = pd.read_excel(excel_path, sheet_name="Other Content")
+            # Accept the named sheet only when it is a real line-item table.
+            # Newer Aramco exports ship a 4-row stub "Other Content" (no
+            # qty/uom/material columns) with the real data in "6 Commercial
+            # Envelope" — in that case fall through to the column-signature scan.
+            _has_label = bool(find_column_name(oc.columns, "name") or find_column_name(oc.columns, "description"))
+            _has_value = bool(
+                find_column_name(oc.columns, "quantity")
+                or find_uom_column(oc.columns)
+                or find_column_name(oc.columns, "materialnumber")
+                or find_column_name(oc.columns, "materialcode")
+            )
+            if _has_label and _has_value:
+                df = oc
+                log_event("RFP", "Process File", "Success", f"Read sheet 'Other Content' from: {file_name}", rfp_id)
+                files_processed += 1
         except Exception:
+            df = None
+
+        if df is None:
             # Fallback: find sheet containing expected columns
             EXPECTED_COLUMNS = ["intend to respond", "currency", "material number", "price", "quantity"]
-            df = None
             try:
                 all_sheets = pd.ExcelFile(excel_path).sheet_names
                 for sheet in all_sheets:
@@ -480,9 +496,7 @@ def process_folder(graph_client, folder, master_csv, company_name: str = None, n
 
         # Quantity & Unit of Measurement columns (captured per material into Matched_Data JSON)
         col_qty = find_column_name(df.columns, "quantity")
-        col_uom = (find_column_name(df.columns, "unitofmeasure")
-                   or find_column_name(df.columns, "unitofmeasurement")
-                   or find_column_name(df.columns, "uom"))
+        col_uom = find_uom_column(df.columns)
 
         def _cell(col, idx):
             if not col:

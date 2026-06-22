@@ -53,9 +53,29 @@ def normalize_filename(name: str) -> str:
 
 def find_column_name(cols, target="name"):
     for col in cols:
-        if target.lower() in col.lower().replace(" ", "").replace("_", ""):
+        if target.lower() in str(col).lower().replace(" ", "").replace("_", ""):
             return col
     return None
+
+def find_uom_column(cols):
+    """Locate the Unit-of-Measurement column across the formats we see.
+
+    Tries the explicit names first ('Unit of Measure', 'Unit of Measurement',
+    'UOM'); only then falls back to a bare 'Unit' column (e.g. the manual
+    'Price Schedule' template) while excluding 'Unit Price' so we never pick a
+    price column by mistake.
+    """
+    explicit = (find_column_name(cols, "unitofmeasure")
+                or find_column_name(cols, "unitofmeasurement")
+                or find_column_name(cols, "uom"))
+    if explicit:
+        return explicit
+    for col in cols:
+        norm = str(col).lower().replace(" ", "").replace("_", "")
+        if "unit" in norm and "price" not in norm:
+            return col
+    return None
+
 def get_all_excel_files(folder):
     """Get all Excel files from folder, including nested structure (ALLRFPs/RFP_title/downloaded-rfp/)"""
     excel_files = []
@@ -688,24 +708,103 @@ def rfp_ids_match(search_id: str, title: str) -> bool:
     # Check if normalized search ID is contained in normalized title
     return normalized_search in normalized_title
 
+def _sheet_has_line_items(df) -> bool:
+    """True if a sheet's columns look like an RFP line-item table: it has a
+    Name/Description column AND at least one of Quantity / Unit of Measure /
+    Material Number. Used to reject Aramco's 4-row stub 'Other Content' sheet
+    (Number | Name | Alternative | Answer), whose real data lives in
+    '6 Commercial Envelope'."""
+    cols = list(df.columns)
+    has_label = bool(find_column_name(cols, "name") or find_column_name(cols, "description"))
+    has_value = bool(
+        find_column_name(cols, "quantity")
+        or find_uom_column(cols)
+        or find_column_name(cols, "materialnumber")
+        or find_column_name(cols, "materialcode")
+    )
+    return has_label and has_value
+
+
 def _find_other_content_sheet_name(excel_path: str):
     """
-    Finds the 'Other Content' sheet (case/space-insensitive), or returns None.
+    Finds the best line-item sheet, preferring one literally named 'Other Content'
+    but only when it actually carries line-item columns. If the 'Other Content'
+    sheet is a stub (no qty/uom/material columns — newer Aramco exports), scan the
+    remaining sheets and return the first real line-item sheet (e.g.
+    '6 Commercial Envelope'). Falls back to the named stub as a last resort, then
+    None.
     """
     try:
         import pandas as pd
         xl = pd.ExcelFile(excel_path)
+
+        # Resolve a sheet whose name reads as "Other Content" (exact, then loose).
+        named = None
         for name in xl.sheet_names:
             if name.replace(" ", "").lower() == "othercontent":
-                return name
-        # fallback: any sheet containing both words
+                named = name
+                break
+        if named is None:
+            for name in xl.sheet_names:
+                ln = name.lower()
+                if "other" in ln and "content" in ln:
+                    named = name
+                    break
+
+        # If the named sheet is a valid line-item table, use it (normal case).
+        if named is not None:
+            try:
+                if _sheet_has_line_items(pd.read_excel(excel_path, sheet_name=named)):
+                    return named
+            except Exception:
+                pass  # unreadable named sheet → fall through to scan
+
+        # Named sheet missing or a stub: find the first real line-item sheet.
         for name in xl.sheet_names:
-            ln = name.lower()
-            if "other" in ln and "content" in ln:
-                return name
+            if name == named:
+                continue
+            try:
+                if _sheet_has_line_items(pd.read_excel(excel_path, sheet_name=name)):
+                    return name
+            except Exception:
+                continue
+
+        # Last resort: the stub named sheet (preserves prior behavior).
+        return named
     except Exception as e:
         print(f"[WARN] Could not enumerate sheets: {e}")
     return None
+
+
+def find_header_row(excel_path: str, sheet_name, max_scan: int = 10):
+    """Return the 0-based row index to use as the header for `sheet_name`.
+
+    Most RFP exports have headers on row 0, but some manual templates (the
+    'Price Schedule' format) carry several metadata rows first, so a default
+    read produces junk columns ('RFP', 'Unnamed: 2', ...). This scans the first
+    `max_scan` rows for the one that looks like a header (contains a
+    quantity-like cell AND a material/unit/name-like cell) and returns its index.
+    Returns 0 when no offset header is detected.
+    """
+    try:
+        import pandas as pd
+        raw = pd.read_excel(excel_path, sheet_name=sheet_name, header=None, nrows=max_scan)
+    except Exception:
+        return 0
+
+    def _norm(v):
+        return "" if v is None else str(v).lower().replace(" ", "").replace("_", "")
+
+    for i in range(len(raw)):
+        cells = [_norm(v) for v in raw.iloc[i].tolist()]
+        has_qty = any("quantity" in c for c in cells)
+        has_other = any(
+            ("material" in c) or ("unit" in c and "price" not in c) or (c == "name")
+            for c in cells
+        )
+        if has_qty and has_other:
+            return i
+    return 0
 
 def extract_keywords_from_text(
     text: str,
