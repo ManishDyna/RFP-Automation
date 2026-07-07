@@ -1258,6 +1258,9 @@ def get_logs_data(top: int = 5000):
 _LOGS_CACHE = {"data": None, "ts": 0, "top": None}
 _LOGS_TTL_SECONDS = get_setting('LOGS_TTL_SECONDS', 300)
 
+# Whole-table totals for the logs page (cached separately from the browse window)
+_LOGS_TOTALS_CACHE = {"runs": None, "ts": 0}
+
 
 def get_logs_data_cached(force_refresh: bool = False, top: int = 5000):
     from time import time as _now
@@ -1269,6 +1272,52 @@ def get_logs_data_cached(force_refresh: bool = False, top: int = 5000):
     _LOGS_CACHE["ts"] = now
     _LOGS_CACHE["top"] = top
     return data
+
+
+def get_logs_totals_cached(force_refresh: bool = False):
+    """Whole-table total run count for the Activity Logs page — as opposed to the
+    newest ~5000-row browse window that get_logs_data() returns. Cheap and cached
+    (same TTL as the logs cache), so it adds negligible load under auto-refresh.
+
+    runs = count of Action == 'StartRun' rows. The backend logs exactly one
+    SYSTEM/StartRun per run and that row is never suppressed (no rfp_id / not
+    category 'RFP'), so this equals the true distinct-run count.
+
+    NOTE: we intentionally do NOT report a total *record* count — Dataverse caps
+    OData $count at 5000, so an unfiltered count returns a wrong (capped) number
+    on this ~75k-row table. The filtered StartRun count is well under 5000 and
+    therefore accurate. Runs is also the more meaningful unit for users.
+
+    Returns {"runs": int|None}; None on failure so the UI degrades gracefully.
+    """
+    from time import time as _now
+    now = _now()
+    if (not force_refresh and _LOGS_TOTALS_CACHE["runs"] is not None
+            and (now - _LOGS_TOTALS_CACHE["ts"]) < _LOGS_TTL_SECONDS):
+        return {"runs": _LOGS_TOTALS_CACHE["runs"]}
+
+    table_api = get_setting('AUTOMATION_LOG_TABLE_API', 'cr673_bahra_automation_log1s')
+    table_logical = get_setting('AUTOMATION_LOG_TABLE_LOGICAL', 'cr673_bahra_automation_log1')
+
+    runs = None
+    try:
+        # Resolve the logical Action column once and pass a logical filter with
+        # use_display_names=False to avoid count_rows' naive substring replace.
+        col_map = DATAVERSE.get_column_mapping(table_logical)  # display -> logical
+        action_col = col_map.get("Action", "Action")
+        runs = DATAVERSE.count_rows(
+            table_api_name=table_api,
+            filter_expr=f"{action_col} eq 'StartRun'",
+            table_logical_name=table_logical,
+            use_display_names=False,
+        )
+    except Exception as e:
+        print(f"get_logs_totals_cached: run count failed: {e}")
+
+    if runs is not None:
+        _LOGS_TOTALS_CACHE["runs"] = runs
+        _LOGS_TOTALS_CACHE["ts"] = now
+    return {"runs": runs}
 
 
 def search_logs_from_dataverse(search: str, max_runs: int = 100, match_scan_top: int = 5000):

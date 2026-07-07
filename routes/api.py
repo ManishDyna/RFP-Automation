@@ -11,7 +11,7 @@ from services.user_service import (
 from services.dashboard_service import (
     get_dashboard_data_cached, get_all_rfp_data_cached, get_logs_data_cached,
     get_material_insights_cached, get_material_insights_grouped_cached,
-    get_raw_rfp_data_cached, search_logs_from_dataverse,
+    get_raw_rfp_data_cached, search_logs_from_dataverse, get_logs_totals_cached,
 )
 from services.sap_service import create_sap_password_record, list_sap_password_records_cached
 from services.dynamic_role_service import get_user_permissions
@@ -1411,10 +1411,15 @@ async def api_view_logs(request: Request, page: int = Query(1), page_size: int =
     for run_id in paginated_run_ids:
         paginated_logs.extend(run_groups[run_id])
 
+    # Whole-table total (all history) — distinct from the window-scoped
+    # total/total_runs above, which only reflect the loaded/searched set.
+    totals = get_logs_totals_cached()
+
     return JSONResponse({
         "logs": paginated_logs,
         "total": len(mapped_logs),
         "total_runs": total_runs,
+        "total_runs_all": totals["runs"],
         "page": page,
         "page_size": page_size,
     })

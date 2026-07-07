@@ -12,6 +12,7 @@ import {
   FileText,
   Eye,
   AlertCircle,
+  AlertTriangle,
   ArrowRight,
   Filter,
   Loader2,
@@ -25,6 +26,7 @@ import {
   HelpCircle,
   RefreshCcw,
   Bell,
+  Info,
 } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
@@ -76,7 +78,7 @@ interface AutomationRun {
   automation_type: AutomationType
   start_time: string
   end_time: string
-  overall_status: 'completed' | 'failed' | 'running' | 'unknown'
+  overall_status: 'completed' | 'partial' | 'failed' | 'running' | 'unknown'
   total_steps: number
   success_steps: number
   failed_steps: number
@@ -125,12 +127,90 @@ function parseLogTime(eventTime: string | undefined | null): Date | null {
 }
 
 /**
+ * Reads the authoritative outcome of a run from its terminal SUMMARY rows,
+ * because the per-row `automation_status` column can't be trusted for
+ * Submit/Decline: EndRun always logs "Success" (it runs in a finally block),
+ * the "Result" row is logged with status "Step", and the batch summary row is
+ * logged "Complete" even when everything failed — the real outcome only lives
+ * in the batch/result MESSAGE text.
+ *
+ * Priority:
+ *  1. Batch summary — sum `Total:` and `Failed:` from any message carrying both
+ *     (covers both "Total: 1, Success: 0, Failed: 1" and
+ *     "Download batch complete. Total: 37, New: 5, Skipped: 23, Failed: 9").
+ *     failed === 0 → success · failed >= total → failed · else → partial.
+ *     (Whatever didn't fail either succeeded or was harmlessly skipped, so
+ *     success count = total − failed, format-agnostic.)
+ *  2. Else the "Result" row — a failure status, or message "result: failed"
+ *     → failed; message "result: success" → success.
+ *  3. Else a scrape dead-end ("No RFPs after retries") → failed, but ONLY for
+ *     single-target Submit/Decline runs (where not finding the RFP means the
+ *     action failed). A multi-company Sync/Download scan tolerates one company's
+ *     empty scrape and keeps going, so it must not fail the whole run.
+ *  4. Else null → no summary present; caller falls back to marker-based logic.
+ */
+function deriveTerminalOutcome(
+  logs: LogEntry[],
+  automationType: AutomationType,
+): 'failed' | 'partial' | 'success' | null {
+  let totalSum = 0
+  let failedSum = 0
+  let sawBatchCounts = false
+  let resultOutcome: 'failed' | 'success' | null = null
+  let scrapeDeadEnd = false
+
+  for (const l of logs) {
+    const action = (l.action ?? '').toLowerCase()
+    const status = (l.status ?? '').toLowerCase()
+    const msg = (l.details ?? '').toLowerCase()
+
+    // 1. Batch summary counts — any row carrying both "Total:" and "Failed:".
+    const totalMatch = msg.match(/total:\s*(\d+)/)
+    const failedMatch = msg.match(/failed:\s*(\d+)/)
+    if (totalMatch && failedMatch) {
+      totalSum += parseInt(totalMatch[1], 10)
+      failedSum += parseInt(failedMatch[1], 10)
+      sawBatchCounts = true
+    }
+
+    // 2. Result row — outcome is in the message; its status column is "Step".
+    //    Failure is sticky (a failed Result is never downgraded to success).
+    if (action === 'result') {
+      if (FAILURE_STATUSES.includes(status) || /result:\s*failed/.test(msg)) {
+        resultOutcome = 'failed'
+      } else if (/result:\s*success/.test(msg)) {
+        resultOutcome = resultOutcome ?? 'success'
+      }
+    }
+
+    // 3. Scrape dead-end (timeouts exhausted retries, no RFP list loaded).
+    if (msg.includes('no rfps after retries')) {
+      scrapeDeadEnd = true
+    }
+  }
+
+  if (sawBatchCounts) {
+    if (failedSum === 0) return 'success'
+    if (failedSum >= totalSum) return 'failed'
+    return 'partial'
+  }
+  if (resultOutcome) return resultOutcome
+  // A dead-end scrape only fails single-target actions; a Sync/Download scan
+  // recovers per company (it logs "Scraped 0 open RFPs" and continues).
+  if (scrapeDeadEnd && (automationType === 'submit' || automationType === 'decline')) {
+    return 'failed'
+  }
+  return null
+}
+
+/**
  * Derives overall run status using explicit backend markers first,
  * then falls back to pattern analysis for legacy data.
  */
 function deriveOverallStatus(
   logs: LogEntry[],
   isAutomationRunning: boolean = false,
+  automationType: AutomationType = deriveAutomationType(logs),
 ): AutomationRun['overall_status'] {
   if (logs.length === 0) return 'unknown'
 
@@ -145,27 +225,22 @@ function deriveOverallStatus(
   )
   const hasFatalError = actions.some((a) => FATAL_ERROR_ACTIONS.includes(a))
 
-  // The "Result" action is logged ONCE at the end of Submit/Decline flows with
-  // the final outcome status (after all retries). A Fail here means the run
-  // definitively failed — unlike a Download/Fail which may be recovered by a
-  // subsequent Retry/Success.
-  const lastResultLog = [...logs]
-    .reverse()
-    .find((l) => (l.action ?? '').toLowerCase() === 'result')
-  const hasFailedResult =
-    !!lastResultLog && FAILURE_STATUSES.includes((lastResultLog.status ?? '').toLowerCase())
+  // Authoritative outcome takes priority over every marker below. A fatal-error
+  // action, or a batch/result summary that reports failures, is definitive —
+  // and must win over the EndRun→completed short-circuit, since EndRun is logged
+  // "Success" from a finally block regardless of what actually happened.
+  if (hasFatalError) return 'failed'
+  const terminalOutcome = deriveTerminalOutcome(logs, automationType)
+  if (terminalOutcome === 'failed') return 'failed'
+  if (terminalOutcome === 'partial') return 'partial'
+  if (terminalOutcome === 'success') return 'completed'
 
   // ── Path A: Explicit markers found → use them ──
-  if (hasStartRun || hasEndRun || hasFatalError) {
-    // EndRun fired (finally block ran). If a fatal error OR a failed Result
-    // outcome was logged, the run failed despite the clean finally.
+  if (hasStartRun || hasEndRun) {
+    // EndRun fired (finally block ran) and no authoritative failure/partial
+    // outcome was detected above → the run completed.
     if (hasEndRun) {
-      return (hasFatalError || hasFailedResult) ? 'failed' : 'completed'
-    }
-
-    // Fatal error but no EndRun → process crashed hard
-    if (hasFatalError) {
-      return 'failed'
+      return 'completed'
     }
 
     // StartRun present, no EndRun, no fatal error → run started but hasn't finished
@@ -305,16 +380,17 @@ function groupLogsByRunId(logs: LogEntry[], isAutomationRunning: boolean = false
     })
 
     const statuses = sorted.map((l) => l.status?.toLowerCase())
+    const automationType = deriveAutomationType(sorted)
 
     return {
       run_id: runId,
       rfp_id: extractRfpId(sorted),
       category: sorted[0]?.event_type || '-',
       action: [...new Set(sorted.map((l) => l.action))].filter(a => a !== '-').join(', ') || '-',
-      automation_type: deriveAutomationType(sorted),
+      automation_type: automationType,
       start_time: sorted[0]?.event_time || '-',
       end_time: sorted[sorted.length - 1]?.event_time || '-',
-      overall_status: deriveOverallStatus(sorted, isAutomationRunning),
+      overall_status: deriveOverallStatus(sorted, isAutomationRunning, automationType),
       total_steps: sorted.length,
       success_steps: statuses.filter((s) => SUCCESS_STATUSES.includes(s)).length,
       failed_steps: statuses.filter((s) => FAILURE_STATUSES.includes(s)).length,
@@ -346,6 +422,8 @@ function StatusIcon({ status }: { status: AutomationRun['overall_status'] }) {
   switch (status) {
     case 'completed':
       return <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+    case 'partial':
+      return <AlertTriangle className="h-5 w-5 text-amber-500" />
     case 'failed':
       return <XCircle className="h-5 w-5 text-rose-500" />
     case 'running':
@@ -405,6 +483,7 @@ function AutomationTypeBadge({ type }: { type: AutomationType }) {
 function StatusBadge({ status }: { status: AutomationRun['overall_status'] }) {
   const config: Record<string, { variant: any; label: string }> = {
     completed: { variant: 'success', label: 'Completed' },
+    partial: { variant: 'warning', label: 'Partial' },
     failed: { variant: 'destructive', label: 'Failed' },
     running: { variant: 'info', label: 'Running' },
     unknown: { variant: 'secondary', label: 'Unknown' },
@@ -744,6 +823,7 @@ function AutomationRunCard({
 }) {
   const statusBarColor: Record<string, string> = {
     completed: 'bg-emerald-500',
+    partial: 'bg-amber-500',
     failed: 'bg-rose-500',
     running: 'bg-blue-500',
     unknown: 'bg-slate-300',
@@ -857,6 +937,22 @@ export default function LogsPage() {
   const totalRuns = data?.total_runs || 0
   const totalPages = Math.ceil(totalRuns / pageSize)
 
+  // Whole-history total run count, distinct from the loaded/searched window
+  // above. null when the backend count failed → caption degrades gracefully.
+  const totalRunsAll: number | null = data?.total_runs_all ?? null
+  const hasTotals = totalRunsAll != null
+  const isSearching = debouncedSearch.length > 0
+
+  // Caption shown above the runs list: makes the loaded/all-history scope clear
+  // and tells users the search box covers the entire history.
+  const logsCaption = isSearching
+    ? hasTotals
+      ? `Found ${totalRuns.toLocaleString()} run${totalRuns === 1 ? '' : 's'} matching “${debouncedSearch}” across all ${totalRunsAll!.toLocaleString()} runs in history.`
+      : `Showing runs matching “${debouncedSearch}” from the entire history.`
+    : hasTotals
+      ? `Showing the latest ${totalRuns.toLocaleString()} of ${totalRunsAll!.toLocaleString()} total runs in history. Search covers all of them.`
+      : `Showing the latest runs. Search covers the entire history, not just the runs shown here.`
+
   // Group logs into automation runs. When a search is active these are already
   // the server-side matches (searched across the whole table); the search box
   // itself is handled by the backend, so only the status/type filters run here.
@@ -883,6 +979,7 @@ export default function LogsPage() {
   const stats = useMemo(() => ({
     total: allRuns.length,
     completed: allRuns.filter((r) => r.overall_status === 'completed').length,
+    partial: allRuns.filter((r) => r.overall_status === 'partial').length,
     failed: allRuns.filter((r) => r.overall_status === 'failed').length,
     running: allRuns.filter((r) => r.overall_status === 'running').length,
   }), [allRuns])
@@ -909,7 +1006,7 @@ export default function LogsPage() {
       }
     >
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         <button
           onClick={() => setStatusFilter('all')}
           className={`rounded-xl p-4 text-left transition-all ${
@@ -918,7 +1015,7 @@ export default function LogsPage() {
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-600">Total Runs</p>
+              <p className="text-sm font-medium text-slate-600">Loaded Runs</p>
               <p className="text-2xl font-bold text-slate-800 mt-1">{stats.total}</p>
             </div>
             <div className="w-10 h-10 rounded-lg bg-white/60 flex items-center justify-center">
@@ -940,6 +1037,23 @@ export default function LogsPage() {
             </div>
             <div className="w-10 h-10 rounded-lg bg-white/60 flex items-center justify-center">
               <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            </div>
+          </div>
+        </button>
+
+        <button
+          onClick={() => setStatusFilter(statusFilter === 'partial' ? 'all' : 'partial')}
+          className={`rounded-xl p-4 text-left transition-all ${
+            statusFilter === 'partial' ? 'ring-2 ring-amber-400 shadow-md' : ''
+          } stat-card-amber`}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-600">Partial</p>
+              <p className="text-2xl font-bold text-slate-800 mt-1">{stats.partial}</p>
+            </div>
+            <div className="w-10 h-10 rounded-lg bg-white/60 flex items-center justify-center">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
             </div>
           </div>
         </button>
@@ -1047,6 +1161,12 @@ export default function LogsPage() {
         </CardHeader>
 
         <CardContent className="p-0">
+          {/* Scope caption: clarifies loaded-vs-all-history and that search spans everything */}
+          <div className="flex items-center gap-2 px-6 py-2 text-xs text-slate-500 border-b border-slate-100 bg-slate-50/40">
+            <Info className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <span>{logsCaption}</span>
+          </div>
+
           {isError ? (
             <div className="flex flex-col items-center justify-center py-20 text-slate-500">
               <div className="w-16 h-16 rounded-full bg-rose-50 flex items-center justify-center mb-4">
@@ -1132,7 +1252,7 @@ export default function LogsPage() {
                     Page <span className="font-semibold text-slate-700">{page}</span> of{' '}
                     <span className="font-semibold text-slate-700">{totalPages}</span>
                     {' '}(<span className="font-semibold text-slate-700">{totalRuns}</span>
-                    {debouncedSearch ? ' matching' : ' total'} runs)
+                    {debouncedSearch ? ' matching' : ' loaded'} runs)
                   </>
                 )}
               </p>
