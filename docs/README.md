@@ -2,7 +2,7 @@
 title: Bahra Electric RFP Automation — Documentation Hub
 version: 1.0
 last_updated: 2026-04-22
-owner: Samir Tak (samir.tak@dynatechconsultancy.com)
+owner: Manish Soni ( Manish.soni@dynatechconsultancy.com )
 status: In Progress (Phase 1 of 4)
 ---
 
@@ -149,6 +149,6 @@ This documentation is being built in **4 phases**. See the plan at `C:\Users\Man
 
 ## Maintainers
 
-- **Owner:** Samir Tak — samir.tak@dynatechconsultancy.com
+- **Owner:** Manish Soni ( Manish.soni@dynatechconsultancy.com )
 - **For changes:** Update the relevant document, bump its `version` and `last_updated` in the frontmatter, and add an entry to [CHANGELOG.md](CHANGELOG.md) once available.
 - **Questions / corrections:** Open an issue in the project repository.
