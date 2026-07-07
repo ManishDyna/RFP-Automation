@@ -149,6 +149,6 @@ This documentation is being built in **4 phases**. See the plan at `C:\Users\Man
 
 ## Maintainers
 
-- **Owner:** Samir Tak — samir.tak@dynatechconsultancy.com
+- **Owner:** Manish Soni ( Manish.soni@dynatechconsultancy.com )
 - **For changes:** Update the relevant document, bump its `version` and `last_updated` in the frontmatter, and add an entry to [CHANGELOG.md](CHANGELOG.md) once available.
 - **Questions / corrections:** Open an issue in the project repository.
