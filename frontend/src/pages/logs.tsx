@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -823,17 +823,33 @@ export default function LogsPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(100)
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [selectedRun, setSelectedRun] = useState<AutomationRun | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
+  // Debounce the search box so we hit the backend once the user pauses typing,
+  // not on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 400)
+    return () => clearTimeout(t)
+  }, [searchTerm])
+
+  // A new search resets to page 1 so results start from the top.
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch])
+
   const { data: automationStatus } = useAutomationStatus()
   const isAutomationRunning = automationStatus?.status === 'Running'
 
   const { data, isLoading, isError, error, refetch, isRefetching } = useQuery({
-    queryKey: ['automationLogs', page, pageSize],
-    queryFn: () => api.getAutomationLogs(page, pageSize, true),
+    // debouncedSearch is part of the key so a new query refetches from the server.
+    // When it's set, the backend searches the ENTIRE log table (all dates), not
+    // just the loaded window — this is what lets old runs be found.
+    queryKey: ['automationLogs', page, pageSize, debouncedSearch],
+    queryFn: () => api.getAutomationLogs(page, pageSize, true, debouncedSearch),
     refetchInterval: isAutomationRunning ? 10000 : false,
   })
 
@@ -841,10 +857,12 @@ export default function LogsPage() {
   const totalRuns = data?.total_runs || 0
   const totalPages = Math.ceil(totalRuns / pageSize)
 
-  // Group logs into automation runs
+  // Group logs into automation runs. When a search is active these are already
+  // the server-side matches (searched across the whole table); the search box
+  // itself is handled by the backend, so only the status/type filters run here.
   const allRuns = useMemo(() => groupLogsByRunId(logs, isAutomationRunning), [logs, isAutomationRunning])
 
-  // Filter runs
+  // Filter runs (status + type only — search is server-side)
   const filteredRuns = useMemo(() => {
     let result = allRuns
 
@@ -858,20 +876,8 @@ export default function LogsPage() {
       result = result.filter((r) => r.automation_type === typeFilter)
     }
 
-    // Search filter
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase()
-      result = result.filter((r) =>
-        r.rfp_id.toLowerCase().includes(term) ||
-        r.action.toLowerCase().includes(term) ||
-        r.run_id.toLowerCase().includes(term) ||
-        r.category.toLowerCase().includes(term) ||
-        r.logs.some((l) => l.details?.toLowerCase().includes(term))
-      )
-    }
-
     return result
-  }, [allRuns, statusFilter, typeFilter, searchTerm])
+  }, [allRuns, statusFilter, typeFilter])
 
   // Stats
   const stats = useMemo(() => ({
@@ -997,7 +1003,7 @@ export default function LogsPage() {
             <div className="relative w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input
-                placeholder="Search by RFP ID, action..."
+                placeholder="Search RFP ID, action, step details..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10 bg-white border-slate-200"
@@ -1116,7 +1122,7 @@ export default function LogsPage() {
           {totalPages > 0 && (
             <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/50">
               <p className="text-sm text-slate-500">
-                {searchTerm || statusFilter !== 'all' ? (
+                {statusFilter !== 'all' || typeFilter !== 'all' ? (
                   <>
                     Showing <span className="font-semibold text-slate-700">{filteredRuns.length}</span> of{' '}
                     <span className="font-semibold text-slate-700">{allRuns.length}</span> runs on this page
@@ -1125,7 +1131,8 @@ export default function LogsPage() {
                   <>
                     Page <span className="font-semibold text-slate-700">{page}</span> of{' '}
                     <span className="font-semibold text-slate-700">{totalPages}</span>
-                    {' '}(<span className="font-semibold text-slate-700">{totalRuns}</span> total runs)
+                    {' '}(<span className="font-semibold text-slate-700">{totalRuns}</span>
+                    {debouncedSearch ? ' matching' : ' total'} runs)
                   </>
                 )}
               </p>

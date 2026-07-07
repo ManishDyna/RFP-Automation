@@ -1269,3 +1269,138 @@ def get_logs_data_cached(force_refresh: bool = False, top: int = 5000):
     _LOGS_CACHE["ts"] = now
     _LOGS_CACHE["top"] = top
     return data
+
+
+def search_logs_from_dataverse(search: str, max_runs: int = 100, match_scan_top: int = 5000):
+    """Search the ENTIRE automation-log table (all rows) for runs matching `search`.
+
+    Browsing (get_logs_data) only ever loads the newest ~5000 rows, so runs older
+    than that window are invisible to the client-side search — the table currently
+    holds ~75k rows / ~1.5k runs but only the most recent ~109 runs are fetched.
+    This function runs the search server-side via an OData contains() filter so a
+    query can find a run from ANY date.
+
+    Two-step, so returned runs are COMPLETE (full timeline) rather than only the
+    individual rows that literally contain the search text:
+      1. contains() filter  -> the distinct RunIDs that match (newest-first)
+      2. fetch EVERY row for those RunIDs (batched) to rebuild whole timelines
+
+    The query is split into alphanumeric tokens and every token must appear in
+    some text column (AND). Splitting on punctuation makes matching
+    punctuation-insensitive, so 'RFP-C001795786' and 'RFPC001795786' both hit.
+
+    Returns rows in the same shape as get_logs_data() (display-name keys plus
+    'formatted_timestamp'). Empty query or no matches -> [].
+    """
+    tokens = [t for t in re.split(r"[^0-9A-Za-z]+", search or "") if t][:6]
+    if not tokens:
+        return []
+
+    table_api = get_setting('AUTOMATION_LOG_TABLE_API', 'cr673_bahra_automation_log1s')
+    table_logical = get_setting('AUTOMATION_LOG_TABLE_LOGICAL', 'cr673_bahra_automation_log1')
+
+    # Resolve logical column names up front so the filter is built with logical
+    # names and use_display_names=False — this avoids query_rows' naive
+    # display->logical string replace, which would corrupt contains() values.
+    try:
+        col_map = DATAVERSE.get_column_mapping(table_logical)  # display -> logical
+    except Exception as e:
+        print(f"search_logs_from_dataverse: column mapping failed: {e}")
+        return []
+
+    def L(display, fallback):
+        return col_map.get(display, fallback)
+
+    c_run = L("RunID", "RunID")
+    c_ts = L("Timestamp", "Timestamp")
+    c_cat = L("Category", "Category")
+    c_rfp = L("RFP_ID", "RFP_ID")
+    c_act = L("Action", "Action")
+    c_stat = L("automation_status", "automation_status")
+    c_msg = L("Message", "Message")
+
+    # Only text columns are contains()-searchable — Timestamp (datetime) is excluded.
+    text_cols = [c_msg, c_rfp, c_act, c_cat, c_stat, c_run]
+
+    def esc(v: str) -> str:
+        return str(v).replace("'", "''")
+
+    and_parts = []
+    for tok in tokens:
+        t = esc(tok)
+        ors = " or ".join(f"contains({c},'{t}')" for c in text_cols)
+        and_parts.append(f"({ors})")
+    filter_expr = " and ".join(and_parts)
+
+    # ── Step 1: distinct matching RunIDs, newest-first ──
+    try:
+        res = DATAVERSE.query_rows(
+            table_api_name=table_api,
+            filter_expr=filter_expr,
+            select=f"{c_run},{c_ts}",
+            top=match_scan_top,
+            order_by=f"{c_ts} desc",
+            table_logical_name=None,
+            use_display_names=False,
+        )
+    except Exception as e:
+        print(f"search_logs_from_dataverse: filter query failed: {e}")
+        return []
+
+    rows1 = res.get("value", []) if isinstance(res, dict) else (res or [])
+    ordered_run_ids: list = []
+    seen: set = set()
+    for r in rows1:
+        rid = r.get(c_run)
+        if rid and rid not in seen:
+            seen.add(rid)
+            ordered_run_ids.append(rid)
+            if len(ordered_run_ids) >= max_runs:
+                break
+
+    if not ordered_run_ids:
+        return []
+
+    # ── Step 2: fetch complete rows for those runs (batched to bound URL length) ──
+    all_rows: list = []
+    BATCH = 20
+    for i in range(0, len(ordered_run_ids), BATCH):
+        batch_ids = ordered_run_ids[i:i + BATCH]
+        ors = " or ".join(f"{c_run} eq '{esc(rid)}'" for rid in batch_ids)
+        try:
+            res2 = DATAVERSE.query_rows(
+                table_api_name=table_api,
+                filter_expr=ors,
+                select=f"{c_run},{c_ts},{c_cat},{c_rfp},{c_act},{c_stat},{c_msg}",
+                top=5000,
+                order_by=f"{c_ts} desc",
+                table_logical_name=None,
+                use_display_names=False,
+            )
+        except Exception as e:
+            print(f"search_logs_from_dataverse: batch fetch failed: {e}")
+            continue
+        rows2 = res2.get("value", []) if isinstance(res2, dict) else (res2 or [])
+        all_rows.extend(rows2)
+
+    # ── Remap logical keys back to the display keys the route expects + format ts ──
+    logical_to_display = {
+        c_run: "RunID", c_ts: "Timestamp", c_cat: "Category", c_rfp: "RFP_ID",
+        c_act: "Action", c_stat: "automation_status", c_msg: "Message",
+    }
+    mapped: list = []
+    for r in all_rows:
+        d = {}
+        for k, v in r.items():
+            d[logical_to_display.get(k, k)] = v
+        tval = d.get("Timestamp")
+        if tval:
+            try:
+                dt = datetime.fromisoformat(str(tval).replace('Z', '+00:00'))
+                d['formatted_timestamp'] = dt.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                d['formatted_timestamp'] = str(tval)
+        else:
+            d['formatted_timestamp'] = '-'
+        mapped.append(d)
+    return mapped

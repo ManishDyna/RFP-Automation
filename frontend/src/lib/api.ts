@@ -407,9 +407,17 @@ export const api = {
   },
 
   // ==================== Logs ====================
-  getAutomationLogs: async (page: number = 1, pageSize: number = 20, forceRefresh: boolean = false) => {
+  getAutomationLogs: async (page: number = 1, pageSize: number = 20, forceRefresh: boolean = false, search: string = '') => {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+      force_refresh: String(forceRefresh),
+    })
+    // When a search term is present the backend searches the ENTIRE log table
+    // (not just the loaded window), so old runs are found too.
+    if (search.trim()) params.set('search', search.trim())
     const response = await fetch(
-      `${ENDPOINTS.DASHBOARD.VIEW_LOGS}?page=${page}&page_size=${pageSize}&force_refresh=${forceRefresh}`,
+      `${ENDPOINTS.DASHBOARD.VIEW_LOGS}?${params.toString()}`,
       { credentials: 'include' }
     )
     return handleResponse<any>(response)

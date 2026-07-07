@@ -11,7 +11,7 @@ from services.user_service import (
 from services.dashboard_service import (
     get_dashboard_data_cached, get_all_rfp_data_cached, get_logs_data_cached,
     get_material_insights_cached, get_material_insights_grouped_cached,
-    get_raw_rfp_data_cached,
+    get_raw_rfp_data_cached, search_logs_from_dataverse,
 )
 from services.sap_service import create_sap_password_record, list_sap_password_records_cached
 from services.dynamic_role_service import get_user_permissions
@@ -1358,11 +1358,20 @@ async def api_material_insights_grouped(
 
 
 @router.get("/dashboard/view-logs")
-async def api_view_logs(request: Request, page: int = Query(1), page_size: int = Query(50), force_refresh: bool = Query(False), user: dict = Depends(require_permission("logs.view"))):
-    """Get automation logs as JSON, grouped by run_id and paginated by runs."""
+async def api_view_logs(request: Request, page: int = Query(1), page_size: int = Query(50), force_refresh: bool = Query(False), search: str = Query(""), user: dict = Depends(require_permission("logs.view"))):
+    """Get automation logs as JSON, grouped by run_id and paginated by runs.
 
-    # get_logs_data_cached returns a list directly, not a dict
-    logs_list = get_logs_data_cached(force_refresh=force_refresh)
+    Without `search`, only the newest ~5000 log rows are loaded (fast browsing).
+    With `search`, the query runs server-side against the ENTIRE table so a run
+    from any date is found — the browse window alone can't reach older runs.
+    """
+
+    # When searching, hit the full table server-side; otherwise use the cached
+    # newest-rows window. Both return the same row shape (display-name keys).
+    if search and search.strip():
+        logs_list = search_logs_from_dataverse(search.strip())
+    else:
+        logs_list = get_logs_data_cached(force_refresh=force_refresh)
     if not isinstance(logs_list, list):
         logs_list = []
 
