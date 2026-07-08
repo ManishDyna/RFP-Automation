@@ -134,10 +134,11 @@ async def health_check():
     """Health check endpoint for monitoring."""
     try:
         from helpers.core_helper import DATAVERSE
+        from config.config import USERS_TABLE_API, USERS_TABLE_LOGICAL
         DATAVERSE.query_rows(
-            table_api_name="cr673_bahra_logins",
+            table_api_name=USERS_TABLE_API,          # cr673_bahra_userses (verified EntitySetName)
             top=1,
-            table_logical_name="cr673_bahra_login",
+            table_logical_name=USERS_TABLE_LOGICAL,  # cr673_bahra_users
             use_display_names=False,
         )
         return {"status": "healthy", "dataverse": "connected"}

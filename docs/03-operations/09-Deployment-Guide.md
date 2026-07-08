@@ -478,7 +478,7 @@ curl http://localhost:8000/health
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | `MSAL: Failed to get access token` | Wrong `CLIENT_SECRET` or expired | Regenerate in Azure portal; update env var |
-| `/health` returns 503 | Dataverse table read failed | Confirm app has data permissions on the env; check `cr673_bahra_logins` exists (referenced in `dashboard_main.py:127`) |
+| `/health` returns 503 | Dataverse table read failed | Confirm app has data permissions on the env; check `cr673_bahra_userses` exists (probed by the health check in `dashboard_main.py`) |
 | `Playwright: Executable doesn't exist at .../chromium-1234/chrome.exe` | Forgot `playwright install chromium` | Run it; verify in `~\AppData\Local\ms-playwright\` |
 | `RuntimeError: Event loop is closed` (during automation) | Wrong asyncio policy on Windows | Confirm `WindowsProactorEventLoopPolicy` is set in both entry points (`dashboard_main.py:22`, `automation_main.py`) |
 | Adaptive Card doesn't render in Outlook | Originator ID not registered | Submit at https://outlook.office.com/connectors/oam/publish |

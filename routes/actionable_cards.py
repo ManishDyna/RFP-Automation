@@ -13,6 +13,7 @@ import requests
 from helpers.dataverse_helper import DataverseClient
 from config.config import (
     TENANT_ID, CLIENT_ID, CLIENT_SECRET, RESOURCE_URL,
+    ACTIONABLE_CARD_ACTIONS_APP_ID, ACTIONABLE_CARD_APP_ID_URI,
 )
 from services.system_settings_service import get_setting
 from services.master_data_service import get_all_rfp_team_for_emails
@@ -30,17 +31,21 @@ _DATAVERSE = DataverseClient(
     resource_url=RESOURCE_URL,
 )
 
-# ── Actionable Message Token Verification ──
-# Outlook sends tokens from substrate.office.com (not Entra ID)
-# The JWKS keys are fetched from the substrate OpenID configuration
-_SUBSTRATE_OPENID_URL = "https://substrate.office.com/sts/common/.well-known/openid-configuration"
+# ── Actionable Message Token Verification (Microsoft Entra ID) ──
+# Microsoft retired the legacy EAT token (issued by substrate.office.com) on
+# 2026-06-08. Outlook's "Actions" service now calls this endpoint with a
+# Microsoft Entra ID (v2.0) bearer token. We validate signature + expiry +
+# issuer + audience + the caller (`azp` = Microsoft's fixed Actions app id).
+#   https://learn.microsoft.com/en-us/outlook/actionable-messages/enable-entra-token-for-actionable-messages
+_ENTRA_OPENID_URL = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0/.well-known/openid-configuration"
+_ENTRA_ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
 _JWKS_CLIENT = None
 
 
 def _get_jwks_client():
     global _JWKS_CLIENT
     if _JWKS_CLIENT is None:
-        config = requests.get(_SUBSTRATE_OPENID_URL, timeout=10).json()
+        config = requests.get(_ENTRA_OPENID_URL, timeout=10).json()
         jwks_uri = config["jwks_uri"]
         _JWKS_CLIENT = jwt.PyJWKClient(jwks_uri)
     return _JWKS_CLIENT
@@ -48,16 +53,34 @@ def _get_jwks_client():
 
 def _verify_actionable_message_token(auth_header: str) -> dict:
     """
-    Verify the bearer token sent by Outlook with Action.Http submissions.
-    Token comes from substrate.office.com with:
-      - iss: https://substrate.office.com/sts/
-      - aud: the callback URL
-      - sub: the user's email
+    Verify the Microsoft Entra ID bearer token sent by Outlook's Actions service
+    with Action.Http submissions (post-EAT migration, 2026-06-08).
+
+    Validated:
+      - signature: RS256, key from the tenant's Entra v2.0 JWKS
+      - exp:       not expired
+      - iss:       https://login.microsoftonline.com/<TENANT_ID>/v2.0
+      - aud:       our app's Application ID URI (ACTIONABLE_CARD_APP_ID_URI)
+      - azp:       Microsoft Actions app id (ACTIONABLE_CARD_ACTIONS_APP_ID)
+
+    NOTE: the acting user's email is in `preferred_username` — the Entra `sub`
+    is an opaque pairwise id, NOT the email (unlike the old substrate token).
     """
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
     token = auth_header[len("Bearer "):]
+
+    # The audience (AppIdUri) is produced by the Part-1 provider migration. Until
+    # it's configured we cannot validate `aud`, so fail loudly rather than accept
+    # a token blindly.
+    expected_aud = get_setting("ACTIONABLE_CARD_APP_ID_URI", ACTIONABLE_CARD_APP_ID_URI)
+    if not expected_aud:
+        raise HTTPException(
+            status_code=500,
+            detail="ACTIONABLE_CARD_APP_ID_URI not configured — complete the Entra "
+                   "provider migration (Part 1) and set the AppIdUri.",
+        )
 
     try:
         jwks_client = _get_jwks_client()
@@ -66,18 +89,24 @@ def _verify_actionable_message_token(auth_header: str) -> dict:
             token,
             signing_key.key,
             algorithms=["RS256"],
-            options={
-                "verify_exp": True,
-                "verify_aud": False,  # Audience is the callback URL, varies per deployment
-                "verify_iss": False,  # Issuer is substrate.office.com
-            },
+            audience=expected_aud,
+            issuer=_ENTRA_ISSUER,
+            options={"verify_exp": True, "verify_aud": True, "verify_iss": True},
         )
-        print(f"✅ Token verified. sub={decoded.get('sub')}, aud={decoded.get('aud')}")
-        return decoded
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+    # Confirm Microsoft's Actions service is the caller (not another app that
+    # happens to hold a token for our audience). v2.0 tokens use `azp`.
+    actions_app = get_setting("ACTIONABLE_CARD_ACTIONS_APP_ID", ACTIONABLE_CARD_ACTIONS_APP_ID)
+    azp = decoded.get("azp") or decoded.get("appid")
+    if actions_app and azp != actions_app:
+        raise HTTPException(status_code=401, detail=f"Unexpected caller azp={azp}")
+
+    print(f"✅ Entra token verified. user={decoded.get('preferred_username')}, azp={azp}")
+    return decoded
 
 
 def _build_not_in_team_card(name: str, rfp_id: str) -> dict:
@@ -698,7 +727,8 @@ async def receive_card_response(request: Request):
     except Exception as e:
         print(f"❌ Token verification FAILED: {e}")
         raise
-    submitter_email = claims.get("sub") or claims.get("preferred_username") or claims.get("upn", "unknown")
+    # Entra token: email is in preferred_username/upn — `sub` is an opaque id.
+    submitter_email = claims.get("preferred_username") or claims.get("upn") or claims.get("email") or "unknown"
 
     # Step 2: Parse the JSON body
     try:
@@ -1026,10 +1056,12 @@ async def refresh_card_status(request: Request):
     Returns the latest card showing who has responded.
     Must respond within 2 seconds (Outlook timeout).
     """
+   
     # Step 1: Verify the bearer token
     auth_header = request.headers.get("Authorization", "")
     claims = _verify_actionable_message_token(auth_header)
-    opener_email = claims.get("sub") or claims.get("preferred_username") or claims.get("upn", "unknown")
+    # Entra token: email is in preferred_username/upn — `sub` is an opaque id.
+    opener_email = claims.get("preferred_username") or claims.get("upn") or claims.get("email") or "unknown"
 
     # Step 2: Parse the JSON body (contains rfp_id, product, name, email, company_name)
     try:
@@ -1128,7 +1160,8 @@ async def decline_rfp_from_card(request: Request):
     # Step 1: Verify the bearer token from Microsoft
     auth_header = request.headers.get("Authorization", "")
     claims = _verify_actionable_message_token(auth_header)
-    user_email = claims.get("sub") or claims.get("preferred_username") or claims.get("upn", "unknown")
+    # Entra token: email is in preferred_username/upn — `sub` is an opaque id.
+    user_email = claims.get("preferred_username") or claims.get("upn") or claims.get("email") or "unknown"
 
     # Step 2: Parse the JSON body
     try:
