@@ -135,7 +135,9 @@ def _verify_actionable_message_token(auth_header: str) -> dict:
               f"aud={decoded.get('aud')} user={decoded.get('preferred_username')}")
         raise HTTPException(status_code=401, detail=f"Unexpected caller azp={azp}")
 
-    print(f"✅ Entra token verified. user={decoded.get('preferred_username')}, azp={azp}")
+    _ident = {k: decoded.get(k) for k in (
+        "preferred_username", "upn", "unique_name", "email", "name", "sub", "ver")}
+    print(f"✅ Entra token verified. azp={azp} identity={_ident}")
     return decoded
 
 
@@ -779,10 +781,19 @@ async def receive_card_response(request: Request):
         single_product = body.get("product", "")
         products = [single_product] if single_product else []
 
-    # Step 3: Verify that the submitter matches the expected email
+    # Step 3: Verify that the submitter matches the expected email.
+    # Entra tokens (esp. v1.0) don't always carry the acting user's email — when
+    # they don't, submitter_email is "unknown". Only enforce the strict identity
+    # match when the token actually gave us an email; otherwise rely on the verified
+    # Microsoft caller (azp, checked in _verify_actionable_message_token) plus the
+    # team-membership check in Step 3a below.
     submitter_user = submitter_email.lower().split("@")[0]
     expected_user = expected_email.lower().split("@")[0] if expected_email else ""
-    if expected_user and submitter_user != expected_user:
+    if submitter_email == "unknown" or not submitter_user:
+        print(f"⚠ Submitter email absent from token — skipping strict identity match; "
+              f"relying on team-membership check. expected={expected_email}")
+    elif expected_user and submitter_user != expected_user:
+        print(f"⛔ 403: token user ({submitter_email}) != card email ({expected_email})")
         raise HTTPException(
             status_code=403,
             detail=f"Token email ({submitter_email}) does not match expected ({expected_email})",
