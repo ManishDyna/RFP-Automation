@@ -82,6 +82,13 @@ def _verify_actionable_message_token(auth_header: str) -> dict:
                    "provider migration (Part 1) and set the AppIdUri.",
         )
 
+    # `aud` can be the AppIdUri OR the bare app (client) id — accept both.
+    expected_auds = [expected_aud]
+    if "/" in expected_aud:
+        _client_id = expected_aud.rsplit("/", 1)[-1]
+        if _client_id and _client_id not in expected_auds:
+            expected_auds.append(_client_id)
+
     try:
         jwks_client = _get_jwks_client()
         signing_key = jwks_client.get_signing_key_from_jwt(token)
@@ -89,13 +96,21 @@ def _verify_actionable_message_token(auth_header: str) -> dict:
             token,
             signing_key.key,
             algorithms=["RS256"],
-            audience=expected_aud,
+            audience=expected_auds,
             issuer=_ENTRA_ISSUER,
             options={"verify_exp": True, "verify_aud": True, "verify_iss": True},
         )
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError as e:
+        # Surface the REAL reason: decode without verifying and log the claims.
+        try:
+            _u = jwt.decode(token, options={"verify_signature": False})
+            print(f"❌ Entra token INVALID: {e} | token aud={_u.get('aud')} "
+                  f"iss={_u.get('iss')} azp={_u.get('azp') or _u.get('appid')} "
+                  f"| expected aud in {expected_auds} iss={_ENTRA_ISSUER}")
+        except Exception:
+            pass
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
     # Confirm Microsoft's Actions service is the caller (not another app that
@@ -103,6 +118,8 @@ def _verify_actionable_message_token(auth_header: str) -> dict:
     actions_app = get_setting("ACTIONABLE_CARD_ACTIONS_APP_ID", ACTIONABLE_CARD_ACTIONS_APP_ID)
     azp = decoded.get("azp") or decoded.get("appid")
     if actions_app and azp != actions_app:
+        print(f"❌ Unexpected caller azp={azp} (expected {actions_app}) | "
+              f"aud={decoded.get('aud')} user={decoded.get('preferred_username')}")
         raise HTTPException(status_code=401, detail=f"Unexpected caller azp={azp}")
 
     print(f"✅ Entra token verified. user={decoded.get('preferred_username')}, azp={azp}")
@@ -1056,7 +1073,7 @@ async def refresh_card_status(request: Request):
     Returns the latest card showing who has responded.
     Must respond within 2 seconds (Outlook timeout).
     """
-   
+    print(f"🔄 /response/refresh hit! Method={request.method}, URL={request.url}")
     # Step 1: Verify the bearer token
     auth_header = request.headers.get("Authorization", "")
     claims = _verify_actionable_message_token(auth_header)
