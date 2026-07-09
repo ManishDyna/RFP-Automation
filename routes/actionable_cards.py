@@ -38,7 +38,13 @@ _DATAVERSE = DataverseClient(
 # issuer + audience + the caller (`azp` = Microsoft's fixed Actions app id).
 #   https://learn.microsoft.com/en-us/outlook/actionable-messages/enable-entra-token-for-actionable-messages
 _ENTRA_OPENID_URL = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0/.well-known/openid-configuration"
-_ENTRA_ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
+# Microsoft's Actions service may send a v2.0 token (iss .../v2.0) OR a v1.0 token
+# (iss https://sts.windows.net/<tenant>/) depending on the resource app's token
+# version setting. Accept both — signature, audience and azp are still fully validated.
+_ENTRA_ISSUERS = (
+    f"https://login.microsoftonline.com/{TENANT_ID}/v2.0",
+    f"https://sts.windows.net/{TENANT_ID}/",
+)
 _JWKS_CLIENT = None
 
 
@@ -92,13 +98,14 @@ def _verify_actionable_message_token(auth_header: str) -> dict:
     try:
         jwks_client = _get_jwks_client()
         signing_key = jwks_client.get_signing_key_from_jwt(token)
+        # Issuer is checked manually below (PyJWT `issuer=` accepts one value only,
+        # but Microsoft may send either the v1.0 or v2.0 issuer).
         decoded = jwt.decode(
             token,
             signing_key.key,
             algorithms=["RS256"],
             audience=expected_auds,
-            issuer=_ENTRA_ISSUER,
-            options={"verify_exp": True, "verify_aud": True, "verify_iss": True},
+            options={"verify_exp": True, "verify_aud": True, "verify_iss": False},
         )
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -108,10 +115,16 @@ def _verify_actionable_message_token(auth_header: str) -> dict:
             _u = jwt.decode(token, options={"verify_signature": False})
             print(f"❌ Entra token INVALID: {e} | token aud={_u.get('aud')} "
                   f"iss={_u.get('iss')} azp={_u.get('azp') or _u.get('appid')} "
-                  f"| expected aud in {expected_auds} iss={_ENTRA_ISSUER}")
+                  f"| expected aud in {expected_auds} iss in {list(_ENTRA_ISSUERS)}")
         except Exception:
             pass
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+    # Accept both the v1.0 (sts.windows.net) and v2.0 (login.microsoftonline.com/.../v2.0) issuers.
+    iss = decoded.get("iss", "")
+    if iss not in _ENTRA_ISSUERS:
+        print(f"❌ Unexpected issuer {iss} (allowed {list(_ENTRA_ISSUERS)})")
+        raise HTTPException(status_code=401, detail=f"Invalid issuer: {iss}")
 
     # Confirm Microsoft's Actions service is the caller (not another app that
     # happens to hold a token for our audience). v2.0 tokens use `azp`.
@@ -745,7 +758,8 @@ async def receive_card_response(request: Request):
         print(f"❌ Token verification FAILED: {e}")
         raise
     # Entra token: email is in preferred_username/upn — `sub` is an opaque id.
-    submitter_email = claims.get("preferred_username") or claims.get("upn") or claims.get("email") or "unknown"
+    submitter_email = (claims.get("preferred_username") or claims.get("upn")
+                       or claims.get("unique_name") or claims.get("email") or "unknown")
 
     # Step 2: Parse the JSON body
     try:
@@ -1078,7 +1092,8 @@ async def refresh_card_status(request: Request):
     auth_header = request.headers.get("Authorization", "")
     claims = _verify_actionable_message_token(auth_header)
     # Entra token: email is in preferred_username/upn — `sub` is an opaque id.
-    opener_email = claims.get("preferred_username") or claims.get("upn") or claims.get("email") or "unknown"
+    opener_email = (claims.get("preferred_username") or claims.get("upn")
+                    or claims.get("unique_name") or claims.get("email") or "unknown")
 
     # Step 2: Parse the JSON body (contains rfp_id, product, name, email, company_name)
     try:
@@ -1178,7 +1193,8 @@ async def decline_rfp_from_card(request: Request):
     auth_header = request.headers.get("Authorization", "")
     claims = _verify_actionable_message_token(auth_header)
     # Entra token: email is in preferred_username/upn — `sub` is an opaque id.
-    user_email = claims.get("preferred_username") or claims.get("upn") or claims.get("email") or "unknown"
+    user_email = (claims.get("preferred_username") or claims.get("upn")
+                  or claims.get("unique_name") or claims.get("email") or "unknown")
 
     # Step 2: Parse the JSON body
     try:
