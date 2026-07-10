@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(\"c:\\\\python\\\\RFP-automation\\\\env\\\\Scripts\\\\python.exe\" main.py sharepoint \"Assembly Drawings/675 Assembly Drawings\" \"Assembly Drawings/All-Excel-files\")",
-      "mcp__ado__wit_get_work_item",
-      "mcp__ado__wit_get_work_items_batch_by_ids"
-    ]
-  }
-}

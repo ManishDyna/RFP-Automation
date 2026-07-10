@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        body {
+            min-height: 100vh;
+            background: radial-gradient(1200px circle at 10% 10%, #ffe8e9 0, transparent 40%),
+                        radial-gradient(1200px circle at 90% 10%, #fff0f0 0, transparent 40%),
+                        linear-gradient(180deg, #fff8f8, #fff5f5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-wrapper { width: 100%; max-width: 420px; padding: 24px; }
+        .login-card {
+            background: #fff;
+            border: 1px solid rgba(0,0,0,.06);
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,.06);
+            padding: 28px;
+            position: relative;
+            overflow: hidden;
+        }
+        .login-card:before {
+            content: "";
+            position: absolute;
+            right: -40px; top: -40px;
+            width: 120px; height: 120px;
+            background: linear-gradient(135deg, #E63946, #C92A35);
+            filter: blur(30px);
+            opacity: .15;
+            border-radius: 50%;
+        }
+        /* .brand-icon { width: 56px; height: 56px; border-radius: 12px; display: grid; place-items: center;
+            background: linear-gradient(135deg, #E63946, #C92A35); color: #fff; margin: 0 auto 12px; } */
+        
+            .form-control-lg { padding: .8rem 1rem; border-radius: 10px; }
+        .form-control:focus { box-shadow: 0 0 0 .2rem rgba(230, 57, 70, .15); border-color: #E63946; }
+        .btn-primary { background: linear-gradient(135deg, #E63946, #C92A35); border: none; }
+        .btn-primary:hover { filter: brightness(.95); }
+        .helper { color: #6b7280; }
+    </style>
+    <link rel="icon" href="/static/favicon.ico">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#E63946">
+    <meta name="robots" content="noindex">
+    <meta name="referrer" content="same-origin">
+    <meta name="format-detection" content="telephone=no">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="description" content="Sign in to Bahra Electric RFP Management System">
+</head>
+<body>
+    <main class="login-wrapper">
+        <div class="login-card">
+            <div class="text-center mb-3">
+                <div class="brand-icon mb-2">
+                    <img src="/static/images/bahra-electric-logo.png" alt="Bahra Electric Logo" style="
+                    width: 311px;
+                ">
+                </div>
+                <!-- <h1 class="h4 fw-bold mb-1" style="color: #E63946;">BAHRA ELECTRIC</h1> -->
+                <div class="helper" style="
+                font-weight: bold;
+            ">Sign in to RFP Management System</div>
+            </div>
+            <form id="loginForm" onsubmit="return false;">
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email address</label>
+                    <div class="input-group input-group-lg">
+                        <span class="input-group-text"><i class="fas fa-envelope"></i></span>
+                        <input type="email" class="form-control form-control-lg" id="email" placeholder="you@company.com" required>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <div class="input-group input-group-lg">
+                        <span class="input-group-text"><i class="fas fa-lock"></i></span>
+                        <input type="password" class="form-control form-control-lg" id="password" placeholder="Your password" required>
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="remember">
+                        <label class="form-check-label" for="remember">Remember me</label>
+                    </div>
+                    <a class="small text-decoration-none" href="#" id="forgotPasswordLink">Forgot password?</a>
+                </div>
+                <button type="submit" class="btn btn-primary btn-lg w-100" id="loginBtn">
+                    <i class="fas fa-sign-in-alt me-2"></i>Sign In
+                </button>
+            </form>
+            <div class="text-center mt-3 helper small">
+                Use the credentials you created in Users.
+            </div>
+        </div>
+    </main>
+
+    <!-- Forgot Password Modal -->
+    <div class="modal fade" id="forgotModal" tabindex="-1" aria-labelledby="forgotModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="forgotModalLabel"><i class="fas fa-unlock-alt me-2"></i>Forgot Password</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="forgotForm">
+                        <div class="mb-3">
+                            <label for="forgotEmail" class="form-label">Email address</label>
+                            <input type="email" class="form-control" id="forgotEmail" placeholder="you@company.com" required>
+                            <div class="form-text">We'll send you a link to reset your password.</div>
+                        </div>
+                    </form>
+                    <div id="forgotAlert" class="alert alert-dismissible fade" role="alert" style="display:none;">
+                        <span id="forgotAlertMsg"></span>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" id="sendForgotBtn" class="btn btn-primary">
+                        <span class="btn-text"><i class="fas fa-paper-plane me-2"></i>Send Link</span>
+                        <span class="btn-loading d-none"><span class="spinner-border spinner-border-sm me-2"></span>Sending...</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+        const btn = document.getElementById('loginBtn');
+        btn.disabled = true;
+        const old = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Signing in...';
+        try {
+            const email = (document.getElementById('email').value || '').trim();
+            const password = (document.getElementById('password').value || '').trim();
+            const res = await fetch('/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            if (!res.ok) {
+                const t = await res.text();
+                alert('Login failed: ' + t);
+                btn.disabled = false;
+                btn.innerHTML = old;
+                return;
+            }
+            const j = await res.json();
+            window.location.href = j.redirect || '/dashboard';
+        } catch (err) {
+            alert('Login error: ' + err.message);
+            btn.disabled = false;
+            btn.innerHTML = old;
+        }
+    });
+    </script>
+
+    <!-- Load Bootstrap first -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Forgot Password handlers (must run after Bootstrap is loaded) -->
+    <script>
+    (function(){
+        const link = document.getElementById('forgotPasswordLink');
+        const modalEl = document.getElementById('forgotModal');
+        const sendBtn = document.getElementById('sendForgotBtn');
+        const alertBox = document.getElementById('forgotAlert');
+        const alertMsg = document.getElementById('forgotAlertMsg');
+
+        function showForgotAlert(msg, type){
+            alertMsg.textContent = msg;
+            alertBox.className = `alert alert-${type} alert-dismissible fade show`;
+            alertBox.style.display = 'block';
+        }
+        function getModal() {
+            return window.bootstrap && modalEl ? new bootstrap.Modal(modalEl) : null;
+        }
+
+        if (link) {
+            link.addEventListener('click', function(e){
+                e.preventDefault();
+                const m = getModal();
+                if (!m) { console.warn('Bootstrap modal not available yet'); return; }
+                alertBox.style.display='none';
+                document.getElementById('forgotForm').reset();
+                m.show();
+            });
+        }
+
+        async function sendForgot(){
+            const email = (document.getElementById('forgotEmail').value || '').trim();
+            if (!email) { showForgotAlert('Please enter email', 'warning'); return; }
+            const btnText = sendBtn.querySelector('.btn-text');
+            const btnLoading = sendBtn.querySelector('.btn-loading');
+            btnText.classList.add('d-none'); btnLoading.classList.remove('d-none'); sendBtn.disabled = true;
+            try {
+                const res = await fetch('/forgot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                // Some flows return 202/204 no-content. Treat any 2xx as success.
+                let j = {};
+                try { j = await res.clone().json(); } catch(_) {}
+                if (!res.ok) throw new Error(j.detail || j.message || `Failed to send email (${res.status})`);
+                showForgotAlert('Reset link sent. Please check your inbox.', 'success');
+                const m = getModal();
+                if (m) setTimeout(()=>{ m.hide(); }, 1200);
+            } catch(err){
+                showForgotAlert(err.message || 'Error sending email', 'danger');
+            } finally {
+                btnText.classList.remove('d-none'); btnLoading.classList.add('d-none'); sendBtn.disabled = false;
+            }
+        }
+        if (sendBtn) sendBtn.addEventListener('click', sendForgot);
+    })();
+    </script>
+</body>
+</html>

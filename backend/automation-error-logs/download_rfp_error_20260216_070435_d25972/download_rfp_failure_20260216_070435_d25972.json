@@ -1,0 +1,81 @@
+{
+  "error_type": "error",
+  "error_message": "missing ), unterminated subpattern at position 8",
+  "file": "C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\sre_parse.py",
+  "line": 843,
+  "function": "_parse",
+  "stack": [
+    {
+      "file": "C:\\python\\RFP-automation\\automation_logic.py",
+      "line": 513,
+      "function": "run_automation_download",
+      "code": "await download_rfp(page, open_rfps, graph_client, company_name=target_company)"
+    },
+    {
+      "file": "C:\\python\\RFP-automation\\automation_logic.py",
+      "line": 415,
+      "function": "download_rfp",
+      "code": "matched_df, matched_csv_path, not_mateched_files = process_folder("
+    },
+    {
+      "file": "C:\\python\\RFP-automation\\rfp\\download_rfp.py",
+      "line": 392,
+      "function": "process_folder",
+      "code": "temp_matches = master[master[master_col].astype(str).str.contains(mat_keyword, case=False, na=False)]"
+    },
+    {
+      "file": "C:\\python\\RFP-automation\\env\\lib\\site-packages\\pandas\\core\\strings\\accessor.py",
+      "line": 129,
+      "function": "wrapper",
+      "code": "return func(self, *args, **kwargs)"
+    },
+    {
+      "file": "C:\\python\\RFP-automation\\env\\lib\\site-packages\\pandas\\core\\strings\\accessor.py",
+      "line": 1281,
+      "function": "contains",
+      "code": "if regex and re.compile(pat).groups:"
+    },
+    {
+      "file": "C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\re.py",
+      "line": 251,
+      "function": "compile",
+      "code": "return _compile(pattern, flags)"
+    },
+    {
+      "file": "C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\re.py",
+      "line": 303,
+      "function": "_compile",
+      "code": "p = sre_compile.compile(pattern, flags)"
+    },
+    {
+      "file": "C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\sre_compile.py",
+      "line": 788,
+      "function": "compile",
+      "code": "p = sre_parse.parse(p, flags)"
+    },
+    {
+      "file": "C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\sre_parse.py",
+      "line": 955,
+      "function": "parse",
+      "code": "p = _parse_sub(source, state, flags & SRE_FLAG_VERBOSE, 0)"
+    },
+    {
+      "file": "C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\sre_parse.py",
+      "line": 444,
+      "function": "_parse_sub",
+      "code": "itemsappend(_parse(source, state, verbose, nested + 1,"
+    },
+    {
+      "file": "C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\sre_parse.py",
+      "line": 843,
+      "function": "_parse",
+      "code": "raise source.error(\"missing ), unterminated subpattern\","
+    }
+  ],
+  "formatted_traceback": "Traceback (most recent call last):\n  File \"C:\\python\\RFP-automation\\automation_logic.py\", line 513, in run_automation_download\n    await download_rfp(page, open_rfps, graph_client, company_name=target_company)\n  File \"C:\\python\\RFP-automation\\automation_logic.py\", line 415, in download_rfp\n    matched_df, matched_csv_path, not_mateched_files = process_folder(\n  File \"C:\\python\\RFP-automation\\rfp\\download_rfp.py\", line 392, in process_folder\n    temp_matches = master[master[master_col].astype(str).str.contains(mat_keyword, case=False, na=False)]\n  File \"C:\\python\\RFP-automation\\env\\lib\\site-packages\\pandas\\core\\strings\\accessor.py\", line 129, in wrapper\n    return func(self, *args, **kwargs)\n  File \"C:\\python\\RFP-automation\\env\\lib\\site-packages\\pandas\\core\\strings\\accessor.py\", line 1281, in contains\n    if regex and re.compile(pat).groups:\n  File \"C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\re.py\", line 251, in compile\n    return _compile(pattern, flags)\n  File \"C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\re.py\", line 303, in _compile\n    p = sre_compile.compile(pattern, flags)\n  File \"C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\sre_compile.py\", line 788, in compile\n    p = sre_parse.parse(p, flags)\n  File \"C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\sre_parse.py\", line 955, in parse\n    p = _parse_sub(source, state, flags & SRE_FLAG_VERBOSE, 0)\n  File \"C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\sre_parse.py\", line 444, in _parse_sub\n    itemsappend(_parse(source, state, verbose, nested + 1,\n  File \"C:\\Users\\Manish.Soni\\AppData\\Local\\Programs\\Python\\Python310\\lib\\sre_parse.py\", line 843, in _parse\n    raise source.error(\"missing ), unterminated subpattern\",\nre.error: missing ), unterminated subpattern at position 8\n",
+  "timestamp": "2026-02-16T07:04:35.641369",
+  "context": {
+    "automation": "download_rfp",
+    "company": "Saudi Electricity Company"
+  }
+}

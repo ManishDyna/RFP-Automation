@@ -1,0 +1,21 @@
+{
+  "error_type": "TimeoutError",
+  "error_message": "Timeout 30000ms exceeded.",
+  "file": "C:\\Bahra-Automation-RFP-System\\automation_logic.py",
+  "line": 1507,
+  "function": "run_automation_download_all_rfps",
+  "stack": [
+    {
+      "file": "C:\\Bahra-Automation-RFP-System\\automation_logic.py",
+      "line": 1507,
+      "function": "run_automation_download_all_rfps",
+      "code": "await page.wait_for_load_state(\"networkidle\")"
+    }
+  ],
+  "formatted_traceback": "Traceback (most recent call last):\n  File \"C:\\Bahra-Automation-RFP-System\\automation_logic.py\", line 1504, in run_automation_download_all_rfps\n    async with page.expect_navigation(wait_until=\"networkidle\", timeout=60000):\n  File \"C:\\Bahra-Automation-RFP-System\\env\\Lib\\site-packages\\playwright\\_impl\\_async_base.py\", line 60, in __aexit__\n    await self._event.value\n  File \"C:\\Bahra-Automation-RFP-System\\env\\Lib\\site-packages\\playwright\\_impl\\_async_base.py\", line 35, in value\n    return mapping.from_maybe_impl(await self._future)\n                                   ^^^^^^^^^^^^^^^^^^\n  File \"C:\\Bahra-Automation-RFP-System\\env\\Lib\\site-packages\\playwright\\_impl\\_frame.py\", line 245, in continuation\n    await self._wait_for_load_state_impl(state=waitUntil, timeout=t)\n  File \"C:\\Bahra-Automation-RFP-System\\env\\Lib\\site-packages\\playwright\\_impl\\_frame.py\", line 301, in _wait_for_load_state_impl\n    await waiter.result()\nplaywright._impl._errors.TimeoutError: Timeout 53187ms exceeded.\n=========================== logs ===========================\n\"domcontentloaded\" event fired\n\"load\" event fired\n============================================================\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"C:\\Bahra-Automation-RFP-System\\automation_logic.py\", line 1507, in run_automation_download_all_rfps\n    await page.wait_for_load_state(\"networkidle\")\nplaywright._impl._errors.TimeoutError: Timeout 30000ms exceeded.\n",
+  "timestamp": "2026-02-17T12:54:48.450294",
+  "context": {
+    "automation": "download_all_rfps",
+    "selected_company": "Saudi Electricity Company"
+  }
+}

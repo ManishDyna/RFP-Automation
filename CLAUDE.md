@@ -8,20 +8,29 @@ End-to-end automation for the Bahra Electric RFP (Request for Proposal) lifecycl
 
 ## Commands
 
-The Python virtualenv lives at `env/` in the repo root. Always invoke Python through it on Windows:
+All Python backend code lives under `backend/`. The virtualenv stays at `env/` in the repo root.
+**The backend must be launched with its working directory = `backend/`** — that puts `backend/` on
+`sys.path` (so the top-level `from routes/config/helpers/... import` statements resolve) and makes the
+`os.getcwd()`-anchored data folders (`ALLRFPs/`, `LOGS/`, `logs/`) resolve inside `backend/`. Run any
+one-off backend script the same way (from inside `backend/`, calling `..\env\Scripts\python.exe`):
 
 ```powershell
-env\Scripts\python.exe <script.py>
+cd backend
+..\env\Scripts\python.exe <script.py>
 ```
 
 ### Backend (FastAPI)
 ```powershell
-# Dashboard API + UI backend (port 8000) — primary entry point
-env\Scripts\python.exe dashboard_main.py
+# Easiest: launcher wrapper at the repo root (cd backend + runs dashboard_main.py)
+.\start-backend.ps1
+
+# Or manually — note the working directory MUST be backend\
+cd backend
+..\env\Scripts\python.exe dashboard_main.py     # Dashboard API + UI backend (port 8000) — primary entry point
 
 # Standalone automation API (port 8100) — rarely used; automation routes are
 # already mounted into dashboard_main on port 8000
-env\Scripts\python.exe automation_main.py
+..\env\Scripts\python.exe automation_main.py
 
 # Health check
 curl http://localhost:8000/health
@@ -47,14 +56,15 @@ cd tests\performance
 There is no Python test suite — `tests/` contains only k6 performance scripts.
 
 ### Dataverse / setup utilities
-One-off setup and migration scripts live in `Support-Files/`. They are **idempotent** and safe to re-run. Each `setup_*_table.py` prints the resolved EntitySetName after `PublishXml` — paste it into the matching `*_API` constant in [config/config.py](config/config.py).
+One-off setup and migration scripts live in `backend/Support-Files/`. They are **idempotent** and safe to re-run. Each `setup_*_table.py` prints the resolved EntitySetName after `PublishXml` — paste it into the matching `*_API` constant in [backend/config/config.py](backend/config/config.py). Run them from inside `backend/`:
 
 ```powershell
-env\Scripts\python.exe Support-Files\setup_rfps_v2_table.py
-env\Scripts\python.exe Support-Files\setup_open_rfp_reminder_table.py
-env\Scripts\python.exe Support-Files\setup_delegation_table.py
-env\Scripts\python.exe Support-Files\seed_system_settings.py
-env\Scripts\python.exe check_settings.py     # dump current System Settings rows
+cd backend
+..\env\Scripts\python.exe Support-Files\setup_rfps_v2_table.py
+..\env\Scripts\python.exe Support-Files\setup_open_rfp_reminder_table.py
+..\env\Scripts\python.exe Support-Files\setup_delegation_table.py
+..\env\Scripts\python.exe Support-Files\seed_system_settings.py
+..\env\Scripts\python.exe check_settings.py     # dump current System Settings rows
 ```
 
 ## Architecture
@@ -80,17 +90,21 @@ env\Scripts\python.exe check_settings.py     # dump current System Settings rows
 
 ### Backend layout
 
+All backend code lives under `backend/` (paths below are relative to `backend/`; imports inside the tree
+are top-level, e.g. `from config.config import ...`, and resolve because the server is launched with the
+working directory set to `backend/`).
+
 | Layer | Path | Purpose |
 |---|---|---|
-| Entry | `dashboard_main.py` | FastAPI app, CORS, SessionMiddleware, router mounting, global exception handler, `/health` |
-| Routes | `routes/` | One file per feature area. Each exposes an `APIRouter`. `routes/automation.py` owns the global `_RUN_STATE` lock for concurrent-job protection |
-| Services | `services/` | Business logic. `dashboard_service.py` (cached), `dynamic_role_service.py` (RBAC), `audit_service.py`, `system_settings_service.py`, `open_rfp_service.py`, `rfp_team_columns_service.py`, etc. |
-| Automation logic | `automation_logic.py` | Top-level orchestration funcs (`run_automation_download`, `run_automation_submit`, `run_automation_decline`, `run_automation_reminder`, `run_automation_sync_portal`, `run_sync_sharepoint_dataverse`). These are launched in dedicated threads with their own `ProactorEventLoop` (see `_run_async_in_thread` in `routes/automation.py`) |
-| RFP workflows | `rfp/` | `download_rfp.py`, `submit_rfp.py`, `decline_rfp.py`, `rfp_reminder.py` — the actual Playwright browser interactions against supplier portals |
-| Helpers | `helpers/` | `dataverse_helper.py` (the `DataverseClient`), `core_helper.py` (exports the global `DATAVERSE` client + Playwright utilities), `sharepoint_helper.py` (Graph client), `email_helper.py`, `failure_logger.py`, `progress_helper.py` |
-| Core | `core/` | `common_imports.py` (a "star" import bundle reused by automation code), `common_process.py`, `log_events.py` (writes to RFP activity log table), `local_log.py` |
-| Middleware | `middleware/auth.py` | `get_current_user`, `require_permission(key)`, `require_admin` FastAPI dependencies |
-| Config | `config/config.py` | All table names, secrets, URLs, email recipients, session timeouts. `config/runtime_config.py` exposes `USERNAME`/`PASSWORD` resolved at import time from Dataverse via `helpers/credentials_provider.py` |
+| Entry | `backend/dashboard_main.py` | FastAPI app, CORS, SessionMiddleware, router mounting, global exception handler, `/health` |
+| Routes | `backend/routes/` | One file per feature area. Each exposes an `APIRouter`. `routes/automation.py` owns the global `_RUN_STATE` lock for concurrent-job protection |
+| Services | `backend/services/` | Business logic. `dashboard_service.py` (cached), `dynamic_role_service.py` (RBAC), `audit_service.py`, `system_settings_service.py`, `open_rfp_service.py`, `rfp_team_columns_service.py`, etc. |
+| Automation logic | `backend/automation_logic.py` | Top-level orchestration funcs (`run_automation_download`, `run_automation_submit`, `run_automation_decline`, `run_automation_reminder`, `run_automation_sync_portal`, `run_sync_sharepoint_dataverse`). These are launched in dedicated threads with their own `ProactorEventLoop` (see `_run_async_in_thread` in `routes/automation.py`) |
+| RFP workflows | `backend/rfp/` | `download_rfp.py`, `submit_rfp.py`, `decline_rfp.py`, `rfp_reminder.py` — the actual Playwright browser interactions against supplier portals |
+| Helpers | `backend/helpers/` | `dataverse_helper.py` (the `DataverseClient`), `core_helper.py` (exports the global `DATAVERSE` client + Playwright utilities), `sharepoint_helper.py` (Graph client), `email_helper.py`, `failure_logger.py`, `progress_helper.py` |
+| Core | `backend/core/` | `common_imports.py` (a "star" import bundle reused by automation code), `common_process.py`, `log_events.py` (writes to RFP activity log table), `local_log.py` |
+| Middleware | `backend/middleware/auth.py` | `get_current_user`, `require_permission(key)`, `require_admin` FastAPI dependencies |
+| Config | `backend/config/config.py` | All table names, secrets, URLs, email recipients, session timeouts. `config/runtime_config.py` exposes `USERNAME`/`PASSWORD` resolved at import time from Dataverse via `helpers/credentials_provider.py` |
 
 ### Frontend layout
 
@@ -150,11 +164,12 @@ Frontend uses short company labels (`SEC`, `Aramco`, `HADEED`); backend normaliz
 
 ### Logging
 
-- `LOGS/` — automation logs + Playwright error screenshots
-- `automation-error-logs/` — failure bundles uploaded to SharePoint under `SP_FAILURE_LOGS_FOLDER`
-- `ALLRFPs/` — downloaded RFP bundles (auto-created)
-- `core/log_events.py` writes RFP activity rows into `cr673_bahra_rfps_v2` (the v2 activity table — the v1 table is deprecated)
+These runtime folders resolve relative to the working directory, which is `backend/` (see Commands):
+- `backend/LOGS/` — automation logs + Playwright error screenshots
+- `backend/automation-error-logs/` — failure bundles uploaded to SharePoint under `SP_FAILURE_LOGS_FOLDER`
+- `backend/ALLRFPs/` — downloaded RFP bundles (auto-created)
+- `backend/core/log_events.py` writes RFP activity rows into `cr673_bahra_rfps_v2` (the v2 activity table — the v1 table is deprecated)
 
 ### Support-Files/
 
-Throwaway / one-off scripts (audits, migrations, table-setup) live here. They are **not** imported by the running application — many of the analysis scripts have been deleted in the current working branch. Don't import from `Support-Files/` in new code.
+Throwaway / one-off scripts (audits, migrations, table-setup) live in `backend/Support-Files/`. They are **not** imported by the running application — many of the analysis scripts have been deleted in the current working branch. Don't import from `Support-Files/` in new code.

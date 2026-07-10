@@ -1,0 +1,1127 @@
+{
+  "rfp_id": "SEC RFP-C001744045",
+  "report_timestamp": "2026-02-17T16:55:05.226845",
+  "context": {
+    "automation": "submit_rfp",
+    "company": "Saudi Electricity Company",
+    "rfp_link": "https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIzpHYEF&awcharset=UTF-8",
+    "error_details": "Submission failed for one or more RFPs"
+  },
+  "automation_status": "WARNING",
+  "error_summary": "Automation completed with 4 warnings",
+  "failure_identification": {
+    "last_successful_step": {
+      "timestamp": "2026-02-16T15:20:35Z",
+      "action": "Download",
+      "status": "COMPLETE",
+      "message": "Download attempt completed",
+      "category": "RFP"
+    },
+    "failure_point": null,
+    "total_errors": 0,
+    "total_warnings": 4
+  },
+  "error_details": [],
+  "warnings": [
+    {
+      "timestamp": "2026-02-15T14:16:17Z",
+      "action": "Download",
+      "status": "WARNING",
+      "message": "#_c8_tuc button not found or not clickable",
+      "category": "RFP"
+    },
+    {
+      "timestamp": "2026-02-15T14:18:12Z",
+      "action": "Download",
+      "status": "WARNING",
+      "message": "#_iiyvqc button click did not change URL after 20 attempts",
+      "category": "RFP"
+    },
+    {
+      "timestamp": "2026-02-16T15:18:44Z",
+      "action": "Download",
+      "status": "WARNING",
+      "message": "#_c8_tuc button not found or not clickable",
+      "category": "RFP"
+    },
+    {
+      "timestamp": "2026-02-16T15:20:17Z",
+      "action": "Download",
+      "status": "WARNING",
+      "message": "#_iiyvqc button click did not change URL after 20 attempts",
+      "category": "RFP"
+    }
+  ],
+  "suggested_actions": [
+    "No errors detected"
+  ],
+  "error_timeline": [
+    {
+      "timestamp": "2026-02-15T14:15:59Z",
+      "action": "Download",
+      "status": "Downloading",
+      "severity": "INFO",
+      "message": "Attempt 1",
+      "display": "ℹ️ [Downloading] Download: Attempt 1"
+    },
+    {
+      "timestamp": "2026-02-15T14:16:00Z",
+      "action": "Download",
+      "status": "Navigating",
+      "severity": "INFO",
+      "message": "Navigating to RFP page: https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIzpHYEF&awcharset=UTF-8",
+      "display": "ℹ️ [Navigating] Download: Navigating to RFP page: https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIzpHYEF&awcharset=UTF-8"
+    },
+    {
+      "timestamp": "2026-02-15T14:16:04Z",
+      "action": "Download",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Page navigation successful",
+      "display": "✅ [Success] Download: Page navigation successful"
+    },
+    {
+      "timestamp": "2026-02-15T14:16:05Z",
+      "action": "Download",
+      "status": "Clicking",
+      "severity": "INFO",
+      "message": "Clicking on #_c8_tuc button",
+      "display": "ℹ️ [Clicking] Download: Clicking on #_c8_tuc button"
+    },
+    {
+      "timestamp": "2026-02-15T14:16:17Z",
+      "action": "Download",
+      "status": "Warning",
+      "severity": "WARNING",
+      "message": "#_c8_tuc button not found or not clickable",
+      "display": "⚠️ [Warning] Download: #_c8_tuc button not found or not clickable"
+    },
+    {
+      "timestamp": "2026-02-15T14:16:29Z",
+      "action": "Extract Details",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Extracted owner: SABA S ALKHAMBASHI, publish_time: 2/15/2026 12:35 PM",
+      "display": "✅ [Success] Extract Details: Extracted owner: SABA S ALKHAMBASHI, publish_time: 2/15/2026 12:35 PM"
+    },
+    {
+      "timestamp": "2026-02-15T14:16:30Z",
+      "action": "Download",
+      "status": "Clicking",
+      "severity": "INFO",
+      "message": "Attempting to click #_iiyvqc button",
+      "display": "ℹ️ [Clicking] Download: Attempting to click #_iiyvqc button"
+    },
+    {
+      "timestamp": "2026-02-15T14:18:12Z",
+      "action": "Download",
+      "status": "Warning",
+      "severity": "WARNING",
+      "message": "#_iiyvqc button click did not change URL after 20 attempts",
+      "display": "⚠️ [Warning] Download: #_iiyvqc button click did not change URL after 20 attempts"
+    },
+    {
+      "timestamp": "2026-02-15T14:18:14Z",
+      "action": "Download",
+      "status": "Waiting",
+      "severity": "INFO",
+      "message": "Waiting for download button to be visible and ready",
+      "display": "ℹ️ [Waiting] Download: Waiting for download button to be visible and ready"
+    },
+    {
+      "timestamp": "2026-02-15T14:18:15Z",
+      "action": "Download",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Download button is ready",
+      "display": "✅ [Success] Download: Download button is ready"
+    },
+    {
+      "timestamp": "2026-02-15T14:18:16Z",
+      "action": "Download",
+      "status": "Downloading",
+      "severity": "INFO",
+      "message": "Initiating file download",
+      "display": "ℹ️ [Downloading] Download: Initiating file download"
+    },
+    {
+      "timestamp": "2026-02-15T14:18:17Z",
+      "action": "Download",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Download button clicked successfully",
+      "display": "✅ [Success] Download: Download button clicked successfully"
+    },
+    {
+      "timestamp": "2026-02-15T14:18:18Z",
+      "action": "Download",
+      "status": "Saving",
+      "severity": "INFO",
+      "message": "Saving file: SEC  RFP-C001744045.xls to temp",
+      "display": "ℹ️ [Saving] Download: Saving file: SEC  RFP-C001744045.xls to temp"
+    },
+    {
+      "timestamp": "2026-02-15T14:18:19Z",
+      "action": "Download",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Successfully downloaded: SEC  RFP-C001744045.xls",
+      "display": "✅ [Success] Download: Successfully downloaded: SEC  RFP-C001744045.xls"
+    },
+    {
+      "timestamp": "2026-02-15T14:18:20Z",
+      "action": "Upload",
+      "status": "Uploading",
+      "severity": "INFO",
+      "message": "Uploading SEC  RFP-C001744045.xls to SharePoint",
+      "display": "ℹ️ [Uploading] Upload: Uploading SEC  RFP-C001744045.xls to SharePoint"
+    },
+    {
+      "timestamp": "2026-02-15T14:18:26Z",
+      "action": "Upload",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Successfully uploaded SEC  RFP-C001744045.xls to SharePoint",
+      "display": "✅ [Success] Upload: Successfully uploaded SEC  RFP-C001744045.xls to SharePoint"
+    },
+    {
+      "timestamp": "2026-02-15T14:18:28Z",
+      "action": "Download",
+      "status": "Complete",
+      "severity": "SUCCESS",
+      "message": "Download attempt completed",
+      "display": "✅ [Complete] Download: Download attempt completed"
+    },
+    {
+      "timestamp": "2026-02-16T12:22:37Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "Already exists in SharePoint: SEC RFP-C001744045.xls",
+      "display": "ℹ️ [Skip] Download: Already exists in SharePoint: SEC RFP-C001744045.xls"
+    },
+    {
+      "timestamp": "2026-02-16T13:38:21Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "Already exists in Dataverse",
+      "display": "ℹ️ [Skip] Download: Already exists in Dataverse"
+    },
+    {
+      "timestamp": "2026-02-16T13:57:16Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "Already exists in Dataverse",
+      "display": "ℹ️ [Skip] Download: Already exists in Dataverse"
+    },
+    {
+      "timestamp": "2026-02-16T14:08:38Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "Already exists in Dataverse",
+      "display": "ℹ️ [Skip] Download: Already exists in Dataverse"
+    },
+    {
+      "timestamp": "2026-02-16T14:20:07Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "Already exists in Dataverse",
+      "display": "ℹ️ [Skip] Download: Already exists in Dataverse"
+    },
+    {
+      "timestamp": "2026-02-16T15:18:22Z",
+      "action": "Download",
+      "status": "Downloading",
+      "severity": "INFO",
+      "message": "Attempt 1",
+      "display": "ℹ️ [Downloading] Download: Attempt 1"
+    },
+    {
+      "timestamp": "2026-02-16T15:18:24Z",
+      "action": "Download",
+      "status": "Navigating",
+      "severity": "INFO",
+      "message": "Navigating to RFP page: https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIzpHYEF&awcharset=UTF-8",
+      "display": "ℹ️ [Navigating] Download: Navigating to RFP page: https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIzpHYEF&awcharset=UTF-8"
+    },
+    {
+      "timestamp": "2026-02-16T15:18:30Z",
+      "action": "Download",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Page navigation successful",
+      "display": "✅ [Success] Download: Page navigation successful"
+    },
+    {
+      "timestamp": "2026-02-16T15:18:31Z",
+      "action": "Download",
+      "status": "Clicking",
+      "severity": "INFO",
+      "message": "Clicking on #_c8_tuc button",
+      "display": "ℹ️ [Clicking] Download: Clicking on #_c8_tuc button"
+    },
+    {
+      "timestamp": "2026-02-16T15:18:44Z",
+      "action": "Download",
+      "status": "Warning",
+      "severity": "WARNING",
+      "message": "#_c8_tuc button not found or not clickable",
+      "display": "⚠️ [Warning] Download: #_c8_tuc button not found or not clickable"
+    },
+    {
+      "timestamp": "2026-02-16T15:18:57Z",
+      "action": "Extract Details",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Extracted owner: SABA S ALKHAMBASHI, publish_time: 2/15/2026 3:05 PM",
+      "display": "✅ [Success] Extract Details: Extracted owner: SABA S ALKHAMBASHI, publish_time: 2/15/2026 3:05 PM"
+    },
+    {
+      "timestamp": "2026-02-16T15:18:58Z",
+      "action": "Download",
+      "status": "Clicking",
+      "severity": "INFO",
+      "message": "Attempting to click #_iiyvqc button",
+      "display": "ℹ️ [Clicking] Download: Attempting to click #_iiyvqc button"
+    },
+    {
+      "timestamp": "2026-02-16T15:20:17Z",
+      "action": "Download",
+      "status": "Warning",
+      "severity": "WARNING",
+      "message": "#_iiyvqc button click did not change URL after 20 attempts",
+      "display": "⚠️ [Warning] Download: #_iiyvqc button click did not change URL after 20 attempts"
+    },
+    {
+      "timestamp": "2026-02-16T15:20:19Z",
+      "action": "Download",
+      "status": "Waiting",
+      "severity": "INFO",
+      "message": "Waiting for download button to be visible and ready",
+      "display": "ℹ️ [Waiting] Download: Waiting for download button to be visible and ready"
+    },
+    {
+      "timestamp": "2026-02-16T15:20:20Z",
+      "action": "Download",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Download button is ready",
+      "display": "✅ [Success] Download: Download button is ready"
+    },
+    {
+      "timestamp": "2026-02-16T15:20:22Z",
+      "action": "Download",
+      "status": "Downloading",
+      "severity": "INFO",
+      "message": "Initiating file download",
+      "display": "ℹ️ [Downloading] Download: Initiating file download"
+    },
+    {
+      "timestamp": "2026-02-16T15:20:23Z",
+      "action": "Download",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Download button clicked successfully",
+      "display": "✅ [Success] Download: Download button clicked successfully"
+    },
+    {
+      "timestamp": "2026-02-16T15:20:25Z",
+      "action": "Download",
+      "status": "Saving",
+      "severity": "INFO",
+      "message": "Saving file: SEC  RFP-C001744045.xls to temp",
+      "display": "ℹ️ [Saving] Download: Saving file: SEC  RFP-C001744045.xls to temp"
+    },
+    {
+      "timestamp": "2026-02-16T15:20:26Z",
+      "action": "Download",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Successfully downloaded: SEC  RFP-C001744045.xls",
+      "display": "✅ [Success] Download: Successfully downloaded: SEC  RFP-C001744045.xls"
+    },
+    {
+      "timestamp": "2026-02-16T15:20:28Z",
+      "action": "Upload",
+      "status": "Uploading",
+      "severity": "INFO",
+      "message": "Uploading SEC  RFP-C001744045.xls to SharePoint",
+      "display": "ℹ️ [Uploading] Upload: Uploading SEC  RFP-C001744045.xls to SharePoint"
+    },
+    {
+      "timestamp": "2026-02-16T15:20:32Z",
+      "action": "Upload",
+      "status": "Success",
+      "severity": "SUCCESS",
+      "message": "Successfully uploaded SEC  RFP-C001744045.xls to SharePoint",
+      "display": "✅ [Success] Upload: Successfully uploaded SEC  RFP-C001744045.xls to SharePoint"
+    },
+    {
+      "timestamp": "2026-02-16T15:20:35Z",
+      "action": "Download",
+      "status": "Complete",
+      "severity": "SUCCESS",
+      "message": "Download attempt completed",
+      "display": "✅ [Complete] Download: Download attempt completed"
+    },
+    {
+      "timestamp": "2026-02-16T15:53:09Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File exists locally & in Dataverse",
+      "display": "ℹ️ [Skip] Download: File exists locally & in Dataverse"
+    },
+    {
+      "timestamp": "2026-02-16T15:53:11Z",
+      "action": "Upload",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File already exists in SharePoint",
+      "display": "ℹ️ [Skip] Upload: File already exists in SharePoint"
+    },
+    {
+      "timestamp": "2026-02-16T16:57:16Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File exists locally & in Dataverse",
+      "display": "ℹ️ [Skip] Download: File exists locally & in Dataverse"
+    },
+    {
+      "timestamp": "2026-02-16T16:57:18Z",
+      "action": "Upload",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File already exists in SharePoint",
+      "display": "ℹ️ [Skip] Upload: File already exists in SharePoint"
+    },
+    {
+      "timestamp": "2026-02-16T19:05:54Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File exists locally & in Dataverse",
+      "display": "ℹ️ [Skip] Download: File exists locally & in Dataverse"
+    },
+    {
+      "timestamp": "2026-02-16T19:05:56Z",
+      "action": "Upload",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File already exists in SharePoint",
+      "display": "ℹ️ [Skip] Upload: File already exists in SharePoint"
+    },
+    {
+      "timestamp": "2026-02-17T10:04:01Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File exists locally & in Dataverse",
+      "display": "ℹ️ [Skip] Download: File exists locally & in Dataverse"
+    },
+    {
+      "timestamp": "2026-02-17T10:04:03Z",
+      "action": "Upload",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File already exists in SharePoint",
+      "display": "ℹ️ [Skip] Upload: File already exists in SharePoint"
+    },
+    {
+      "timestamp": "2026-02-17T10:36:06Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File exists locally & in Dataverse",
+      "display": "ℹ️ [Skip] Download: File exists locally & in Dataverse"
+    },
+    {
+      "timestamp": "2026-02-17T10:36:09Z",
+      "action": "Upload",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File already exists in SharePoint",
+      "display": "ℹ️ [Skip] Upload: File already exists in SharePoint"
+    },
+    {
+      "timestamp": "2026-02-17T11:02:53Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File exists locally & in Dataverse",
+      "display": "ℹ️ [Skip] Download: File exists locally & in Dataverse"
+    },
+    {
+      "timestamp": "2026-02-17T11:02:55Z",
+      "action": "Upload",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File already exists in SharePoint",
+      "display": "ℹ️ [Skip] Upload: File already exists in SharePoint"
+    },
+    {
+      "timestamp": "2026-02-17T12:15:03Z",
+      "action": "Upload",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File already exists in SharePoint",
+      "display": "ℹ️ [Skip] Upload: File already exists in SharePoint"
+    },
+    {
+      "timestamp": "2026-02-17T12:32:16Z",
+      "action": "Download",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File exists locally & in Dataverse",
+      "display": "ℹ️ [Skip] Download: File exists locally & in Dataverse"
+    },
+    {
+      "timestamp": "2026-02-17T12:32:19Z",
+      "action": "Upload",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File already exists in SharePoint",
+      "display": "ℹ️ [Skip] Upload: File already exists in SharePoint"
+    },
+    {
+      "timestamp": "2026-02-17T12:41:59Z",
+      "action": "Upload",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File already exists in SharePoint",
+      "display": "ℹ️ [Skip] Upload: File already exists in SharePoint"
+    },
+    {
+      "timestamp": "2026-02-17T22:04:21Z",
+      "action": "Upload",
+      "status": "Skip",
+      "severity": "INFO",
+      "message": "File already exists in SharePoint",
+      "display": "ℹ️ [Skip] Upload: File already exists in SharePoint"
+    }
+  ],
+  "raw_logs": [
+    {
+      "@odata.etag": "W/\"71606280\"",
+      "bahra_automation_log": "7f844881-1e0c-f111-8407-6045bd13d56f",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-17T22:04:21Z",
+      "automation_status": "Skip",
+      "Action": "Upload",
+      "Message": "File already exists in SharePoint",
+      "RunID": "329f5461-6f40-48c0-bec6-21866993f9b5",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71604450\"",
+      "bahra_automation_log": "f321b3ef-cf0b-f111-8407-7c1e5278f52e",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-17T12:41:59Z",
+      "automation_status": "Skip",
+      "Action": "Upload",
+      "Message": "File already exists in SharePoint",
+      "RunID": "cc49f529-af29-4014-89b4-6b8d60ba8245",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71604395\"",
+      "bahra_automation_log": "34141399-ce0b-f111-8407-7c1e5278f52e",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-17T12:32:19Z",
+      "automation_status": "Skip",
+      "Action": "Upload",
+      "Message": "File already exists in SharePoint",
+      "RunID": "539ca645-a3f7-43c9-904a-ec9f5fa79a01",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71604393\"",
+      "bahra_automation_log": "a4fb0098-ce0b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-17T12:32:16Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "File exists locally & in Dataverse",
+      "RunID": "539ca645-a3f7-43c9-904a-ec9f5fa79a01",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71604918\"",
+      "bahra_automation_log": "49ff831f-e10b-f111-8407-6045bd13d56f",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-17T12:15:03Z",
+      "automation_status": "Skip",
+      "Action": "Upload",
+      "Message": "File already exists in SharePoint",
+      "RunID": "5af23055-5b16-41a6-a4c3-ddbdd0aa9306",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71604646\"",
+      "bahra_automation_log": "f91c2b0b-d70b-f111-8407-7c1e5278f52e",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-17T11:02:55Z",
+      "automation_status": "Skip",
+      "Action": "Upload",
+      "Message": "File already exists in SharePoint",
+      "RunID": "4b2d4027-f109-4810-8fe4-e6f1e92f3d52",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71604644\"",
+      "bahra_automation_log": "da1c2b0b-d70b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-17T11:02:53Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "File exists locally & in Dataverse",
+      "RunID": "4b2d4027-f109-4810-8fe4-e6f1e92f3d52",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71598936\"",
+      "bahra_automation_log": "ef54c45e-be0b-f111-8407-6045bd13d56f",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-17T10:36:09Z",
+      "automation_status": "Skip",
+      "Action": "Upload",
+      "Message": "File already exists in SharePoint",
+      "RunID": "5f06b790-3a15-486a-b8d7-60ef717a06b2",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71598934\"",
+      "bahra_automation_log": "ff61fa59-be0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-17T10:36:06Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "File exists locally & in Dataverse",
+      "RunID": "5f06b790-3a15-486a-b8d7-60ef717a06b2",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71573025\"",
+      "bahra_automation_log": "02c556dd-b90b-f111-8407-6045bd13d56f",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-17T10:04:03Z",
+      "automation_status": "Skip",
+      "Action": "Upload",
+      "Message": "File already exists in SharePoint",
+      "RunID": "95d510eb-7f15-42a2-b5cd-c2a0eb5fe548",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71573021\"",
+      "bahra_automation_log": "00c556dd-b90b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-17T10:04:01Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "File exists locally & in Dataverse",
+      "RunID": "95d510eb-7f15-42a2-b5cd-c2a0eb5fe548",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499808\"",
+      "bahra_automation_log": "78ce4b68-3c0b-f111-8407-7c1e5278f52e",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-16T19:05:56Z",
+      "automation_status": "Skip",
+      "Action": "Upload",
+      "Message": "File already exists in SharePoint",
+      "RunID": "d0b99a4f-252b-4328-b65a-e137f44bfd30",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499806\"",
+      "bahra_automation_log": "f6879e68-3c0b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T19:05:54Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "File exists locally & in Dataverse",
+      "RunID": "d0b99a4f-252b-4328-b65a-e137f44bfd30",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499541\"",
+      "bahra_automation_log": "c6856e6f-2a0b-f111-8407-7c1e5278f52e",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-16T16:57:18Z",
+      "automation_status": "Skip",
+      "Action": "Upload",
+      "Message": "File already exists in SharePoint",
+      "RunID": "68c73bc7-b04a-4416-b0da-6361072421e7",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499540\"",
+      "bahra_automation_log": "c1856e6f-2a0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T16:57:16Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "File exists locally & in Dataverse",
+      "RunID": "68c73bc7-b04a-4416-b0da-6361072421e7",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499449\"",
+      "bahra_automation_log": "3bb73a79-210b-f111-8407-7c1e5278f52e",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-16T15:53:11Z",
+      "automation_status": "Skip",
+      "Action": "Upload",
+      "Message": "File already exists in SharePoint",
+      "RunID": "93104ade-5d8b-4a2f-84a8-254ce3b816e9",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499448\"",
+      "bahra_automation_log": "b8057e7a-210b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:53:09Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "File exists locally & in Dataverse",
+      "RunID": "93104ade-5d8b-4a2f-84a8-254ce3b816e9",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499175\"",
+      "bahra_automation_log": "d28814f0-1c0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:20:35Z",
+      "automation_status": "Complete",
+      "Action": "Download",
+      "Message": "Download attempt completed",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499171\"",
+      "bahra_automation_log": "9dfe0fea-1c0b-f111-8407-7c1e5278f52e",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-16T15:20:32Z",
+      "automation_status": "Success",
+      "Action": "Upload",
+      "Message": "Successfully uploaded SEC  RFP-C001744045.xls to SharePoint",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499170\"",
+      "bahra_automation_log": "83fe0fea-1c0b-f111-8407-7c1e5278f52e",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-16T15:20:28Z",
+      "automation_status": "Uploading",
+      "Action": "Upload",
+      "Message": "Uploading SEC  RFP-C001744045.xls to SharePoint",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499169\"",
+      "bahra_automation_log": "73fe0fea-1c0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:20:26Z",
+      "automation_status": "Success",
+      "Action": "Download",
+      "Message": "Successfully downloaded: SEC  RFP-C001744045.xls",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499167\"",
+      "bahra_automation_log": "72fe0fea-1c0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:20:25Z",
+      "automation_status": "Saving",
+      "Action": "Download",
+      "Message": "Saving file: SEC  RFP-C001744045.xls to temp",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499166\"",
+      "bahra_automation_log": "4226efe7-1c0b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:20:23Z",
+      "automation_status": "Success",
+      "Action": "Download",
+      "Message": "Download button clicked successfully",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499164\"",
+      "bahra_automation_log": "2c26efe7-1c0b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:20:22Z",
+      "automation_status": "Downloading",
+      "Action": "Download",
+      "Message": "Initiating file download",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499163\"",
+      "bahra_automation_log": "71b634e3-1c0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:20:20Z",
+      "automation_status": "Success",
+      "Action": "Download",
+      "Message": "Download button is ready",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499162\"",
+      "bahra_automation_log": "70b634e3-1c0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:20:19Z",
+      "automation_status": "Waiting",
+      "Action": "Download",
+      "Message": "Waiting for download button to be visible and ready",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499160\"",
+      "bahra_automation_log": "6eb634e3-1c0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:20:17Z",
+      "automation_status": "Warning",
+      "Action": "Download",
+      "Message": "#_iiyvqc button click did not change URL after 20 attempts",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499155\"",
+      "bahra_automation_log": "b79edeb1-1c0b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:18:58Z",
+      "automation_status": "Clicking",
+      "Action": "Download",
+      "Message": "Attempting to click #_iiyvqc button",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499154\"",
+      "bahra_automation_log": "c1d517b6-1c0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:18:57Z",
+      "automation_status": "Success",
+      "Action": "Extract Details",
+      "Message": "Extracted owner: SABA S ALKHAMBASHI, publish_time: 2/15/2026 3:05 PM",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499148\"",
+      "bahra_automation_log": "7c2111aa-1c0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:18:44Z",
+      "automation_status": "Warning",
+      "Action": "Download",
+      "Message": "#_c8_tuc button not found or not clickable",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499147\"",
+      "bahra_automation_log": "14dc97a5-1c0b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:18:31Z",
+      "automation_status": "Clicking",
+      "Action": "Download",
+      "Message": "Clicking on #_c8_tuc button",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499145\"",
+      "bahra_automation_log": "11dc97a5-1c0b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:18:30Z",
+      "automation_status": "Success",
+      "Action": "Download",
+      "Message": "Page navigation successful",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499143\"",
+      "bahra_automation_log": "ac35f29d-1c0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:18:24Z",
+      "automation_status": "Navigating",
+      "Action": "Download",
+      "Message": "Navigating to RFP page: https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIzpHYEF&awcharset=UTF-8",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71499141\"",
+      "bahra_automation_log": "23aef59e-1c0b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T15:18:22Z",
+      "automation_status": "Downloading",
+      "Action": "Download",
+      "Message": "Attempt 1",
+      "RunID": "96ca059b-520e-467d-ad6e-3d9fbe93c376",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71498508\"",
+      "bahra_automation_log": "b5e10a7e-140b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T14:20:07Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "Already exists in Dataverse",
+      "RunID": "5862de4b-c923-42b9-b4c0-a9172b4d830a",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71498465\"",
+      "bahra_automation_log": "346b08de-120b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T14:08:38Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "Already exists in Dataverse",
+      "RunID": "af8d4f37-1a3e-4361-b3c1-4babccbca174",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71498158\"",
+      "bahra_automation_log": "947cae4b-110b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T13:57:16Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "Already exists in Dataverse",
+      "RunID": "bc1fc17f-01eb-46d2-be06-9b9cbb3f9513",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71498122\"",
+      "bahra_automation_log": "da1be6a5-0e0b-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T13:38:21Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "Already exists in Dataverse",
+      "RunID": "4258bae7-395c-452b-9df2-d7575fbc2c80",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71497864\"",
+      "bahra_automation_log": "20e43c11-040b-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-16T12:22:37Z",
+      "automation_status": "Skip",
+      "Action": "Download",
+      "Message": "Already exists in SharePoint: SEC RFP-C001744045.xls",
+      "RunID": "f2f78c7f-fa44-4338-a5aa-07a580e473fe",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468026\"",
+      "bahra_automation_log": "52adb30c-600a-f111-8407-7c1e522e1e3b",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:18:28Z",
+      "automation_status": "Complete",
+      "Action": "Download",
+      "Message": "Download attempt completed",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468023\"",
+      "bahra_automation_log": "a3150d0a-600a-f111-8407-6045bd13d56f",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-15T14:18:26Z",
+      "automation_status": "Success",
+      "Action": "Upload",
+      "Message": "Successfully uploaded SEC  RFP-C001744045.xls to SharePoint",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468022\"",
+      "bahra_automation_log": "d004a806-600a-f111-8407-7c1e522e1e3b",
+      "Category": "Sharepoint",
+      "Timestamp": "2026-02-15T14:18:20Z",
+      "automation_status": "Uploading",
+      "Action": "Upload",
+      "Message": "Uploading SEC  RFP-C001744045.xls to SharePoint",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468021\"",
+      "bahra_automation_log": "c804a806-600a-f111-8407-7c1e522e1e3b",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:18:19Z",
+      "automation_status": "Success",
+      "Action": "Download",
+      "Message": "Successfully downloaded: SEC  RFP-C001744045.xls",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468019\"",
+      "bahra_automation_log": "145baf05-600a-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:18:18Z",
+      "automation_status": "Saving",
+      "Action": "Download",
+      "Message": "Saving file: SEC  RFP-C001744045.xls to temp",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468018\"",
+      "bahra_automation_log": "125baf05-600a-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:18:17Z",
+      "automation_status": "Success",
+      "Action": "Download",
+      "Message": "Download button clicked successfully",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468016\"",
+      "bahra_automation_log": "0ea2aa00-600a-f111-8407-7c1e522e1e3b",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:18:16Z",
+      "automation_status": "Downloading",
+      "Action": "Download",
+      "Message": "Initiating file download",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468014\"",
+      "bahra_automation_log": "8f331602-600a-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:18:15Z",
+      "automation_status": "Success",
+      "Action": "Download",
+      "Message": "Download button is ready",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468013\"",
+      "bahra_automation_log": "8ba6a8ff-5f0a-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:18:14Z",
+      "automation_status": "Waiting",
+      "Action": "Download",
+      "Message": "Waiting for download button to be visible and ready",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468011\"",
+      "bahra_automation_log": "80a6a8ff-5f0a-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:18:12Z",
+      "automation_status": "Warning",
+      "Action": "Download",
+      "Message": "#_iiyvqc button click did not change URL after 20 attempts",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468010\"",
+      "bahra_automation_log": "66bf5ac6-5f0a-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:16:30Z",
+      "automation_status": "Clicking",
+      "Action": "Download",
+      "Message": "Attempting to click #_iiyvqc button",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468009\"",
+      "bahra_automation_log": "5cbf5ac6-5f0a-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:16:29Z",
+      "automation_status": "Success",
+      "Action": "Extract Details",
+      "Message": "Extracted owner: SABA S ALKHAMBASHI, publish_time: 2/15/2026 12:35 PM",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468004\"",
+      "bahra_automation_log": "f80320bb-5f0a-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:16:17Z",
+      "automation_status": "Warning",
+      "Action": "Download",
+      "Message": "#_c8_tuc button not found or not clickable",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468002\"",
+      "bahra_automation_log": "8e2427b5-5f0a-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:16:05Z",
+      "automation_status": "Clicking",
+      "Action": "Download",
+      "Message": "Clicking on #_c8_tuc button",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71468000\"",
+      "bahra_automation_log": "211749b3-5f0a-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:16:04Z",
+      "automation_status": "Success",
+      "Action": "Download",
+      "Message": "Page navigation successful",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71467998\"",
+      "bahra_automation_log": "832427b5-5f0a-f111-8407-6045bd13d56f",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:16:00Z",
+      "automation_status": "Navigating",
+      "Action": "Download",
+      "Message": "Navigating to RFP page: https://sec.supplier.mn2.ariba.com/ad/webjumper?itemID=Jio8AOPIzpHYEF&awcharset=UTF-8",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    },
+    {
+      "@odata.etag": "W/\"71467997\"",
+      "bahra_automation_log": "181749b3-5f0a-f111-8407-7c1e5278f52e",
+      "Category": "RFP",
+      "Timestamp": "2026-02-15T14:15:59Z",
+      "automation_status": "Downloading",
+      "Action": "Download",
+      "Message": "Attempt 1",
+      "RunID": "c2ec6a59-4a9d-4e16-87c1-f2da9a510791",
+      "RFP_ID": "SEC RFP-C001744045"
+    }
+  ],
+  "total_log_entries": 56
+}

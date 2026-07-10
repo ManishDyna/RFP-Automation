@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Admin Panel{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    {% include 'header.html' %}
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            {% include 'sidebar.html' %}
+
+            <!-- Main Content -->
+            <div class="col-md-9 col-lg-10 content-area">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Page Loader (Available on all pages) -->
+    <div id="globalPageLoader" class="position-fixed top-0 start-0 w-100 h-100 d-none" style="z-index: 2000; background: rgba(255,255,255,0.8);">
+        <div class="d-flex justify-content-center align-items-center h-100">
+            <div class="text-center">
+                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                <div class="mt-3 fw-semibold text-primary" id="globalPageLoaderMessage">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Submit RFP Modal (Available on all pages) -->
+    <div class="modal fade" id="submitRfpModal" tabindex="-1" aria-labelledby="submitRfpModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="submitRfpModalLabel"><i class="fas fa-upload me-2"></i>Submit RFP</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="submitRfpForm" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label for="rfpName" class="form-label">RFP Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="rfpName" name="rfp_name" placeholder="Enter RFP Name" required>
+                            <div class="form-text">Enter the exact name of the RFP (e.g., SEC RFP-C001691810)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="submitRfpCompanySelect" class="form-label">Company <span class="text-danger">*</span></label>
+                            <select class="form-select" id="submitRfpCompanySelect" name="company" required>
+                                <option value="">Select company</option>
+                                {% for company in COMPANY_OPTIONS %}
+                                    <option value="{{ company }}">{{ company }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">Automation will run against the selected company portal.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="excelFile" class="form-label">Upload Excel File <span class="text-danger">*</span></label>
+                            <input type="file" class="form-control" id="excelFile" name="excel_file" accept=".xls,.xlsx" required>
+                            <div class="form-text">Upload the filled RFP Excel file (.xls or .xlsx)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="technicalFiles" class="form-label">Technical PDF Files</label>
+                            <input type="file" class="form-control" id="technicalFiles" name="technical_files" accept=".pdf" multiple>
+                            <div class="form-text">You can select multiple PDF files; they will be uploaded to SharePoint folder <span class="fw-semibold">RFP-logs/Temp-folder/</span> before submission.</div>
+                        </div>
+                        <div id="submitRfpFileInfo" class="alert alert-info d-none" role="alert">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <span id="submitRfpFileName"></span>
+                        </div>
+                    </form>
+                    <div id="submitRfpAlert" class="alert alert-dismissible fade" role="alert" style="display:none;">
+                        <span id="submitRfpAlertMessage"></span>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" id="submitRfpSubmitBtn" class="btn btn-success" disabled title="Please upload an Excel file to enable submission">
+                        <span class="btn-text"><i class="fas fa-paper-plane me-2"></i>Submit RFP</span>
+                        <span class="btn-loading d-none">
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Submitting...
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Decline RFP Modal (Available on all pages) -->
+    <div class="modal fade" id="declineRfpModal" tabindex="-1" aria-labelledby="declineRfpModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="declineRfpModalLabel"><i class="fas fa-times-circle me-2"></i>Decline RFP</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="declineRfpForm">
+                        <div class="mb-3">
+                            <label for="rfpTitle" class="form-label">RFP Title <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="rfpTitle" name="rfp_title" placeholder="Enter RFP Title" required>
+                            <div class="form-text">Enter the exact title of the RFP you want to decline</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="declineRfpCompanySelect" class="form-label">Company <span class="text-danger">*</span></label>
+                            <select class="form-select" id="declineRfpCompanySelect" name="company" required>
+                                <option value="">Select company</option>
+                                {% for company in COMPANY_OPTIONS %}
+                                    <option value="{{ company }}">{{ company }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">Decline automation will run against this company.</div>
+                        </div>
+                    </form>
+                    <div id="declineRfpAlert" class="alert alert-dismissible fade" role="alert" style="display:none;">
+                        <span id="declineRfpAlertMessage"></span>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" id="declineRfpSubmitBtn" class="btn btn-danger">
+                        <span class="btn-text"><i class="fas fa-ban me-2"></i>Decline RFP</span>
+                        <span class="btn-loading d-none">
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Declining...
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Download RFP Company Modal (Available on all pages) -->
+    <div class="modal fade" id="downloadRfpCompanyModal" tabindex="-1" aria-labelledby="downloadRfpCompanyModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="downloadRfpCompanyModalLabel"><i class="fas fa-building me-2"></i>Select Company</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-3">Choose which company portal the Download RFP automation should run against.</p>
+                    <div class="mb-3">
+                        <label for="downloadCompanySelect" class="form-label fw-semibold">Company</label>
+                        <select class="form-select" id="downloadCompanySelect" required>
+                            <option value="">Select company</option>
+                            {% for company in COMPANY_OPTIONS %}
+                                <option value="{{ company }}">{{ company }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="invalid-feedback">Please pick a company before starting the automation.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" id="downloadCompanyConfirmBtn" class="btn btn-primary">
+                        <span class="btn-text"><i class="fas fa-play me-2"></i>Start Download</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change SAP Password Modal (Available on all pages) -->
+    <div class="modal fade" id="sapPasswordModal" tabindex="-1" aria-labelledby="sapPasswordModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="sapPasswordModalLabel"><i class="fas fa-key me-2"></i>Change SAP Password</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="sapPasswordForm">
+                        <div class="mb-3">
+                            <label for="sapUsername" class="form-label">Username</label>
+                            <input type="text" class="form-control" id="sapUsername" name="username" placeholder="Enter username">
+                        </div>
+                        <div class="mb-3">
+                            <label for="sapNewPassword" class="form-label">Enter Password</label>
+                            <input type="password" class="form-control" id="sapNewPassword" name="password" placeholder="Enter new password">
+                        </div>
+                        <div class="mb-3">
+                            <label for="sapConfirmPassword" class="form-label">Confirm Password</label>
+                            <input type="password" class="form-control" id="sapConfirmPassword" name="confirm_password">
+                            <div class="form-text">Used only for your own confirmation; not validated.</div>
+                        </div>
+                    </form>
+                    <div id="sapPasswordAlert" class="alert alert-dismissible fade" role="alert" style="display:none;">
+                        <span id="sapPasswordAlertMessage"></span>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" id="saveSapPasswordBtn" class="btn btn-primary">
+                        <span class="btn-text"><i class="fas fa-save me-2"></i>Save</span>
+                        <span class="btn-loading d-none">
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Saving...
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Download All RFPs Confirmation Modal -->
+    <div class="modal fade" id="downloadAllRfpsModal" tabindex="-1" aria-labelledby="downloadAllRfpsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="downloadAllRfpsModalLabel">
+                        <i class="fas fa-download me-2"></i>Download All RFPs
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="companyFilterSelect" class="form-label fw-bold">
+                            <i class="fas fa-building me-2"></i>Select Company
+                        </label>
+                        <select id="companyFilterSelect" class="form-select" required>
+                            <option value="">All Companies</option>
+                            {% for company in COMPANY_OPTIONS %}
+                                <option value="{{ company }}">{{ company }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Select a specific company or "All Companies" to download RFPs from all companies.</div>
+                    </div>
+                    <div class="alert alert-warning" role="alert">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Warning:</strong> This process will download all available RFPs from the selected company/companies.
+                    </div>
+                    <p>This automation will:</p>
+                    <ul>
+                        <li>Export RFP data from the selected company/companies</li>
+                        <li>Download individual RFP files</li>
+                        <li>Store files company-wise in the ALLRFPs folder</li>
+                        <li>Save RFP information to the database</li>
+                    </ul>
+                    <p class="mb-0"><strong>This process may take a significant amount of time. Do you want to continue?</strong></p>
+                    <div id="downloadAllRfpsAlert" class="alert alert-dismissible fade mt-3" role="alert" style="display:none;">
+                        <span id="downloadAllRfpsAlertMessage"></span>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" id="confirmDownloadAllRfpsBtn" class="btn btn-primary">
+                        <span class="btn-text">
+                            <i class="fas fa-check me-2"></i>Yes, Start Download
+                        </span>
+                        <span class="btn-loading d-none">
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Starting...
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Schedule Automation Modal (Available on all pages) -->
+    <div class="modal fade" id="scheduleAutomationModal" tabindex="-1" aria-labelledby="scheduleAutomationLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="scheduleAutomationLabel"><i class="fas fa-calendar-alt me-2"></i>Schedule Automation</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="scheduleAutomationForm" class="row g-3">
+                        <div class="col-md-3">
+                            <label for="scheduleInterval" class="form-label">Interval</label>
+                            <input type="number" min="1" class="form-control" id="scheduleInterval" name="interval" value="6" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="scheduleFrequency" class="form-label">Frequency</label>
+                            <select class="form-select" id="scheduleFrequency" name="frequency" required>
+                                <option value="Month">Month</option>
+                                <option value="Week">Week</option>
+                                <option value="Day">Day</option>
+                                <option value="Hour" selected>Hour</option>
+                                <option value="Minute">Minute</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="scheduleTimezone" class="form-label">Time zone</label>
+                            <select class="form-select" id="scheduleTimezone" name="timezone">
+                                <option value="Asia/Kolkata" selected>(UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi</option>
+                                <option value="UTC">(UTC+00:00) Coordinated Universal Time</option>
+                                <option value="Europe/London">(UTC+00:00) Dublin, Edinburgh, Lisbon, London</option>
+                                <option value="Europe/Berlin">(UTC+01:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna</option>
+                                <option value="Asia/Riyadh">(UTC+03:00) Kuwait, Riyadh</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="scheduleStartTime" class="form-label">Start time</label>
+                            <input type="datetime-local" class="form-control" id="scheduleStartTime" name="start_time">
+                            <div class="form-text">When the first run should start.</div>
+                        </div>
+                        <div class="col-12">
+                            <a class="small" data-bs-toggle="collapse" href="#scheduleAdvancedOptions" role="button" aria-expanded="false" aria-controls="scheduleAdvancedOptions">Hide advanced options</a>
+                            <div class="collapse show mt-3" id="scheduleAdvancedOptions">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label for="scheduleMaxConcurrency" class="form-label">Max concurrency</label>
+                                        <input type="number" min="1" class="form-control" id="scheduleMaxConcurrency" name="max_concurrency" value="1">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="scheduleNotes" class="form-label">Notes</label>
+                                        <input type="text" class="form-control" id="scheduleNotes" name="notes" placeholder="Optional note about this schedule">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="scheduleAlert" class="alert alert-dismissible fade" role="alert" style="display:none;">
+                        <span id="scheduleAlertMessage"></span>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" id="saveScheduleBtn" class="btn btn-primary">
+                        <span class="btn-text"><i class="fas fa-save me-2"></i>Save schedule</span>
+                        <span class="btn-loading d-none">
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Saving...
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.COMPANY_OPTIONS = {{ COMPANY_OPTIONS | tojson | safe }};
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/config.js"></script>
+    <script src="/static/js/script.js"></script>
+
+    <!-- Copilot Studio Chatbot Widget -->
+    <style>
+        #chatbot-toggle-btn {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: #0d6efd;
+            color: #fff;
+            border: none;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+            cursor: pointer;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            transition: background 0.2s, transform 0.2s;
+        }
+        #chatbot-toggle-btn:hover {
+            background: #0b5ed7;
+            transform: scale(1.08);
+        }
+        #chatbot-panel {
+            position: fixed;
+            bottom: 90px;
+            right: 24px;
+            width: 380px;
+            height: 560px;
+            border-radius: 14px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+            overflow: hidden;
+            z-index: 9998;
+            display: none;
+            flex-direction: column;
+            border: 1px solid #dee2e6;
+            background: #fff;
+        }
+        #chatbot-panel.open {
+            display: flex;
+        }
+        #chatbot-panel-header {
+            background: #0d6efd;
+            color: #fff;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-weight: 600;
+            font-size: 15px;
+            flex-shrink: 0;
+        }
+        #chatbot-panel-header .chatbot-header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #chatbot-close-btn {
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 18px;
+            cursor: pointer;
+            line-height: 1;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: background 0.15s;
+        }
+        #chatbot-close-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        #chatbot-iframe {
+            flex: 1;
+            width: 100%;
+            border: none;
+        }
+    </style>
+
+    <!-- Chat Toggle Button -->
+    <button id="chatbot-toggle-btn" title="Chat with AI Agent" aria-label="Open AI Assistant">
+        <i class="fas fa-comment-dots"></i>
+    </button>
+
+    <!-- Chat Panel -->
+    <div id="chatbot-panel" role="dialog" aria-label="AI Assistant">
+        <div id="chatbot-panel-header">
+            <div class="chatbot-header-left">
+                <i class="fas fa-robot"></i>
+                <span>AI Assistant</span>
+            </div>
+            <button id="chatbot-close-btn" aria-label="Close chat" title="Close">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <iframe
+            id="chatbot-iframe"
+            src="https://copilotstudio.microsoft.com/environments/dab4cde8-58ca-eaa0-b535-f6dbd4b6cfa6/bots/cr673_agent2/webchat?__version__=2"
+            frameborder="0"
+            allow="microphone">
+        </iframe>
+    </div>
+
+    <script>
+        (function () {
+            var btn = document.getElementById('chatbot-toggle-btn');
+            var panel = document.getElementById('chatbot-panel');
+            var closeBtn = document.getElementById('chatbot-close-btn');
+
+            btn.addEventListener('click', function () {
+                panel.classList.toggle('open');
+                var icon = btn.querySelector('i');
+                if (panel.classList.contains('open')) {
+                    icon.className = 'fas fa-times';
+                } else {
+                    icon.className = 'fas fa-comment-dots';
+                }
+            });
+
+            closeBtn.addEventListener('click', function () {
+                panel.classList.remove('open');
+                btn.querySelector('i').className = 'fas fa-comment-dots';
+            });
+        })();
+    </script>
+</body>
+</html>

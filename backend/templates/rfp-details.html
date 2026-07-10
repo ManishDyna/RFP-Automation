@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}RFP Details{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mt-4">
+            <div>
+                <h2 class="h4 mb-1">RFP Insights</h2>
+                <p class="text-muted mb-0">Drill into every downloaded RFP, refine with filters, and jump back into the portal or Excel from one place.</p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" id="syncAllPortalBtn" class="btn btn-primary btn-sm">
+                    <span class="btn-text"><i class="fas fa-sync-alt me-2"></i>Sync All Portal Data</span>
+                    <span class="btn-loading d-none">
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        Syncing...
+                    </span>
+                </button>
+                <a href="/dashboard" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form class="row g-3 align-items-end" method="get">
+            <div class="col-md-3 col-lg-2">
+                <label for="statusFilter" class="form-label text-muted">Status</label>
+                <select id="statusFilter" name="status" class="form-select" onchange="this.form.submit()">
+                    {% for option in filter_options %}
+                    <option value="{{ option.value }}" {% if selected_status == option.value %}selected{% endif %}>
+                        {{ option.label }} ({{ status_counts.get(option.value, 0) }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3 col-lg-2">
+                <label for="companyFilter" class="form-label text-muted">Company</label>
+                <select id="companyFilter" name="company" class="form-select" onchange="this.form.submit()">
+                    <option value="">All Companies</option>
+                    {% for comp in unique_companies %}
+                    <option value="{{ comp }}" {% if selected_company == comp %}selected{% endif %}>
+                        {{ comp }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3 col-lg-2">
+                <label for="startDate" class="form-label text-muted">Start date</label>
+                <input id="startDate" type="date" class="form-control" name="start_date" value="{{ start_date }}">
+            </div>
+            <div class="col-md-3 col-lg-2">
+                <label for="endDate" class="form-label text-muted">End date</label>
+                <input id="endDate" type="date" class="form-control" name="end_date" value="{{ end_date }}">
+            </div>
+            <div class="col-md-4 col-lg-3">
+                <label for="searchInput" class="form-label text-muted">Search</label>
+                <div class="input-group">
+                    <input id="searchInput" type="text" class="form-control" name="search" placeholder="RFP ID, company or owner" value="{{ search_term }}">
+                    <button class="btn btn-primary" type="submit">
+                        <i class="fas fa-search me-1"></i>Apply
+                    </button>
+                </div>
+            </div>
+            <div class="col-md-2 col-lg-1">
+                <label class="form-label text-muted">&nbsp;</label>
+                <a href="/dashboard/rfp-details" class="btn btn-outline-secondary w-100">
+                    <i class="fas fa-redo me-1"></i>Reset
+                </a>
+            </div>
+            <div class="col-12 col-lg-12 text-lg-end">
+                <p class="text-muted mb-0">
+                    Showing <strong>{{ shown_rows }}</strong> of <strong>{{ total_rows }}</strong> downloaded RFPs
+                </p>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if rfps %}
+        <div class="table-responsive rfp-table-container">
+            <table class="table table-hover align-middle mb-0" style="min-width: 1100px;">
+                <thead class="table-light">
+                    <tr>
+                        <th scope="col">RFP ID</th>
+                        <th scope="col">Company Name</th>
+                        <th scope="col">Owner Name</th>
+                        <th scope="col">Publish Time</th>
+                        <th scope="col">End Date</th>
+                        <th scope="col">Status</th>
+                        <th scope="col" class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rfps %}
+                    <tr>
+                        <td class="text-nowrap fw-semibold">
+                            {% if r.Link %}
+                            <a href="{{ r.Link }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
+                                {{ r.RFP_ID }}
+                                <i class="fas fa-external-link-alt ms-1"></i>
+                            </a>
+                            {% else %}
+                            {{ r.RFP_ID }}
+                            {% endif %}
+                            <i class="fas fa-copy ms-2 copy-rfp-id" data-rfp-id="{{ r.RFP_ID }}" title="Copy RFP ID"
+                               style="font-size:12px;color:#495057;cursor:pointer;vertical-align:middle;"
+                               onclick="event.stopPropagation();var el=this;navigator.clipboard.writeText(el.dataset.rfpId).then(function(){el.classList.replace('fa-copy','fa-check');el.style.color='#198754';setTimeout(function(){el.classList.replace('fa-check','fa-copy');el.style.color='#495057';},1500);});"></i>
+                        </td>
+                        <td class="text-nowrap">{{ r.Company_Name or 'Saudi Energy' }}</td>
+                        <td class="text-nowrap">{{ r.Owner_Name or '-' }}</td>
+                        <td class="text-nowrap">{{ r.Publish_Time or '-' }}</td>
+                        <td class="text-nowrap">{{ r.RFP_End_Date or '-' }}</td>
+                        <td class="text-nowrap">
+                            <span class="badge {{ r.status_badge }}">{{ r.status_label }}</span>
+                        </td>
+                        <td class="text-nowrap text-end">
+                            {% if r.Link %}
+                            <a href="{{ r.Link }}" class="btn btn-sm btn-outline-primary me-2" target="_blank" rel="noopener noreferrer">
+                                <i class="fas fa-door-open me-1"></i>Portal
+                            </a>
+                            {% endif %}
+                            <button class="btn btn-sm btn-primary view-excel-btn" data-rfp-id="{{ r.RFP_ID }}" data-company="{{ r.Company_Name or '' }}">
+                                <i class="fas fa-file-excel me-1"></i>Excel
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="fas fa-search fa-3x text-muted mb-3"></i>
+            <p class="text-muted mb-1">No RFPs match the current filters.</p>
+            <a href="/dashboard/rfp-details" class="btn btn-primary btn-sm">Clear Filters</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    .rfp-table-container {
+        max-height: 520px;
+        overflow-y: auto;
+    }
+
+    .rfp-table-container table {
+        min-width: 1100px;
+    }
+</style>
+{% endblock %}
+
+
