@@ -11,8 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers.email_helper import send_actionable_rfp_emails
 
-# Test with a fake RFP ID
-rfp_id = "SEC RFP C001743167"
+# Test with a fake RFP I
+rfp_id = "Testing Adaptive Card Email"
 company_name = "Saudi Energy"
 rfp_end_date = "02/26/2026 02:15 AM"
 
