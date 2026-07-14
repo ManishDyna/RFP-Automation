@@ -402,7 +402,9 @@ async def api_reset_password(request: Request):
 @reset_router.get("/reset-password")
 async def reset_password_page(request: Request):
     """Serve the reset password form page (opened from email link)."""
-    frontend_url = get_setting("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    # App is served under "/rfp"; the login page is <origin>/rfp/login. The real
+    # prod value is set in Dataverse System Settings — this fallback carries "/rfp".
+    frontend_url = get_setting("FRONTEND_URL", "http://localhost:3000/rfp").rstrip("/")
     login_url = f"{frontend_url}/login"
     return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="en">
@@ -497,7 +499,7 @@ async def reset_password_page(request: Request):
             btn.innerHTML = '<span class="spinner"></span> Resetting...';
 
             try {{
-                const res = await fetch('/reset-password', {{
+                const res = await fetch('/rfp/reset-password', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
                     body: JSON.stringify({{ token: token, password: password }})

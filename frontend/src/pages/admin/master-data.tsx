@@ -1480,7 +1480,7 @@ function ColumnConfigTab() {
                     </ol>
                     <div className="pt-1">
                       <a
-                        href="/upload?token=DEMO_PREVIEW"
+                        href="/rfp/upload?token=DEMO_PREVIEW"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-primary hover:underline"
@@ -1762,7 +1762,7 @@ function EmailPreviewContent({
                         // placeholders are substituted with sample values for preview.
                         const rawUrl = (col.dropdown_options || '').toString()
                         const sampleUrl = rawUrl
-                          .replace(/\{upload_url\}/g, 'http://localhost:8000/upload?token=DEMO_PREVIEW')
+                          .replace(/\{upload_url\}/g, 'http://localhost:8000/rfp/upload?token=DEMO_PREVIEW')
                           .replace(/\{rfp_id\}/g, 'Sample-RFP-Title')
                           .replace(/\{company_name\}/g, 'Saudi Energy')
                           .replace(/\{product\}/g, encodeURIComponent(member.product || ''))

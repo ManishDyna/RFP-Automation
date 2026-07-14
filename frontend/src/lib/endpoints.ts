@@ -30,8 +30,11 @@
 //    - Materials: /dashboard/rfp/:id/materials
 // =============================================================================
 
-const API_PREFIX = '/api'
-const DASHBOARD_PREFIX = '/dashboard'
+// App is served under the "/rfp" path prefix. The reverse proxy (and the Vite
+// dev proxy) strip "/rfp" before forwarding, so the backend still serves /api
+// and /dashboard — only the browser-facing URLs carry the prefix.
+const API_PREFIX = '/rfp/api'
+const DASHBOARD_PREFIX = '/rfp/dashboard'
 
 export const ENDPOINTS = {
   // ==================== AUTH (routes/api.py) ====================

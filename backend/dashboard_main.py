@@ -44,7 +44,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Bahra Dashboard API")
+# App is served under the "/rfp" path prefix (shared domain with the COA app).
+# The reverse proxy strips "/rfp" before forwarding, so routes are still matched
+# at /api, /dashboard, etc.; root_path only makes request.base_url and the OpenAPI
+# docs reflect the external "/rfp" mount so generated links are correct.
+app = FastAPI(title="Bahra Dashboard API", root_path="/rfp")
 
 # Static assets (for serving any static files if needed)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -52,8 +56,16 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 if os.path.exists(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# Session middleware for authentication
-app.add_middleware(SessionMiddleware, secret_key="change-me-please", max_age=SESSION_TIMEOUT_SECONDS)
+# Session middleware for authentication.
+# Unique cookie name + "/rfp" path so RFP and COA (same shared domain) don't
+# clobber each other's session cookie.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key="change-me-please",
+    max_age=SESSION_TIMEOUT_SECONDS,
+    session_cookie="rfp_session",
+    path="/rfp",
+)
 
 # CORS - allow React frontend (dev server on port 3000)
 app.add_middleware(

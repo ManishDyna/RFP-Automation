@@ -42,7 +42,7 @@ function LoadingScreen() {
       <div className="text-center">
         <div className="relative">
           <div className="w-20 h-20 rounded-2xl bg-white flex items-center justify-center shadow-xl shadow-slate-200/50 mx-auto mb-6 border border-slate-100">
-            <img src="/bahra-logo.svg" alt="Bahra Electric" className="h-12 w-auto" />
+            <img src={`${import.meta.env.BASE_URL}bahra-logo.svg`} alt="Bahra Electric" className="h-12 w-auto" />
           </div>
           <div className="absolute -inset-2 rounded-2xl bg-indigo-500/20 animate-ping" />
         </div>

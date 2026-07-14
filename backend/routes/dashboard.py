@@ -62,7 +62,9 @@ async def clear_cache_and_refresh(user: dict = Depends(require_admin)):
     """Clear all dashboard caches and redirect to dashboard with fresh data."""
     from fastapi.responses import RedirectResponse
     invalidate_dashboard_caches()
-    return RedirectResponse(url="/dashboard?refresh=1", status_code=303)
+    # Absolute Location the browser follows verbatim — must carry the "/rfp" prefix
+    # (root_path isn't applied to hardcoded redirect URLs).
+    return RedirectResponse(url="/rfp/dashboard?refresh=1", status_code=303)
 
 
 # ===== RFP details helpers =====

@@ -538,7 +538,7 @@ body::before {{ content: ''; position: fixed; inset: 0; background-image: radial
 
   (async function loadMaterials() {{
     try {{
-      const res = await fetch('/api/rfp-upload/materials?token=' + encodeURIComponent(tokenValue));
+      const res = await fetch('/rfp/api/rfp-upload/materials?token=' + encodeURIComponent(tokenValue));
       if (!res.ok) {{
         const data = await res.json().catch(() => ({{}}));
         disableMaterialTab((data && data.detail) || 'Material list unavailable');
@@ -617,7 +617,7 @@ body::before {{ content: ''; position: fixed; inset: 0; background-image: radial
     for (const f of pricingFiles) fd.append('pricing_files', f);
 
     try {{
-      const res = await fetch('/api/rfp-upload', {{ method: 'POST', body: fd }});
+      const res = await fetch('/rfp/api/rfp-upload', {{ method: 'POST', body: fd }});
       const data = await res.json().catch(() => ({{}}));
       if (!res.ok) {{
         errAlert.textContent = (data && data.detail) ? data.detail : 'Upload failed (' + res.status + ').';

@@ -131,7 +131,7 @@ export function Sidebar({
                 collapsed ? 'p-1.5 w-12 h-12' : 'p-[6px] w-full mt-4'
               )}>
                 <img
-                  src="/bahra-logo.svg"
+                  src={`${import.meta.env.BASE_URL}bahra-logo.svg`}
                   alt="Bahra Electric"
                   className={cn('w-auto', collapsed ? 'h-8' : 'h-12 max-w-full')}
                 />

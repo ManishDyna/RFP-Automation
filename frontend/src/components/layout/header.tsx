@@ -70,7 +70,7 @@ export function Header({ onRefresh, lastAutomationTime }: HeaderProps) {
           <Link to="/dashboard" className="flex items-center gap-2">
             <div className="bg-white rounded-xl p-2 shadow-sm border border-slate-100">
               <img
-                src="/bahra-logo.svg"
+                src={`${import.meta.env.BASE_URL}bahra-logo.svg`}
                 alt="Bahra Electric"
                 className="h-8 w-auto"
               />
