@@ -53,7 +53,18 @@ if (-not (Test-Path $ScriptPath)) {
 # "12:00" fired at 09:30 Riyadh. These times are Riyadh times; they are NOT a
 # literal carry-over of the old flow's clock.
 #
-# Only 'download' was ever scheduled before. 'reminder' and 'sync' are new.
+# SCOPE: download + sync only. The reminder job stays on Power Automate by
+# decision, so it is deliberately NOT registered here. Invoke-RfpAutomation.ps1
+# still accepts -Job reminder for manual/ad-hoc runs.
+#
+# TURN THESE TWO FLOWS OFF before enabling these tasks, or both fire:
+#   Bahra-E-binding-cron-job          -> /download-rfps-automation
+#   Bahra-sync-open-rfp-status-cron-job -> /api/sync_portal_data
+#
+# LEAVE ON (out of scope here):
+#   Bahra-RFP-Reminder-Emails-Cron-job -> /api/rfp-reminder
+# ...but note it points at the same dead devtunnel as the other two, so reminders
+# are NOT sending today. It needs a publicly reachable URL to work at all.
 # ---------------------------------------------------------------------------
 $Schedules = @(
     @{
@@ -71,13 +82,6 @@ $Schedules = @(
             (New-ScheduledTaskTrigger -Daily -At '18:00')
         )
         Timeout     = 90
-    },
-    @{
-        Name        = 'RFP-Reminder'
-        Job         = 'reminder'
-        Description = 'Sends deadline reminder emails to bidders. NOTE: sends real email - confirm the hour with the business.'
-        Triggers    = @( (New-ScheduledTaskTrigger -Daily -At '08:00') )
-        Timeout     = 30
     },
     @{
         Name        = 'RFP-Sync-Portal'
