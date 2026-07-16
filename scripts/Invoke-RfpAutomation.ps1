@@ -13,8 +13,10 @@
       2  - job was already running and -SkipIfRunning was not set
       3  - job started but did not finish within -TimeoutMinutes
 
-    NOTE: a 0 exit means the job *finished*, not that every RFP succeeded. Per-RFP
-    failures are written to backend\automation-error-logs\ and uploaded to SharePoint.
+    NOTE: a 0 exit means the job *finished*, not that it succeeded. The run flag
+    clears in a `finally`, so a crashed run also reports 0. Failure bundles land in
+    backend\LOGS\ (failure_logger falls back to <cwd>\LOGS because no FAILURE_LOGS_DIR
+    row exists in System Settings), and an alert goes to EMAIL_TO_AUTOMATION_FAILURE.
 
     This file is deliberately ASCII-only: Windows PowerShell 5.1 reads a BOM-less
     script as ANSI, which corrupts multi-byte characters and breaks parsing.
@@ -153,7 +155,9 @@ while ((Get-Date) -lt $timeout) {
 
     if (-not $status.($spec.Flag)) {
         $mins = [math]::Round(((Get-Date) - $started).TotalMinutes, 1)
-        Write-Log "Finished after $mins min. Check backend\automation-error-logs\ for per-RFP failures."
+        # "Finished" != "succeeded": _finish_operation clears the flag in a finally,
+        # so a crashed run looks identical to a clean one from out here.
+        Write-Log "Finished after $mins min (finished != succeeded - check backend\LOGS\ for a new failure folder)."
         exit 0
     }
 
