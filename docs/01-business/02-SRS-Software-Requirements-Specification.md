@@ -1,8 +1,8 @@
 ---
 title: Software Requirements Specification (SRS) — Bahra Electric RFP Automation
-version: 1.1
-last_updated: 2026-04-23
-owner: Samir Tak (samir.tak@dynatechconsultancy.com)
+version: 1.2
+last_updated: 2026-07-17
+owner: Manish Soni (Manish.soni@dynatechconsultancy.com)
 audience: Developers, QA, Product owners, Auditors
 status: Draft
 ---
@@ -50,9 +50,9 @@ A new system, integrated with existing Bahra infrastructure: Azure AD, Microsoft
 
 ### 2.2 Product features (high-level)
 
-- Ariba portal RFP ingestion (scheduled Playwright scrape)
-- BOQ (Bill of Quantities) parsing and material matching
-- Role-based user portal
+- RFP ingestion from Bahra's **single** Ariba supplier account (scheduled Playwright scrape). The four buyer organisations — Saudi Energy, Aramco e-Marketplace, HADEED - RAJHI STEEL, Saudi Aramco Mobil Refinery — are selected within that one account via Ariba's company selector, not through separate portals or integrations.
+- BOQ (Bill of Quantities) parsing and deterministic two-tier material matching
+- Role-based user portal (42 permissions)
 - Outlook-integrated response capture via adaptive cards
 - Reporting and audit
 
@@ -60,7 +60,7 @@ A new system, integrated with existing Bahra infrastructure: Azure AD, Microsoft
 
 | Component | Requirement |
 |---|---|
-| Server OS | Windows Server 2019/2022 or Windows 11 Enterprise |
+| Server OS | Windows Server (production runs Windows Server 2016) or Windows 11 Enterprise for development |
 | Runtime | Python 3.10, Node 20 LTS |
 | Data store | Microsoft Dataverse (cloud) |
 | Browser | Chrome latest version |
@@ -87,10 +87,12 @@ Full role × permission grid is in [RBAC Matrix](../03-operations/11-RBAC-Permis
 
 | Role | Seeded | Main capabilities |
 |---|---|---|
-| Admin | Yes | All permissions |
-| RFP Bidder | Yes | View & respond to assigned RFPs |
+| Admin | Yes | All **42** permissions |
+| RFP Bidder | Yes | View & respond to assigned RFPs — exactly **10** permissions: `rfp.view`, `rfp.download`, `rfp.submit`, `rfp.decline`, `rfp.open.view`, `rfp.open.delegate`, `rfp.sharepoint.view`, `dashboard.view`, `logs.view`, `material_insights.view` |
 
-Additional roles may be created by Admins at runtime via the Role Management UI using the permission catalogue in [services/permission_definitions.py](../../services/permission_definitions.py).
+Both are system roles (`is_system: true`). There is no Approver role and no approval workflow — an RFP moves from open to `submitted` or `declined` with no sign-off step.
+
+Additional roles may be created by Admins at runtime via the Role Management UI using the permission catalogue in [services/permission_definitions.py](../../backend/services/permission_definitions.py).
 
 ---
 
@@ -101,29 +103,30 @@ Additional roles may be created by Admins at runtime via the Role Management UI 
 | ID | Requirement |
 |---|---|
 | FR-01 | The system SHALL authenticate users via email + password against `cr673_bahra_users`. |
-| FR-02 | Passwords SHALL be stored as bcrypt hashes (cost factor ≥ 12). **⚠️ Security gap:** the current implementation compares passwords in plaintext ([services/user_service.py:197-213](../../services/user_service.py#L197-L213)) — remediation is tracked in [Security & Compliance](../03-operations/12-Security-and-Compliance.md). |
-| FR-03 | Successful login SHALL create a server-side session with an idle timeout of 30 minutes and an absolute timeout of 2 hours. |
-| FR-04 | The system SHALL support a *forgot password* flow that emails a one-time, time-limited token (expiry ≤ 24 h) via Power Automate. |
-| FR-05 | The system SHALL lock the login for an email / IP after 5 consecutive failed logins within a 5-minute window. |
-| FR-06 | An admin SHALL be able to unlock a locked account. |
+| FR-02 | Passwords SHALL be stored as bcrypt hashes (cost factor ≥ 12). **⚠️ Security gap:** the current implementation compares passwords in plaintext ([services/user_service.py:197-213](../../backend/services/user_service.py#L197-L213)) — remediation is tracked in [Security & Compliance](../03-operations/12-Security-and-Compliance.md). |
+| FR-03 | Successful login SHALL create a session that expires **2 hours after login regardless of activity**. **⚠️ Gap:** `IDLE_TIMEOUT_SECONDS`, `SESSION_WARNING_SECONDS`, and `SESSION_REFRESH_INTERVAL` exist in `config.py` but are read by no code — there is **no idle timeout**, only the flat 2-hour absolute expiry. Either implement the idle timeout or remove the misleading settings. |
+| FR-04 | The system SHALL support a *forgot password* flow that emails a one-time token via Power Automate. **The token currently expires after 30 minutes**, not 24 hours. |
+| FR-05 | The system SHALL rate-limit login for an email / IP after 5 consecutive failed attempts within a 5-minute window, responding `429` until the window clears. This lock is held in the API process's memory: it releases itself after the window and is lost on service restart. |
+| FR-06 | An admin SHALL be able to unlock a locked account. **⚠️ Gap:** the Dataverse-backed account lock (`record_failed_login`, 5 attempts → 30-minute lock) is implemented but **never called from the login path**, so failed logins never set it. The Unlock control only clears a lock set some other way; the rate limit in FR-05 is what users actually hit, and it needs no admin action. |
 | FR-07 | The system SHALL allow users to change their own password, re-requiring the current password. |
 
 ### 4.2 Authorization (RBAC)
 
 | ID | Requirement |
 |---|---|
-| FR-10 | The system SHALL maintain a catalogue of permissions as defined in [permission_definitions.py](../../services/permission_definitions.py). |
+| FR-10 | The system SHALL maintain a catalogue of permissions as defined in [permission_definitions.py](../../backend/services/permission_definitions.py). It currently holds **42** keys. |
 | FR-11 | The system SHALL allow admins to create, edit, and delete non-system roles. |
-| FR-12 | The system SHALL NOT allow deleting or renaming the `Admin` role. |
+| FR-12 | The system SHALL NOT allow deleting or renaming the `Admin` role. Renaming would break access: `require_admin` matches the literal role name `Admin`. |
 | FR-13 | Each user SHALL be assigned exactly one role. |
-| FR-14 | Every HTTP endpoint that mutates data SHALL check the relevant permission server-side. |
-| FR-15 | The frontend SHALL hide UI controls for which the user lacks permission (UX-only). |
+| FR-14 | Every HTTP endpoint that mutates data SHALL check the relevant permission server-side. **⚠️ Gap:** the 10 automation endpoints (`/api/download-rfps-automation`, `/api/sync_portal_data`, and siblings) currently have **no authentication or permission check** at all. |
+| FR-15 | The frontend SHALL hide UI controls for which the user lacks permission (UX-only). Frontend checks are cosmetic — permissions are persisted to `localStorage`, so a user can unhide UI locally; the server-side check in FR-14 is the real gate. |
+| FR-16 | A permission or role change SHALL take effect for the affected user on their next login. Permissions are copied into the session at login and are **not** re-read afterwards, so a signed-in user keeps their old permissions until they sign out and back in. |
 
 ### 4.3 RFP ingestion
 
 | ID | Requirement |
 |---|---|
-| FR-20 | The system SHALL scrape the Ariba supplier portal on a scheduled cron (Power Automate trigger → `GET /download-rfps-automation`) and download new RFPs for the configured buyer entities. |
+| FR-20 | The system SHALL scrape Bahra's Ariba supplier account on a schedule and download new RFPs for each of the four configured buyer organisations, switching between them via Ariba's company selector within the same session. The live schedule is a **Windows Scheduled Task** (`RFP-Download-OpenRFPs`, daily at 00:00 / 06:00 / 12:00 / 18:00 Riyadh) that calls `GET /api/download-rfps-automation` on localhost; the Power Automate trigger that previously did this is retired. |
 | FR-21 | On ingest, the system SHALL create or upsert a row in `cr673_bahra_rfps_v2` with `source`, `customer`, `received_date`, and a reference to the BOQ artifact. |
 | FR-22 | The system SHALL deduplicate by RFP ID + customer — re-ingesting the same file SHALL update, not duplicate. |
 | FR-23 | The system SHALL log each ingest run to `cr673_bahra_automation_log1` with status and counts. |
@@ -140,10 +143,12 @@ Additional roles may be created by Admins at runtime via the Role Management UI 
 
 | ID | Requirement |
 |---|---|
-| FR-40 | The matching engine SHALL attempt an exact match on the 9-digit SAP material code first, and fall back to a substring keyword match on the material name / description when the exact match misses. |
-| FR-41 | The matching engine SHALL use the `cr673_bahra_keywords` table to expand tokens before matching. |
-| FR-42 | The matching result SHALL persist on `cr673_bahra_rfps_v2.Matched_Data` as JSON with per-line match details. |
-| FR-43 | An authorised user SHALL be able to override a match manually via the UI. |
+| FR-40 | The matching engine SHALL attempt an exact match on the 9-digit SAP material code first (string equality), and fall back to bidirectional substring keyword containment on the material name / description when the exact match misses. Implementation: `process_folder` in [rfp/download_rfp.py](../../backend/rfp/download_rfp.py). |
+| FR-41 | The matching engine SHALL be **deterministic**: no similarity score, no confidence value, and no configurable threshold. Match quality is tuned through Material Master and Keyword Master **data**, not through settings. |
+| FR-42 | Each matched line SHALL be labelled with the tier that matched it — `exact` or `keyword` — or left unmatched. This label is a category, not a score, and SHALL be surfaced to users as such. |
+| FR-43 | Where keyword matching yields multiple candidate materials, the engine currently selects the **first candidate encountered** with no ranking or tie-break. **⚠️ Known limitation:** a broad keyword can therefore attach a loosely-related material. Any future ranking work belongs here. |
+| FR-44 | Reference data SHALL be loaded from Dataverse with a SharePoint CSV fallback (`material.csv`, `unique_keywords.csv`) and cached for 5 minutes ([services/master_data_service.py](../../backend/services/master_data_service.py)). |
+| FR-45 | The matching result SHALL persist on `cr673_bahra_rfps_v2.Matched_Data` as JSON with per-line match details. |
 
 ### 4.6 Bidder assignment & notification
 
@@ -152,19 +157,22 @@ Additional roles may be created by Admins at runtime via the Role Management UI 
 | FR-50 | The system SHALL assign bidders to RFPs based on `cr673_bahra_rfp_team` rules (by customer, material category, or manual). |
 | FR-51 | On assignment, the system SHALL send one adaptive-card email per bidder with the relevant line items. |
 | FR-52 | The adaptive-card email SHALL support a *Submit* and a *Decline* action that posts back to the system. |
-| FR-53 | The system SHALL send deadline-based reminder emails 3 days before the RFP due date and again 1 day before, using the `Reminder_3Day_Sent` / `Reminder_1Day_Sent` flags to prevent duplicate sends. |
+| FR-53 | The system SHALL send deadline-based reminder emails 3 days before the RFP due date and again 1 day before, using the `Reminder_3Day_Sent` / `Reminder_1Day_Sent` flags to prevent duplicate sends. **⚠️ Not currently firing:** the logic exists (`rfp/rfp_reminder.py`, reachable at `/api/rfp-reminder`) but nothing schedules it — the Power Automate flow that used to call it points at a retired endpoint and no scheduled task has replaced it. See [Operations Runbook](../03-operations/10-Operations-Runbook.md). |
 | FR-54 | Reminders SHALL respect the per-RFP deadline field; none SHALL be sent after the deadline. |
+| FR-55 | An authorised user (`rfp.open.remind`) SHALL be able to send an on-demand reminder to a specific non-responding recipient, or to all pending recipients, from the Open RFP page. This path works today and is the interim substitute for FR-53. |
+| FR-56 | An authorised user (`rfp.open.delegate`) SHALL be able to reassign a single product line of an RFP to a different recipient, recording who delegated it, to whom, and when. |
 
 ### 4.7 Response capture
 
 | ID | Requirement |
 |---|---|
-| FR-60 | A bidder SHALL be able to submit prices via the adaptive card in Outlook. |
-| FR-61 | A bidder SHALL be able to submit prices via the dashboard UI. |
-| FR-62 | The dynamic response form SHALL be driven by active rows in `cr673_bahra_rfp_team_columns`. |
-| FR-63 | The system SHALL validate server-side: required fields, numeric ranges, dropdown values, date formats. |
-| FR-64 | On successful submission, the system SHALL persist to `cr6db_cr673_bahra_rfp_response` and update the RFP status on `cr673_bahra_rfps_v2`. |
-| FR-65 | The system SHALL record the submission method (`adaptive_card` / `dashboard`) and source email / IP. |
+| FR-60 | A bidder SHALL be able to enter their response (price, lead time, and any configured fields) on the adaptive card in Outlook and send it with *Submit All Responses*, or reject the RFP with *Decline RFP*. |
+| FR-61 | The card SHALL apply **first-response-wins per team row**: once a product line has a response, a later response on that same line is not applied. |
+| FR-62 | The fields shown on the card SHALL be driven by active rows in `cr673_bahra_rfp_team_columns`, so the response shape is configurable without a code change. |
+| FR-63 | The system SHALL verify every card callback before acting on it: token signature against the tenant's JWKS, expected audience, an accepted issuer (v1.0 or v2.0), and Microsoft's Actions app as the authorised party. |
+| FR-64 | An authorised user (`rfp.submit`) SHALL be able to push a completed response back to Ariba from the portal by supplying the RFP ID, the buyer organisation, the filled Excel workbook, and optional technical PDFs; the system SHALL drive the Ariba submission wizard on their behalf. |
+| FR-65 | An authorised user (`rfp.decline`) SHALL be able to decline an RFP on Ariba from the portal by selecting the RFP and its buyer organisation. |
+| FR-66 | On successful submission, the system SHALL persist the response and update the RFP status on `cr673_bahra_rfps_v2` to one of `no`, `saved_draft`, `submitted`, `declined`. |
 
 ### 4.8 Dashboard & reporting
 
@@ -204,11 +212,14 @@ Additional roles may be created by Admins at runtime via the Role Management UI 
 
 ### 4.12 Scheduling
 
+The automation schedule has moved to Windows Scheduled Tasks on the application server (`RFP-Download-OpenRFPs` at 00:00/06:00/12:00/18:00 and `RFP-Sync-Portal` at 03:00/09:00/15:00/21:00, Riyadh time, registered by `scripts/Register-RfpSchedules.ps1`). The requirements below describe the portal screen, which has **not** caught up.
+
 | ID | Requirement |
 |---|---|
-| FR-110 | An authorised user SHALL be able to configure automation schedules (cron-like) via the UI. |
-| FR-111 | The UI SHALL persist the schedule to Dataverse and push it to Power Automate (Recurrence trigger patch). |
+| FR-110 | An authorised user (`schedule_automation.manage`) SHALL be able to configure the automation schedule via the UI. |
+| FR-111 | The UI SHALL persist the schedule to Dataverse and push it to Power Automate (Recurrence trigger patch). **⚠️ Obsolete as implemented:** it patches `Bahra-E-binding-cron-job`, the very flow the migration turns off. The screen saves, reports success, and changes nothing that runs. If that flow is ever re-enabled, downloads fire from both it and the scheduled task. |
 | FR-112 | A schedule change SHALL be audited with before/after values. |
+| FR-113 | The schedule screen SHALL drive whatever mechanism actually runs the automation. **Not met** — resolving FR-111 means either repointing this screen at Task Scheduler or removing it in favour of the server-side runbook. |
 
 ---
 
@@ -219,15 +230,15 @@ Additional roles may be created by Admins at runtime via the Role Management UI 
 **Actor:** Bidder (Basim)
 **Pre:** An adaptive-card email has arrived in Outlook.
 **Main flow:**
-1. Basim opens the email.
-2. The card shows RFP metadata and line items with blank price/lead-time fields.
-3. Basim fills the fields and clicks *Submit*.
-4. Outlook validates client-side (required + numeric).
-5. Outlook POSTs to `/api/actionable-card/response` with a substrate JWT.
-6. The system verifies the JWT and writes to the RFP response table.
-7. The card updates in place to show "Submitted — thank you".
-**Post:** RFP row status = `Submitted`; audit row `RFP_SUBMITTED` written.
-**Alt:** invalid numeric → inline error, no server call. JWT invalid → card shows "Action failed"; audit row `ACTIONABLE_REJECTED`.
+1. Basim opens the email. The card auto-refreshes to show the current state of each product line (this call must complete within ~2 s or Outlook abandons it).
+2. The card shows RFP metadata and his product lines with blank response fields.
+3. Basim fills the fields and clicks *Submit All Responses*.
+4. Outlook POSTs to `/api/actionable-card/response` with an Entra-issued token, reaching the system through Entra Application Proxy.
+5. The system verifies the token (signature, audience, issuer, authorised party) and records the response.
+6. The card updates in place to confirm.
+**Post:** The responded lines are settled; the RFP's status reflects the response.
+**Alt:** A line already answered by a colleague is not overwritten (first-response-wins). Token invalid → the action fails and the reason is logged server-side.
+**Note:** RFP operations are **not** written to the audit log today — use the Activity Logs page to trace them.
 
 ### UC-02 — Admin creates a custom role
 
@@ -238,43 +249,39 @@ Additional roles may be created by Admins at runtime via the Role Management UI 
 2. Enters a role name and selects permissions.
 3. Submits; system calls `POST /api/roles/create` then `PUT /api/roles/{id}/permissions`.
 4. Dataverse rows created; cache invalidated.
-**Post:** Role appears in the list; any user assigned this role gets the new permission set on next session refresh.
+**Post:** Role appears in the list. **Users already signed in keep their old permissions until they log out and back in** — permissions are captured in the session at login.
 **Alt:** Duplicate name → 409; rename required.
 
-### UC-03 — Bidder submits via dashboard (no Outlook)
+### UC-03 — Bidder pushes a completed response back to Ariba
 
 **Actor:** Bidder
-**Pre:** Logged into the portal; has `rfp.submit`.
+**Pre:** Logged into the portal; has `rfp.submit`; has the buyer's workbook filled in.
 **Main flow:**
-1. Opens RFP detail page.
-2. Fills dynamic response form.
-3. Clicks *Submit*; system calls `POST /dashboard/submit-rfp-final`.
-4. Validation passes; row updated.
-**Post:** Status = `Submitted`; confirmation toast.
-**Alt:** validation fails → field-level errors shown.
+1. Clicks *Submit RFP* in the sidebar.
+2. Picks the RFP ID and the buyer organisation, and uploads the filled Excel workbook (plus optional technical PDFs).
+3. Clicks Submit; the request is accepted immediately (`202`) and the work continues in the background.
+4. The automation drives the Ariba submission wizard and reports progress.
+**Post:** Status = `submitted`; the run appears in Activity Logs.
+**Alt:** The RFP ID belongs to a different buyer → the dialog rejects it before starting. Another submit is already running for that RFP → rejected with `409`.
 
 ### UC-04 — Automated Ariba scrape
 
-**Actor:** System (Power Automate scheduler)
-**Pre:** Ariba credentials configured; automation service healthy.
+**Actor:** System (Windows Scheduled Task `RFP-Download-OpenRFPs`)
+**Pre:** Ariba credentials configured; the `rfp-api` service is running.
 **Main flow:**
-1. Scheduler triggers `GET /download-rfps-automation`.
-2. Orchestrator launches headless Chromium, logs in (or reuses session), lists open RFPs.
+1. At 00:00 / 06:00 / 12:00 / 18:00 Riyadh time, Task Scheduler runs `scripts/Invoke-RfpAutomation.ps1 -Job download`, which calls `GET /api/download-rfps-automation` on localhost and then polls until the run finishes.
+2. The orchestrator launches Chromium (**headed**, not headless), signs in, and works through each buyer organisation via Ariba's company selector.
 3. For each new RFP, downloads attachments and creates a `cr673_bahra_rfps_v2` row.
 4. Match engine runs; bidders notified via adaptive-card emails.
 **Post:** `cr673_bahra_automation_log1` row with counts; RFPs visible in dashboard.
-**Alt:** Ariba down or DOM changed → failure artifacts saved to the `LOGS/` folder on the Windows host and surfaced on the dashboard's error panel for operator review.
+**Alt:** Ariba down or DOM changed → failure artifacts saved to `backend/LOGS/` on the host, uploaded to SharePoint, and mailed to `EMAIL_TO_AUTOMATION_FAILURE`.
+**Caution:** The task's exit code says the run **finished**, not that it **succeeded** — a crashed run also exits 0. Judge success from the logs and failure emails, not the Last Run Result.
 
-### UC-05 — Admin pauses the automation schedule
+### UC-05 — Admin changes the automation schedule
 
 **Actor:** Admin
 **Pre:** Has `schedule_automation.manage`.
-**Main flow:**
-1. Opens *Schedule & Automation*.
-2. Edits the schedule (e.g. disables the cron or widens the interval).
-3. System calls `POST /dashboard/schedule-automation` with the new config.
-4. Backend persists to Dataverse and patches the Power Automate Recurrence trigger.
-**Post:** The Ariba scrape runs on the new schedule (or not at all). Audit row `SCHEDULE_UPDATED`.
+**Current reality:** The *Schedule & Automation* dialog persists to Dataverse and patches the Recurrence trigger of the **retired** `Bahra-E-binding-cron-job` flow, then reports success. **The live schedule does not change.** Changing it today means editing the `\Bahra-RFP\` scheduled tasks on the application server — see [Operations Runbook](../03-operations/10-Operations-Runbook.md). This use case is retained to describe intended behaviour; see FR-113 for the gap.
 
 ---
 
@@ -301,10 +308,10 @@ See [Data Dictionary](../02-architecture/07-Data-Dictionary-and-ER-Diagram.md) f
 | EI-01 | Microsoft Graph `/sendMail` for outbound email (adaptive cards, reminders, notifications). |
 | EI-02 | Microsoft Graph `/sites/.../drive` for SharePoint read/write of RFP artifacts and logs. |
 | EI-03 | Microsoft Dataverse OData v9.2 for all data I/O. |
-| EI-04 | Power Automate Cloud Flow (HTTP trigger + Recurrence trigger) for scheduler push. |
-| EI-05 | Ariba portal web UI via Playwright / Chromium. |
+| EI-04 | Power Automate Cloud Flow for the forgot-password email. The scheduler flows are retired; automation is triggered by Windows Task Scheduler calling the local API. |
+| EI-05 | Ariba supplier account web UI via Playwright / Chromium (one account, four buyer organisations). |
 | EI-06 | SAP integration limited to password push via `services/sap_service.py`. |
-| EI-07 | Actionable-messages substrate via Outlook (inbound JWT-signed POST). |
+| EI-07 | Actionable-messages substrate via Outlook (inbound token-signed POST), reaching the system through **Entra Application Proxy** in Passthrough mode. Only `/api/actionable-card/` is published externally; the portal itself stays LAN-only behind IIS. |
 
 All interfaces SHALL use HTTPS with TLS 1.2 minimum.
 
@@ -332,10 +339,12 @@ All interfaces SHALL use HTTPS with TLS 1.2 minimum.
 
 | ID | Requirement |
 |---|---|
-| NFR-20 | All secrets SHALL be rotatable without code changes (env var / Key Vault). |
+| NFR-20 | All secrets SHALL be rotatable without code changes (env var / Key Vault). **Not met:** secrets live in `backend/config/config.py`, an untracked local file on each host (it is git-ignored and has never been committed). There is no secret store and rotation is manual — editing it requires restarting the `rfp-api` service. |
 | NFR-21 | Session cookies SHALL be `HttpOnly`, `SameSite=Lax`, and `Secure` in production. |
 | NFR-22 | The system SHALL enforce TLS 1.2+ for all inbound and outbound traffic. |
-| NFR-23 | Adaptive-card callbacks SHALL verify the substrate JWT (signature, issuer, originator). |
+| NFR-23 | Adaptive-card callbacks SHALL verify the inbound token (signature against tenant JWKS, audience, issuer, authorised party). Met — and it fails closed if the expected audience is unconfigured. |
+| NFR-25 | The session signing key SHALL be a per-deployment secret. **Not met:** `SessionMiddleware` uses a hardcoded default key, so session cookies are forgeable by anyone with source access. Tracked in `backend/Support-Files/OPTIMIZATION_PLAN.md`. |
+| NFR-26 | Endpoints that trigger automation SHALL require authentication. **Not met** — see FR-14. |
 | NFR-24 | The system SHALL follow the [Security & Compliance](../03-operations/12-Security-and-Compliance.md) checklist before each production release. |
 
 ### 8.4 Usability
@@ -350,7 +359,7 @@ All interfaces SHALL use HTTPS with TLS 1.2 minimum.
 
 | ID | Requirement |
 |---|---|
-| NFR-40 | Every state transition of an RFP SHALL be reconstructible from `cr673_bahra_audit_logs`. |
+| NFR-40 | Every state transition of an RFP SHALL be reconstructible from `cr673_bahra_audit_logs`. **Not met:** the audit log covers authentication, user, role, master-data, and system-setting events — **RFP operations are not written to it**. RFP history is currently reconstructible only from the Activity Logs table (`cr673_bahra_rfps_v2`). |
 | NFR-41 | Audit data SHALL be retained indefinitely unless Legal approves purge. |
 | NFR-42 | An authorised user SHALL be able to export any audit slice as XLSX. |
 
@@ -370,10 +379,11 @@ The items in this section are things the system *needs from outside* to work —
 - **Microsoft 365 tenant with Dataverse and Power Platform licences.** Every RFP, user, role, audit entry, and setting is stored in Dataverse, and the Ariba cron is driven by Power Automate. If the licences lapse, the system stops working the same day.
 - **Shared Outlook mailbox with permission to send email.** IT must provision a shared mailbox and grant the system's Azure AD app `Mail.Send` permission on it. Every adaptive-card email, reminder, and status notification leaves from this mailbox.
 - **SharePoint site already set up by IT.** The system writes downloaded RFPs, error logs, and technical data sheets to a SharePoint document library. IT must create the site, the library, and the folder structure before go-live — the system does not create its own storage.
-- **Ariba service account exempt from MFA.** The scraper logs into Ariba automatically on a schedule, so the Ariba user it uses cannot have multi-factor authentication (phone prompt / OTP). IT must grant an MFA exemption for this specific service account.
-- **Power Automate Premium licence.** Scheduling the Ariba scrape uses a Premium Power Automate connector (Dataverse + HTTP). Bahra must keep a Premium licence active — without it, the schedule does not fire.
-- **TLS certificate from Bahra's certificate authority.** The dashboard must be served over HTTPS. IT must issue the production certificate from Bahra's internal CA and renew it before expiry — the project does not manage its own certificates.
-- **Pandoc installed on the ops workstation.** The Word-format user and admin manuals are generated from Markdown using Pandoc. Whoever runs the generator script needs Pandoc installed locally; runtime users do not.
+- **A single Ariba supplier account, exempt from MFA.** All four buyer organisations are reached through one account. The scraper signs in automatically on a schedule, so that account cannot have multi-factor authentication (phone prompt / OTP). IT must grant an MFA exemption for this specific service account.
+- **Entra ID P1 or P2 licence.** The Outlook Submit/Decline buttons reach the system through Entra Application Proxy, which requires P1/P2. Without it the cards stop working — and the alternative (exposing the system to the internet) is not acceptable.
+- **An Application Proxy connector running on the application server.** The backend listens on localhost only, so the connector has to be on the same machine. It is outbound-only — no inbound firewall port and no public IP are needed.
+- **TLS certificate from Bahra's certificate authority.** The dashboard must be served over HTTPS at `https://be-aramco-01.bahra-cables.com/rfp`. IT must issue and renew the certificate — the project does not manage its own certificates.
+- **Power Automate licence for the forgot-password flow.** The password-reset email is sent by a Power Automate flow. If it is disabled, self-service password reset stops working (the rest of the system is unaffected).
 
 ## 10. Out-of-scope (reiterated)
 
@@ -381,4 +391,8 @@ Pulled forward from the BRD: automated pricing, negotiation, full SAP write-back
 
 ## 11. Revision history
 
-Tracked in [CHANGELOG.md](../CHANGELOG.md). Each SRS change SHOULD increment the top-matter `version` and add a line describing the change.
+Also tracked in [CHANGELOG.md](../CHANGELOG.md). Each SRS change SHOULD increment the top-matter `version` and add a row here.
+
+| Version | Date | Author | Change |
+|---|---|---|---|
+| 1.2 | 2026-07-17 | Manish Soni | Verified against code; corrected matching description, single Ariba tenant, 42 permissions, known issues |

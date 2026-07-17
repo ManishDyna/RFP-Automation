@@ -4,7 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this system is
 
-End-to-end automation for the Bahra Electric RFP (Request for Proposal) lifecycle: discovers RFPs from supplier portals (SAP Ariba / Saudi Energy / Aramco / HADEED), downloads BOQ (Bill of Quantities) Excel/PDF files, fuzzy-matches line items against the SAP Material Master, routes RFPs to internal Bidders via Adaptive-Card emails, and persists bidder responses (price, lead time, declines) into Microsoft Dataverse with full RBAC audit. See [docs/README.md](docs/README.md) for the documentation hub.
+End-to-end automation for the Bahra Electric RFP (Request for Proposal) lifecycle: discovers RFPs by scraping the SAP Ariba supplier portal, downloads BOQ (Bill of Quantities) Excel/PDF files, matches line items against the SAP Material Master, routes RFPs to internal Bidders via Adaptive-Card emails, and persists bidder responses (price, lead time, declines) into Microsoft Dataverse with full RBAC audit. See [docs/README.md](docs/README.md) for the documentation hub.
+
+Two things that are easy to get wrong:
+- **One Ariba tenant, not four portals.** `Saudi Energy`, `Aramco e-Marketplace`, `HADEED - RAJHI STEEL`, and
+  `Saudi Aramco Mobil Refinery Company Limited` are **buyer organisations inside a single SAP Ariba supplier
+  account** (`COMPANY_OPTIONS` in `config/config.py`), switched via a DOM dropdown — not separate integrations.
+- **Matching is NOT fuzzy.** No `rapidfuzz`/`fuzzywuzzy`/`difflib` anywhere; no score, no confidence, no
+  threshold. `backend/rfp/download_rfp.py:process_folder` is a deterministic two-tier classifier: exact equality
+  on a 9-digit SAP material code, else bidirectional substring keyword containment taking an arbitrary `.head(1)`.
+  `MatchMethod` is a label (`"exact"`/`"keyword"`/`None`), not a number. Tune matching by editing
+  Material/Keyword Master **data**, never a threshold.
 
 ## Commands
 
@@ -21,10 +31,7 @@ cd backend
 
 ### Backend (FastAPI)
 ```powershell
-# Easiest: launcher wrapper at the repo root (cd backend + runs dashboard_main.py)
-.\start-backend.ps1
-
-# Or manually — note the working directory MUST be backend\
+# The working directory MUST be backend\
 cd backend
 ..\env\Scripts\python.exe dashboard_main.py     # Dashboard API + UI backend (port 8000) — primary entry point
 
@@ -39,21 +46,17 @@ curl http://localhost:8000/health
 ### Frontend (Vite + React)
 ```powershell
 cd frontend
-npm run dev        # dev server on port 3000, proxies /api /dashboard /upload to :8000
+npm run dev        # dev server on port 3000, proxies /rfp/api /rfp/dashboard /rfp/upload to :8000
 npm run build      # tsc -b && vite build → frontend/dist
 npm run lint       # eslint .
 npm run preview    # serve built bundle
 ```
 
-### Performance / load tests
-```powershell
-cd tests\performance
-.\run-tests.ps1 smoke          # 5 users, 1 min
-.\run-tests.ps1 load           # 50–150 users, 21 min
-.\run-tests.ps1 stress         # find breaking point
-.\run-tests.ps1 all
-```
-There is no Python test suite — `tests/` contains only k6 performance scripts.
+### Tests
+There is **no automated test suite of any kind** — no `pytest`, no `tests/` directory, and no k6/load-test
+scripts (verified 2026-07-17). The only test-named file is `backend/Support-Files/test_adaptive_card.py`, a
+one-off manual script that belongs to no suite. Verification is manual: `GET /health`, then drive the affected
+flow. Don't offer to "run the tests" — there are none.
 
 ### Dataverse / setup utilities
 One-off setup and migration scripts live in `backend/Support-Files/`. They are **idempotent** and safe to re-run. Each `setup_*_table.py` prints the resolved EntitySetName after `PublishXml` — paste it into the matching `*_API` constant in [backend/config/config.py](backend/config/config.py). Run them from inside `backend/`:
@@ -122,7 +125,7 @@ State: TanStack Query for server state, Zustand for auth/UI state. Forms: react-
 
 ### How the dashboard talks to the backend
 
-In dev, Vite proxies `/api`, `/dashboard`, and `/upload` from port 3000 → port 8000 (see `frontend/vite.config.ts`). In prod, the built bundle is served separately and CORS in `dashboard_main.py` permits the React origin.
+The app is served under a `/rfp` path prefix — `vite.config.ts` sets `base: '/rfp/'` and `dashboard_main.py` sets `root_path="/rfp"`; the IIS reverse proxy strips it before the backend. So in dev, Vite proxies `/rfp/api`, `/rfp/dashboard`, and `/rfp/upload` from port 3000 → port 8000, each rewriting `^/rfp` away to mirror prod (see `frontend/vite.config.ts`). Route paths inside FastAPI are the **internal** ones (`/api/...`), without the `/rfp` prefix. In prod, the built bundle is served separately and CORS in `dashboard_main.py` permits the React origin.
 
 ## Key conventions specific to this repo
 
@@ -136,7 +139,7 @@ In dev, Vite proxies `/api`, `/dashboard`, and `/upload` from port 3000 → port
 
 ### Windows / asyncio
 
-Playwright needs `WindowsProactorEventLoopPolicy`, but uvicorn runs on `SelectorEventLoop`. Any code path that drives Playwright from inside a request handler MUST be invoked via `_run_async_in_thread(coro, ...)` from [routes/automation.py](routes/automation.py) — that helper spins up a dedicated `ProactorEventLoop` on a background thread. Calling `await some_playwright_func()` directly from a FastAPI handler will fail with `NotImplementedError` on subprocess.
+Playwright needs `WindowsProactorEventLoopPolicy`, but uvicorn runs on `SelectorEventLoop`. Any code path that drives Playwright from inside a request handler MUST be invoked via `_run_async_in_thread(coro, ...)` from [routes/automation.py](backend/routes/automation.py) — that helper spins up a dedicated `ProactorEventLoop` on a background thread. Calling `await some_playwright_func()` directly from a FastAPI handler will fail with `NotImplementedError` on subprocess.
 
 The Windows UTF-8 stdout shim at the top of `dashboard_main.py` is required for emoji in `print()` calls used by the automation scripts.
 
@@ -148,7 +151,7 @@ The Windows UTF-8 stdout shim at the top of `dashboard_main.py` is required for 
 
 - Login sets `request.session["user"]` (Starlette `SessionMiddleware`, signed cookie, 2-hour timeout).
 - Protect endpoints with `Depends(get_current_user)` for any auth, or `Depends(require_permission("module.action"))` for granular checks.
-- Permission keys are the source of truth in [services/permission_definitions.py](services/permission_definitions.py). Roles & their permission grants live in Dataverse tables `cr673_bahra_roles` and `cr673_bahra_role_permissions` (managed via `services/dynamic_role_service.py`).
+- Permission keys are the source of truth in [services/permission_definitions.py](backend/services/permission_definitions.py) — there are **42** of them. Roles & their permission grants live in Dataverse tables `cr673_bahra_roles` and `cr673_bahra_role_permissions` (managed via `services/dynamic_role_service.py`).
 - Frontend mirrors this with the `useHasPermission()` hook + `<PermissionGuard>` route wrapper.
 
 ### Email & SharePoint

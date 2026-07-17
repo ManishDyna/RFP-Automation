@@ -1,8 +1,8 @@
 ---
 title: Business Requirements Document (BRD) — Bahra Electric RFP Automation
-version: 1.1
-last_updated: 2026-04-23
-owner: Samir Tak (samir.tak@dynatechconsultancy.com)
+version: 1.2
+last_updated: 2026-07-17
+owner: Manish Soni (Manish.soni@dynatechconsultancy.com)
 audience: Business stakeholders, Product owners, Sponsors
 status: Draft
 ---
@@ -17,7 +17,7 @@ Related: [SRS](02-SRS-Software-Requirements-Specification.md) · [Glossary](03-G
 
 ## 1. Executive summary
 
-Bahra Electric receives Requests for Proposals (RFPs) from customers via the Ariba supplier portal. Each RFP contains a Bill of Quantities (BOQ) that must be matched against Bahra's material master, routed to internal bidders, priced, and submitted back — often under tight deadlines.
+Bahra Electric receives Requests for Proposals (RFPs) from customers via its **single SAP Ariba supplier account**. Four buyer organisations — Saudi Energy (SEC), Aramco e-Marketplace, HADEED - RAJHI STEEL, and Saudi Aramco Mobil Refinery — publish into that one account and are switched between with Ariba's company selector. Each RFP contains a Bill of Quantities (BOQ) that must be matched against Bahra's material master, routed to internal bidders, priced, and submitted back — often under tight deadlines.
 
 The manual process is **slow, error-prone, and opaque**:
 - BOQ items are copy-pasted or re-keyed into spreadsheets
@@ -26,7 +26,7 @@ The manual process is **slow, error-prone, and opaque**:
 - No central audit trail of *who quoted what when*
 - Missed deadlines are frequent
 
-The **RFP Automation Portal** ingests RFPs by scraping Bahra's Ariba supplier portal on a scheduled cron, extracts material codes and description keywords from the downloaded BOQ workbook, matches them against the material master in Dataverse, routes to assigned bidders via adaptive-card emails, captures responses inside Outlook or the web dashboard, and maintains a complete audit trail.
+The **RFP Automation Portal** ingests RFPs by scraping Bahra's Ariba supplier account on a schedule, extracts material codes and description keywords from the downloaded BOQ workbook, matches them against the material master in Dataverse, routes to assigned bidders via adaptive-card emails, captures their responses inside Outlook, and keeps a record of every step. Bidders' priced workbooks are pushed back to Ariba by the same browser automation from the portal's Submit dialog.
 
 ## 2. Business problem
 
@@ -37,7 +37,7 @@ The **RFP Automation Portal** ingests RFPs by scraping Bahra's Ariba supplier po
 | BP-03 | Ad-hoc email handoffs with no deadline tracking | Missed RFP due dates; lost deals |
 | BP-04 | Scattered pricing history across Outlook / OneDrive / SharePoint | Inconsistent pricing; unable to audit |
 | BP-05 | No visibility for managers on in-flight RFPs | Can't prioritise or intervene |
-| BP-06 | External portals (Ariba) require manual scraping | Delayed response; manual polling |
+| BP-06 | The Ariba supplier account has to be checked by hand for new RFPs | Delayed response; manual polling |
 | BP-07 | Bidders lose context switching between email, Excel, and SAP | Errors in quote packaging |
 
 ## 3. Goals
@@ -82,12 +82,12 @@ The **RFP Automation Portal** ingests RFPs by scraping Bahra's Ariba supplier po
 ## 5. Scope
 
 ### 5.1 In-scope (v1)
-- **Ingestion:** Ariba supplier portal scrape on a scheduled cron (Playwright browser automation).
+- **Ingestion:** Scheduled scrape of Bahra's single Ariba supplier account (Playwright browser automation), cycling through the four buyer organisations via Ariba's company selector. The schedule runs as Windows Scheduled Tasks on the application server.
 - **Extraction:** Material codes and description keywords pulled from the downloaded XLSX BOQ — 9-digit SAP material-code regex plus keyword tokenization from the Name / Description columns.
-- **Matching:** Two-tier match against the material-master table in Dataverse — (1) exact match on the 9-digit SAP code, (2) substring keyword match on material name / description when the exact match misses.
-- **Routing:** Rule-based bidder assignment plus adaptive-card emails delivered to assigned bidders' Outlook inboxes.
-- **Response capture:** Inline in Outlook via Office 365 actionable messages, or via the web dashboard.
-- **Tracking:** RFP lifecycle state, deadline-based reminder emails (3 days before due date and 1 day before), manager dashboard.
+- **Matching:** Deterministic two-tier match against the material-master table in Dataverse — (1) exact equality on the 9-digit SAP code, (2) substring keyword containment on material name / description when the exact match misses. No scoring, ranking, or threshold is involved; see [Glossary → Material Matching](03-Glossary-and-Acronyms.md#material-matching).
+- **Routing:** Rule-based bidder assignment (via the RFP Team table) plus adaptive-card emails delivered to assigned bidders' Outlook inboxes.
+- **Response capture:** Inline in Outlook via Office 365 actionable messages. Responses are first-response-wins per product line.
+- **Tracking:** RFP lifecycle state, an Open RFP tracker with per-line reminder and delegation actions, deadline-based reminder emails (3 days before due date and 1 day before), and a manager dashboard.
 - **Admin:** User, role, permission, and master-data CRUD (materials, keywords, RFP team, column configuration).
 - **Audit:** Append-only log of role changes, master-data changes, and user lifecycle events in `cr673_bahra_audit_logs`.
 - **Reporting:** KPI tiles, material insights, per-company analytics, XLSX export.
@@ -101,8 +101,10 @@ The **RFP Automation Portal** ingests RFPs by scraping Bahra's Ariba supplier po
 
 ### 5.3 Assumptions
 - Bahra has a Microsoft 365 tenant with Dataverse, Graph, SharePoint, and Power Automate available
+- Bahra maintains **one** Ariba supplier account covering all four buyer organisations
 - Ariba uses static login credentials (no MFA, or MFA-exempted service account)
 - Bidders have Outlook Web or desktop with actionable-messages enabled
+- Entra ID P1/P2 is available, so the Outlook cards can reach the system through Entra Application Proxy without exposing the portal to the internet
 
 ### 5.4 Constraints
 - Must run in Bahra's existing Azure tenant (no new cloud region)
@@ -134,21 +136,21 @@ The **RFP Automation Portal** ingests RFPs by scraping Bahra's Ariba supplier po
 
 ```mermaid
 flowchart LR
-    A[Ariba portal] -->|Scheduled scrape| B[BOQ parse]
-    B --> C[Material match]
-    C --> D[Bidder routing]
-    D --> E[Bidder quotes<br/>via email or dashboard]
-    E --> F[Submit to customer]
-    F --> G[Audit trail]
+    A[Ariba supplier account<br/>4 buyer organisations] -->|Scheduled scrape| B[BOQ parse]
+    B --> C[Material match<br/>exact code, then keyword]
+    C --> D[Bidder routing<br/>RFP Team]
+    D --> E[Bidder quotes<br/>Outlook adaptive card]
+    E --> F[Submit back to Ariba]
+    F --> G[Record of activity]
 ```
 
 ## 8. Requirements (business-level)
 
 Detailed functional and non-functional requirements live in the [SRS](02-SRS-Software-Requirements-Specification.md). At the business level:
 
-- **BR-01.** System must ingest RFPs from Bahra's Ariba supplier portal on a scheduled cron with no manual copy-paste
+- **BR-01.** System must ingest RFPs from Bahra's Ariba supplier account on a schedule with no manual copy-paste
 - **BR-02.** Users with appropriate role must be able to see, act on, and track RFPs from a single screen
-- **BR-03.** Material matching must be auditable — a human must be able to see why a line item matched what it matched
+- **BR-03.** Material matching must be explainable — for every line item a human must be able to see whether it matched on the SAP code, on a keyword, or not at all
 - **BR-04.** Every change (price, status, assignment) must be attributed to a user and timestamped
 - **BR-05.** Admins must be able to create roles and assign permissions without developer involvement
 - **BR-06.** The system must be usable on Bahra's standard corporate laptops without software installation (browser only)
@@ -159,9 +161,11 @@ Detailed functional and non-functional requirements live in the [SRS](02-SRS-Sof
 
 - **BR-R1.** Only Admins can create or delete roles.
 - **BR-R2.** Only users with `sap_password.change` permission can change the SAP service password; every change creates a record in the SAP password log table.
-- **BR-R3.** Reminder emails go to assigned bidders 3 days before the RFP deadline and again 1 day before, using the `Reminder_3Day_Sent` / `Reminder_1Day_Sent` flags to prevent duplicate sends.
+- **BR-R3.** Reminder emails go to assigned bidders 3 days before the RFP deadline and again 1 day before, using the `Reminder_3Day_Sent` / `Reminder_1Day_Sent` flags to prevent duplicate sends. **This rule is implemented but not currently firing — see §13.1.**
 - **BR-R4.** All audit rows are append-only; no user role can delete them.
 - **BR-R5.** Material master changes (add/edit/delete) require `material_master.*` permission and are audited.
+- **BR-R6.** For each product line on an RFP, the **first** response received is the one that counts; a later response from a colleague on the same line is not applied.
+- **BR-R7.** A permission change takes effect only after the affected user signs out and back in.
 
 ## 10. Benefits & ROI
 
@@ -187,9 +191,10 @@ Payback period: estimated 6–9 months at current RFP volume.
 
 - Microsoft 365 tenant (existing)
 - Power Platform / Dataverse licence
-- Azure AD application registration
+- Entra ID (Azure AD) application registration
+- Entra ID P1/P2 licence + an Application Proxy connector on the application server, so Outlook's Submit/Decline buttons can reach the system
 - Shared mailbox for outbound RFP emails and actionable-card replies
-- Ariba service account with scraping-friendly session
+- **One** Ariba supplier account with a scraping-friendly service session
 - Dedicated Windows host for deployment
 - Internet access from the host for Graph, Dataverse, Ariba
 
@@ -197,7 +202,16 @@ Payback period: estimated 6–9 months at current RFP volume.
 
 | Release | Scope | Status |
 |---|---|---|
-| Current | Ariba scraping · BOQ material-code + keyword extraction · Dataverse material match · adaptive-card bidder routing · admin · RBAC · audit · analytics dashboard | Live |
+| Current | Ariba scraping · BOQ material-code + keyword extraction · Dataverse material match · adaptive-card bidder routing · Open RFP tracker with delegation · admin · RBAC (42 permissions) · audit · analytics dashboard | Live at `https://be-aramco-01.bahra-cables.com/rfp` |
+
+### 13.1 Known issues affecting business users
+
+Two things do **not** currently work as the screens imply. Do not plan around them until the [Operations Runbook](../03-operations/10-Operations-Runbook.md) records them as resolved.
+
+| Issue | Business impact |
+|---|---|
+| **The Schedule & Automation screen does not change the live schedule.** The download and portal-sync schedules moved to Windows Scheduled Tasks on the server; the screen still updates the retired Power Automate flow and shows a success message that has no effect. | Changing the automation cadence is currently a server-side task for IT, not a self-service portal action. |
+| **Deadline reminder emails are not being sent.** The reminder job was driven by a Power Automate flow that no longer reaches the system, and no scheduled task has replaced it yet. | Bidders will not receive the 3-day / 1-day nudges. Chase non-responders manually from the **Open RFP** page, which does send reminders on demand. |
 
 ## 14. Acceptance & sign-off
 
@@ -210,3 +224,9 @@ This BRD is considered accepted when:
 ## 15. Glossary pointer
 
 See [03-Glossary-and-Acronyms.md](03-Glossary-and-Acronyms.md) for domain terms (RFP, BOQ, bidder, adaptive card, etc.).
+
+## 16. Revision history
+
+| Version | Date | Author | Change |
+|---|---|---|---|
+| 1.2 | 2026-07-17 | Manish Soni | Verified against code; corrected matching description, single Ariba tenant, 42 permissions, known issues |

@@ -1,5 +1,20 @@
 # Step-by-step guide: serve the RFP portal over HTTPS (get the lock icon) on your server
 
+> ## ⚠️ SUPERSEDED — historical record, do not follow as-is (noted 2026-07-17)
+>
+> This plan predates two changes that have since landed. Read it for the **HTTPS/IIS reasoning**, which
+> still holds, but **do not copy its URLs or its callback approach**:
+>
+> 1. **URLs here omit the `/rfp` path prefix.** The app is now served under `/rfp`
+>    (`root_path="/rfp"`, `base: '/rfp/'`), so the portal is **`https://be-aramco-01.bahra-cables.com/rfp`**,
+>    not the bare origin this document uses. `UPLOAD_BASE_URL` must end in **`/rfp/`**.
+> 2. **Phase 2 keeps a public dev tunnel for the Adaptive-Card callback. That is retired.** The callback
+>    now runs on **Microsoft Entra Application Proxy** — see
+>    [Azure-App-Proxy-Adaptive-Card-Setup.md](Azure-App-Proxy-Adaptive-Card-Setup.md), which is the
+>    current runbook.
+>
+> Current state lives in [docs/03-operations/09-Deployment-Guide.md](docs/03-operations/09-Deployment-Guide.md).
+
 > **Read me first.** This is a hands-on runbook you can follow yourself on the server. Work
 > through the phases **in order**. Each phase ends with a **"✅ Done when…"** check — don't move
 > on until it passes. Nothing here is destructive; the old setup keeps running until **Phase 4**,

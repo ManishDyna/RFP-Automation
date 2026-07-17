@@ -16,13 +16,13 @@
 | Thing | Value |
 |---|---|
 | Server VM (LAN-only) | `192.168.111.192` (Windows Server 2016) |
-| RFP portal URL (internal, IIS) | `https://rfp.be-aramco-01.bahra-cables.com` |
+| RFP portal URL (internal, IIS) | `https://be-aramco-01.bahra-cables.com/rfp` |
 | RFP backend | FastAPI/Uvicorn on **`127.0.0.1:8000`** (localhost-only) |
 | RFP Windows service | **`rfp-api`** (WinSW) |
 | RFP repo | **`C:\Bahra-Automation-RFP-System`** |
 | RFP venv python | `C:\Bahra-Automation-RFP-System\env\Scripts\python.exe` |
 | Config file | `C:\Bahra-Automation-RFP-System\backend\config\config.py` |
-| TLS | self-signed wildcard `*.be-aramco-01.bahra-cables.com` (LAN-trusted only) |
+| TLS | **Internal-CA-issued** cert for `be-aramco-01.bahra-cables.com` (LAN-trusted, not publicly trusted) |
 
 ## What you'll achieve
 
@@ -33,13 +33,13 @@ connector is **outbound-only** — so Microsoft's cloud can reach the callback *
 inbound firewall port or publishing the VM on the internet**.
 
 The address the card calls becomes a stable Microsoft-managed URL like
-`https://bahra-rfp-callback-<tenant>.msappproxy.net/api/actionable-card/response`.
+`https://bahrarfpadaptivecardcallback-bahracables.msappproxy.net/rfp/api/actionable-card/response`.
 
 **Two independent connections (unchanged model, just swapping the second one):**
 
 | Connection | Who connects | Path | Changing? |
 |---|---|---|---|
-| Browser → RFP portal | internal staff on the Bahra LAN | IIS `https://rfp.be-aramco-01…` → `127.0.0.1:8000` | **No** |
+| Browser → RFP portal | internal staff on the Bahra LAN | IIS `https://be-aramco-01.bahra-cables.com/rfp` → `127.0.0.1:8000` | **No** |
 | Microsoft cloud → Adaptive-Card callback | Outlook / Microsoft servers (public internet) | ~~devtunnel~~ → **App Proxy** → `127.0.0.1:8000` | **Yes** |
 
 > **Scope:** we publish **only** the `/api/actionable-card/` path through App Proxy. The RBAC
@@ -114,10 +114,28 @@ The address the card calls becomes a stable Microsoft-managed URL like
 | Field | Value |
 |---|---|
 | **Name** | `Bahra RFP – Adaptive Card Callback` |
-| **Internal URL** | `http://localhost:8000/api/actionable-card/` &nbsp;*(trailing `/` matters — path-scopes the publish to ONLY the callback endpoints; the connector hits the backend directly, bypassing IIS)* |
-| **External URL** | leave the **default `msappproxy.net`** domain → `https://bahra-rfp-callback-<tenant>.msappproxy.net/api/actionable-card/` |
+| **Internal URL** | **Points at IIS**, so that the `/rfp` path prefix is preserved end-to-end — IIS then strips `/rfp` and forwards to `127.0.0.1:8000`. See the scope warning below. |
+| **External URL** | leave the **default `msappproxy.net`** domain. The card callback resolves to `https://bahrarfpadaptivecardcallback-bahracables.msappproxy.net/rfp/api/actionable-card/response` (this exact value is what `config.py` embeds in every card email) |
 | **Pre Authentication** | **Passthrough** &nbsp;← **critical** |
 | **Connector Group** | Default |
+
+> ### ⚠️ Scope warning — the publish is broader than the callback path
+>
+> The live callback URL is `…msappproxy.net/**rfp**/api/actionable-card/response`. For that `/rfp` prefix to
+> survive to the backend, the publish must be **rooted at the IIS site**, not path-scoped to
+> `/api/actionable-card/`. The consequence: **other paths under the same origin are likely reachable through
+> the proxy too** — `…msappproxy.net/rfp/api/login`, `/rfp/health`, the upload page, and `/rfp/api/automation/*`
+> (which has **no authentication at all**).
+>
+> This contradicts the "we publish only the callback path" intent stated below, and it means the Step-3
+> negative check (`/rfp/health` and `/rfp/api/login` must **not** be served) is **expected to fail** as
+> currently configured.
+>
+> **Action:** verify what the External/Internal URL pair actually exposes, from an off-LAN machine. If the
+> whole site is published, restrict it — either scope the publish to the callback path (and update
+> `ACTIONABLE_CARD_CALLBACK_URL` to the resulting shorter public URL), or put a path restriction in front of
+> it. Treat `/rfp/api/automation/*` being publicly reachable as the priority: those endpoints are
+> unauthenticated by design and were only ever safe because they were LAN-only.
 
 **Additional settings** — keep defaults except: **Backend Application Timeout** = `Default` (85 s;
 the callback is fast) · **Translate URLs in Application Body** = `Off` · **Validate Backend TLS
@@ -128,13 +146,16 @@ Click **Add**, then copy the **External URL** from the app's **Application proxy
 > **Leave Users and groups empty** — Passthrough forwards anonymously and the app checks the token
 > itself, so no user assignment is needed.
 >
-> **Alternative (via IIS instead of direct):** you *could* set Internal URL to
-> `https://rfp.be-aramco-01.bahra-cables.com/api/actionable-card/` to reuse the existing IIS/ARR
-> path. That needs the VM's hosts entry (already present) and **Validate Backend TLS = Off** (the
-> wildcard cert is self-signed). Direct-to-`:8000` above is simpler — prefer it.
+> **Why IIS rather than direct-to-`:8000`:** routing through IIS is what preserves the `/rfp` prefix the
+> card callback depends on. Going direct to `http://localhost:8000/api/actionable-card/` would path-scope
+> the publish nicely (and is the tighter option), but the resulting public URL would be
+> `…msappproxy.net/response` — which is **not** what `config.py` embeds in card emails, so the buttons
+> would 404. If you switch to the direct form, you **must** update `ACTIONABLE_CARD_CALLBACK_URL` to match
+> (Step 5). The IIS route needs the VM's hosts entry (already present); **Validate Backend TLS** can stay
+> `Off` on the internal leg.
 
 ✅ **Done when:** the app exists and shows its
-`…msappproxy.net/api/actionable-card/` external URL.
+`…msappproxy.net/rfp/api/actionable-card/` external URL.
 
 *(Optional, for apps created after 30 Jun 2026: open the app → **Permissions → Grant admin consent**
 for `User.Read`. Unused in Passthrough, but clears the tutorial checklist.)*
@@ -146,7 +167,7 @@ for `User.Read`. Unused in Passthrough, but clears the tutorial checklist.)*
 From **any internet-connected machine** (off the Bahra LAN — e.g. your laptop on the internet):
 
 ```powershell
-curl.exe -i https://bahra-rfp-callback-<tenant>.msappproxy.net/api/actionable-card/response
+curl.exe -i https://bahrarfpadaptivecardcallback-bahracables.msappproxy.net/rfp/api/actionable-card/response
 ```
 
 ✅ **Done when:** you get a **401/500 from the app** (a token-validation error), **not** a Microsoft
@@ -155,8 +176,8 @@ forwarding. *(A login page ⇒ pre-auth was left on — fix Step 2.)*
 
 Confirm nothing else leaked (only the callback path is published):
 ```powershell
-curl.exe -i https://bahra-rfp-callback-<tenant>.msappproxy.net/health      # should NOT be served
-curl.exe -i https://bahra-rfp-callback-<tenant>.msappproxy.net/api/login   # should NOT be served
+curl.exe -i https://bahrarfpadaptivecardcallback-bahracables.msappproxy.net/rfp/health      # should NOT be served
+curl.exe -i https://bahrarfpadaptivecardcallback-bahracables.msappproxy.net/rfp/api/login   # should NOT be served
 ```
 
 ---
@@ -165,7 +186,7 @@ curl.exe -i https://bahra-rfp-callback-<tenant>.msappproxy.net/api/login   # sho
 
 1. Open [outlook.office.com/connectors/oam/publish](https://outlook.office.com/connectors/oam/publish).
 2. Select the provider for originator **`8dc8a969-5abf-4c49-828f-fbced5ae7570`**.
-3. Add `https://bahra-rfp-callback-<tenant>.msappproxy.net/` to the provider's **Target URLs**. Save.
+3. Add `https://bahrarfpadaptivecardcallback-bahracables.msappproxy.net/` to the provider's **Target URLs**. Save.
 
 > Originator ID is unchanged — you're just adding a new allowed host alongside the old devtunnel one,
 > exactly as the devtunnel host is registered today. No provider re-migration.
@@ -179,7 +200,7 @@ curl.exe -i https://bahra-rfp-callback-<tenant>.msappproxy.net/api/login   # sho
 Edit `C:\Bahra-Automation-RFP-System\backend\config\config.py` **line 137**:
 
 ```python
-ACTIONABLE_CARD_CALLBACK_URL = "https://bahra-rfp-callback-<tenant>.msappproxy.net/api/actionable-card/response"
+ACTIONABLE_CARD_CALLBACK_URL = "https://bahrarfpadaptivecardcallback-bahracables.msappproxy.net/rfp/api/actionable-card/response"
 ```
 
 **Rules:**
@@ -207,7 +228,7 @@ Card **"Upload"** button (`<UPLOAD_BASE_URL>/upload?token=…`). Staff open thes
 the LAN, so point it at the **internal RFP HTTPS** address (served by IIS):
 
 ```python
-UPLOAD_BASE_URL = "https://rfp.be-aramco-01.bahra-cables.com/"
+UPLOAD_BASE_URL = "https://be-aramco-01.bahra-cables.com/rfp/"
 ```
 
 Restart `rfp-api` again after the change. *(Only if bidders open upload links from OUTSIDE the LAN
@@ -224,7 +245,7 @@ per current requirement; decide before Step 8.)*
 2. **Submit** → the response saves (check the portal / the RFP response table).
 3. **Refresh** action → the card updates in place.
 4. **Decline** on a consolidated card → it records the decline.
-5. **Upload** → opens `https://rfp.be-aramco-01.bahra-cables.com/upload?...` (not a dead tunnel).
+5. **Upload** → opens `https://be-aramco-01.bahra-cables.com/rfp/upload?...` (not a dead tunnel).
 
 ✅ **Done when:** Submit, Refresh, and Decline all work from a freshly-sent card, via the
 `msappproxy.net` URL.
@@ -246,7 +267,7 @@ Once Steps 3–7 pass:
 ## What must stay LAN-ONLY (never publish through App Proxy)
 
 - The RBAC dashboard and all session-authenticated `/api/*`, `/dashboard/*`, `/upload` routes →
-  internal staff reach them via IIS at `https://rfp.be-aramco-01.bahra-cables.com`.
+  internal staff reach them via IIS at `https://be-aramco-01.bahra-cables.com/rfp`.
 - **`/api/automation/*`** (e.g. `/api/automation/run`) → **unauthenticated**; must **never** be
   internet-reachable. Publishing only the `/api/actionable-card/` path keeps them private.
 
@@ -256,7 +277,7 @@ Once Steps 3–7 pass:
 
 - **Default `msappproxy.net` is the right domain choice here.** A custom domain
   (`rfp-callback.be-aramco-01…`) would need a **publicly trusted** TLS cert — the server's
-  self-signed wildcard would be rejected — so stick with the Microsoft-managed default.
+  internal-CA cert is not publicly trusted and would be rejected — so stick with the Microsoft-managed default.
 - **Backend stays on `127.0.0.1:8000`.** Do **not** rebind uvicorn to `0.0.0.0` for this — the
   connector on the same VM reaches localhost fine, and keeping it localhost-only preserves the
   LAN-only posture.
@@ -268,10 +289,10 @@ Once Steps 3–7 pass:
 
 ## Final verification checklist
 
-- [ ] `curl https://…msappproxy.net/api/actionable-card/response` → app 401/500 (not a login page).
-- [ ] `…msappproxy.net/health` and `/api/login` are **not** served.
+- [ ] `curl https://…msappproxy.net/rfp/api/actionable-card/response` → app 401/500 (not a login page).
+- [ ] `…msappproxy.net/rfp/health` and `/api/login` are **not** served.
 - [ ] A **fresh** Outlook card Submit / Refresh / Decline all succeed.
-- [ ] The Upload button opens `https://rfp.be-aramco-01.bahra-cables.com/upload?...`.
+- [ ] The Upload button opens `https://be-aramco-01.bahra-cables.com/rfp/upload?...`.
 - [ ] The devtunnel is stopped and nothing broke; `rfp-api`, IIS, and the connector are running.
 
 ---
@@ -285,7 +306,7 @@ Once Steps 3–7 pass:
 | Card action **401 "invalid audience/issuer"** | App's own token check config | Confirm `ACTIONABLE_CARD_APP_ID_URI` set for the provider (unrelated to App Proxy) |
 | Outlook **won't render / POST** the buttons | New host not registered | Add the msappproxy.net URL to provider **Target URLs** (Step 4) |
 | Connector won't register / **"Unauthorized"** | TLS inspection on outbound 443 | Exempt `*.msappproxy.net` + `*.servicebus.windows.net` from inline TLS inspection |
-| Upload button opens a **dead** page | `UPLOAD_BASE_URL` still on the old devtunnel | Set to `https://rfp.be-aramco-01.bahra-cables.com/` (Step 6), `Restart-Service rfp-api` |
+| Upload button opens a **dead** page | `UPLOAD_BASE_URL` still on the old devtunnel | Set to `https://be-aramco-01.bahra-cables.com/rfp/` (Step 6), `Restart-Service rfp-api` |
 | `…/response/refresh` **404** but base works | Callback URL suffix wrong | Line 137 must end exactly `/api/actionable-card/response` |
 
 ---
