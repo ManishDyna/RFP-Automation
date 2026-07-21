@@ -121,10 +121,9 @@ async def is_logged_in(page):
         
         # Check if login input field exists (indicates logout)
         try:
-            login_input = await page.locator('xpath=//*[@id="_boebpb"]/div[1]/input').count()
-            if login_input > 0:
+            if await login_form_present(page):
                 return False
-        except:
+        except Exception:
             pass
         
         # Check if we're on a valid portal page (not login)
@@ -158,17 +157,9 @@ async def ensure_logged_in(page, retry_count=3):
             await page.goto(get_setting("URL", ""), wait_until="domcontentloaded", timeout=60000)
             await asyncio.sleep(1)
             
-            # Wait for login input to be available
-            try:
-                await page.wait_for_selector('xpath=//*[@id="_boebpb"]/div[1]/input', state='visible', timeout=10000)
-            except:
-                # If selector not found, try alternative
-                await page.wait_for_selector('#Password', state='visible', timeout=10000)
-            
-            # Fill login credentials
-            await page.fill('xpath=//*[@id="_boebpb"]/div[1]/input', USERNAME)
-            await page.fill('#Password', PASSWORD)
-            
+            # Fill login credentials (waits for the fields itself)
+            await fill_login_credentials(page, USERNAME, PASSWORD)
+
             # Submit login
             try:
                 async with page.expect_navigation(wait_until="networkidle", timeout=60000):
@@ -1604,9 +1595,8 @@ async def run_automation_download_all_rfps(selected_company: str = ""):
             # Login
             log_event("ALL_RFPS", "Login", "Start", "Starting login")
             await page.goto(get_setting("URL", ""), wait_until="domcontentloaded")
-            await page.fill('xpath=//*[@id="_boebpb"]/div[1]/input', USERNAME)
-            await page.fill('#Password', PASSWORD)
-            
+            await fill_login_credentials(page, USERNAME, PASSWORD)
+
             try:
                 async with page.expect_navigation(wait_until="networkidle", timeout=60000):
                     await page.click('input[type="submit"]')

@@ -2,31 +2,89 @@ from core.common_imports import *
 from core.log_events import log_rfp_activity
 
 # ===== LOGIN =====
-# async def login_and_select_company(page):
-#     await page.goto(URL)
-#     await page.fill('xpath=//*[@id="_boebpb"]/div[1]/input', USERNAME)
-#     await page.fill('#Password', PASSWORD)
-#     await page.click('input[type="submit"]')
-#     log_event("LOGIN", "Login", "Success", "Logged in")
-#     print("Login SucessFully")
+# Ariba's generated widget ids (_boebpb, _xcbcqb, ...) rotate on every SAP
+# redeploy, so anchor on the form field NAME instead — Ariba's own login POST
+# depends on `UserName`/`Password`, so those cannot change silently.
+# The username input carries no id at all, only name="UserName"; the password
+# input is the one with a real static id="Password".
+USERNAME_SELECTORS = (
+    'input[name="UserName"]',
+    'td.w-login-form-input-user input[name="UserName"]',
+    'td.w-login-form-input-user input.w-txt-dsize',
+)
+PASSWORD_SELECTORS = (
+    '#Password',
+    'input[name="Password"]:not([type="hidden"])',
+)
 
-#     # await page.click('#_jlt7md') More...
-#     # await page.wait_for_selector('xpath=//a[normalize-space(text())="More"]')
-    
-#     more_link = page.get_by_role("link", name=re.compile(r"^more(\.\.\.)?$", re.IGNORECASE))
-#     await more_link.click()
-#     await page.wait_for_selector(f'xpath=//a[normalize-space(text())="{COMPANY_NAME}"]')
-#     await page.click(f'xpath=//a[normalize-space(text())="{COMPANY_NAME}"]')
-#     log_event("LOGIN", "SelectCompany", "Success", f"Selected {COMPANY_NAME}")
-#     print("Select Company")
+# Short probe for the fallback selectors — the first one already absorbed the
+# full wait, so anything still missing is missing, not slow.
+_FALLBACK_PROBE_MS = 2000
 
+
+async def _first_visible(page, selectors, timeout):
+    """Return the first selector in `selectors` that becomes visible, else None.
+
+    The first selector gets the full `timeout` (it doubles as the page-ready
+    wait); the rest are probed briefly.
+    """
+    for index, selector in enumerate(selectors):
+        try:
+            locator = page.locator(selector).first
+            await locator.wait_for(
+                state="visible",
+                timeout=timeout if index == 0 else _FALLBACK_PROBE_MS,
+            )
+            return locator
+        except Exception:
+            continue
+    return None
+
+
+async def fill_login_credentials(page, username, password, timeout=20000):
+    """Fill the Ariba supplier login form, tolerant of rotating widget ids.
+
+    Raises RuntimeError naming every selector tried, rather than letting a
+    single stale locator burn 30s and surface an opaque Playwright timeout.
+    """
+    user_box = await _first_visible(page, USERNAME_SELECTORS, timeout)
+    if user_box is None:
+        raise RuntimeError(
+            f"Ariba login: username field not found at {page.url}. "
+            f"Tried: {', '.join(USERNAME_SELECTORS)}. "
+            "Ariba likely changed the login markup — re-inspect the page."
+        )
+    await user_box.fill(username)
+
+    pwd_box = await _first_visible(page, PASSWORD_SELECTORS, timeout)
+    if pwd_box is None:
+        raise RuntimeError(
+            f"Ariba login: password field not found at {page.url}. "
+            f"Tried: {', '.join(PASSWORD_SELECTORS)}."
+        )
+    await pwd_box.fill(password)
+
+
+async def login_form_present(page) -> bool:
+    """True if the Ariba supplier login form is on screen (i.e. we are logged out).
+
+    Deliberately count-based and non-blocking: this runs before every export via
+    `is_logged_in`, so it must not spend a wait budget on the common case where
+    we are logged in and the form is legitimately absent.
+    """
+    for selector in USERNAME_SELECTORS:
+        try:
+            if await page.locator(selector).count() > 0:
+                return True
+        except Exception:
+            continue
+    return False
 
 
 async def login_and_select_company(page, company_name: str | None = None):
     target_company = (company_name or COMPANY_NAME).strip() or COMPANY_NAME
     await page.goto(URL, timeout=60000)
-    await page.fill('xpath=//*[@id="_boebpb"]/div[1]/input', USERNAME)
-    await page.fill('#Password', PASSWORD)
+    await fill_login_credentials(page, USERNAME, PASSWORD)
     async with page.expect_navigation(wait_until="domcontentloaded", timeout=60000):
         await page.click('input[type="submit"]')
     log_event("LOGIN", "Login", "Success", "Logged in")
