@@ -3,7 +3,9 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Upload, FileSpreadsheet, File, X, Check, ChevronsUpDown } from 'lucide-react'
+import { Upload, FileSpreadsheet, File, X, Check, ChevronsUpDown, Cloud, Loader2 } from 'lucide-react'
+
+import { Checkbox } from '@/components/ui/checkbox'
 
 import {
   Dialog,
@@ -66,6 +68,9 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
   const [openRfps, setOpenRfps] = useState<Array<{ rfp_id: string; company: string }>>([])
   const [loadingRfps, setLoadingRfps] = useState(false)
   const [comboOpen, setComboOpen] = useState(false)
+  const [existingTdsFiles, setExistingTdsFiles] = useState<Array<{ name: string; path: string }>>([])
+  const [selectedExistingTds, setSelectedExistingTds] = useState<string[]>([])
+  const [loadingTdsFiles, setLoadingTdsFiles] = useState(false)
 
   const {
     handleSubmit,
@@ -132,6 +137,49 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
     }
   }, [initialRfpId, open, openRfps, selectRfp, setValue])
 
+  // When an RFP is validly selected, fetch existing TDS files from SharePoint
+  // so the user can pick already-uploaded files instead of re-uploading.
+  useEffect(() => {
+    if (!open) return
+    if (rfpValidation.status !== 'valid') {
+      setExistingTdsFiles([])
+      setSelectedExistingTds([])
+      return
+    }
+    const rfpId = watch('rfp_id')
+    const company = rfpValidation.company
+    if (!rfpId || !company) return
+
+    let cancelled = false
+    setLoadingTdsFiles(true)
+    api
+      .listExistingTdsFiles(rfpId, company)
+      .then((res) => {
+        if (cancelled) return
+        const files = res?.files ?? []
+        setExistingTdsFiles(files)
+        setSelectedExistingTds([])
+      })
+      .catch(() => {
+        if (cancelled) return
+        setExistingTdsFiles([])
+        setSelectedExistingTds([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTdsFiles(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, rfpValidation, watch])
+
+  const toggleExistingTds = (name: string) => {
+    setSelectedExistingTds((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+    )
+  }
+
   const handleExcelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -180,6 +228,9 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
       pdfFiles.forEach((file) => {
         formData.append('technical_files', file)
       })
+      selectedExistingTds.forEach((name) => {
+        formData.append('existing_tds_files', name)
+      })
 
       await api.submitRfp(formData)
       toast.success('RFP submission started successfully')
@@ -196,6 +247,8 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
     setExcelFile(null)
     setPdfFiles([])
     setRfpValidation({ status: 'idle' })
+    setExistingTdsFiles([])
+    setSelectedExistingTds([])
     onOpenChange(false)
   }
 
@@ -404,9 +457,74 @@ export function SubmitRfpDialog({ open, onOpenChange, initialRfpId }: SubmitRfpD
               </div>
             )}
             <p className="text-xs text-muted-foreground">
-              Files will be uploaded to SharePoint folder before submission.
+              Files will be uploaded to the SharePoint TDS-files folder before submission.
             </p>
           </div>
+
+          {rfpValidation.status === 'valid' && (
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs text-muted-foreground uppercase tracking-wide">
+                And / Or pick from SharePoint
+              </span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+          )}
+
+          {rfpValidation.status === 'valid' && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="flex items-center gap-2">
+                  <Cloud className="h-4 w-4" />
+                  Existing TDS Files in SharePoint
+                </Label>
+                {loadingTdsFiles && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading…
+                  </span>
+                )}
+              </div>
+              {!loadingTdsFiles && existingTdsFiles.length === 0 && (
+                <div className="border-2 border-dashed border-muted rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">
+                    No TDS files found in SharePoint folder for this RFP.
+                  </p>
+                </div>
+              )}
+              {existingTdsFiles.length > 0 && (
+                <div className="border rounded-lg divide-y max-h-44 overflow-y-auto">
+                  {existingTdsFiles.map((f) => {
+                    const checked = selectedExistingTds.includes(f.name)
+                    return (
+                      <label
+                        key={f.path}
+                        className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/50"
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() => toggleExistingTds(f.name)}
+                        />
+                        <File className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="text-sm truncate flex-1 min-w-0">{f.name}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+              {existingTdsFiles.length > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Tick any files already in the SharePoint <span className="font-mono">TDS-files</span> folder
+                  you want to reuse ({selectedExistingTds.length}/{existingTdsFiles.length} selected).
+                  You can also upload more above — both selected and uploaded files will be used together.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  You can upload new files above and/or reuse existing ones from SharePoint — both will be used together.
+                </p>
+              )}
+            </div>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={handleClose}>

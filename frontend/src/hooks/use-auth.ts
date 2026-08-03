@@ -30,7 +30,7 @@ export const useAuth = create<AuthState>()(
       isLoading: true,
 
       login: async (email: string, password: string) => {
-        const result = await api.login(email, password)
+        await api.login(email, password)
         // The session is set by the backend via cookies
         // We need to fetch the user data after login
         const sessionStatus = await api.getSessionStatus()

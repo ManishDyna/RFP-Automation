@@ -1,8 +1,8 @@
 ---
 title: User Manual — Bidder
-version: 1.0
-last_updated: 2026-04-22
-owner: Samir Tak (samir.tak@dynatechconsultancy.com)
+version: 1.1
+last_updated: 2026-07-17
+owner: Manish Soni (Manish.soni@dynatechconsultancy.com)
 audience: RFP Bidders (sales engineers)
 status: Draft
 ---
@@ -17,211 +17,250 @@ Welcome. This guide walks you through everything you need to respond to RFPs qui
 
 ## What you can do
 
-As a **Bidder** you can:
+The **RFP Bidder** role gives you ten permissions. In plain terms, you can:
 
-- See RFPs assigned to you on the dashboard
-- Open an RFP, review the BOQ and the auto-matched materials
-- Fill in prices and lead times
-- **Submit** a response, or **Decline** with a reason
-- Respond directly from Outlook (adaptive card) without opening the portal
-- View your past submissions and activity log
+- See the Dashboard and the full RFP list (**RFP Insights**)
+- See which materials the system matched on each RFP, and how
+- Trigger a download of new RFPs from the Ariba account
+- Push a completed response back to the buyer, or decline an RFP
+- Answer RFPs straight from Outlook, without opening the portal
+- Track who still owes a response on the **Open RFP** page, and hand a product line to a colleague
+- Open an RFP's SharePoint folder
+- Browse **Activity Logs** and **Material Insights**
 
 You **cannot**:
 
-- See other bidders' prices
-- Create users, roles, or change system settings
+- Send reminder emails from the Open RFP page (that needs `rfp.open.remind`, which the Bidder role does not include — ask your admin if you need it)
+- Open Analytics, Users, Roles, Audit Logs, SAP Logs, Master Data, or System Config
 - Edit the material master or keyword list
+
+If you need any of these, your admin can build you a custom role.
 
 ---
 
 ## 1. Logging in
 
-1. Go to the portal URL provided by your admin (e.g., `https://rfp.bahra-example.com`).
+![Login screen](../Application-ScreenShot/Login-Screen.png)
+
+1. Go to **https://be-aramco-01.bahra-cables.com/rfp**.
 2. Enter your **email** and **password**.
 3. Click **Sign in**.
 
 If you forgot your password:
+
+![Reset password page](../Application-ScreenShot/Reset-Password-page.png)
+
 1. Click **Forgot password?** on the login screen.
 2. Enter your email.
-3. Check your inbox for a reset link (valid 24 hours).
-4. Click the link, set a new password.
+3. Check your inbox for a reset link. **The link is only valid for 30 minutes** — request a fresh one if it expires.
+4. Click the link and set a new password.
 
-After five failed attempts your account is locked. Contact your admin to unlock.
+**If you get five passwords wrong in five minutes**, the portal stops accepting attempts from you and tells you how many seconds to wait. Nothing is permanently locked and you do not need your admin — wait it out and try again. If you are still blocked after that, then contact your admin.
+
+**Your session lasts 2 hours from the moment you sign in**, whether or not you are active. Being busy does not extend it — two hours after login you will be asked to sign in again. If you're part-way through something long, save your work.
 
 ---
 
 ## 2. The dashboard
 
-After login you land on the **Dashboard**. It shows:
+![Dashboard](../Application-ScreenShot/Dashboard.png)
+
+After login you land on the **Dashboard**. Across the top:
 
 | Tile | What it means |
 |---|---|
-| **Total RFPs** | All RFPs you have access to, in the selected date range |
+| **Total Downloaded RFPs** | Every RFP pulled from Ariba in the selected date range |
 | **Open** | Not yet submitted or declined |
-| **Submitted** | Awaiting approval (or already sent to customer) |
-| **Declined** | You or a teammate declined these |
+| **Submitted** | A response has been sent to the buyer |
+| **Declined** | Someone declined to bid |
+| **Not Participated** | Bahra did not take part |
 
-Use the **date** and **customer** filters at the top to narrow the view.
+Below that, **Submitted by System** and **Declined by System** count the ones the automation handled without a person.
+
+Use the date range and company filters to narrow the view.
 
 ---
 
 ## 3. Finding your RFPs
 
+![RFP Insights](../Application-ScreenShot/RFP-insight-screen.png)
+
 1. Click **RFP Insights** in the sidebar.
-2. You see a table with one row per RFP.
-3. Sort or filter by clicking column headers or typing in the search box.
-4. Look for RFPs with status **New** or **In Progress** — those are the ones waiting on you.
+2. You get one row per RFP, with count tiles above (Total RFPs, Submitted, Declined, Not Participant, Open).
+3. Narrow it down with the filters: status, company, date range, free-text search, whether it matched on material or keyword, and participation.
+4. **Open** is the pile that needs you.
 
-**Columns to pay attention to:**
-
-- **RFP ID** — the customer's reference, click to open detail
-- **Customer** — who sent the RFP
-- **Received** — the date we ingested it
-- **Deadline** — when you must respond by (if set)
-- **Status** — New / In Progress / Submitted / Declined
-- **Match %** — how much of the BOQ our system auto-matched against SAP
-
-A low **Match %** doesn't mean the RFP is bad — it means you'll spend more time manually selecting material codes.
+To take the list elsewhere, use **Export CSV** or **Export Excel** (both honour your current filters), or **Export full analysis report** — a three-sheet workbook of materials, RFPs, and an RFP-count pivot. Note that the full analysis report **ignores your filters** and always exports everything.
 
 ---
 
-## 4. Opening an RFP
+## 4. Understanding the match
 
-Click an **RFP ID**. The detail page has three sections:
+On the Dashboard, each RFP shows a **Match %**. Click it to open the **Material Breakdown**.
 
-### 4.1 Header
-RFP metadata: customer, project, received date, deadline, attachments. Click an attachment filename to download the original file.
+![Material breakdown](../Application-ScreenShot/Material-Matching-screen.png)
 
-### 4.2 BOQ + matches
-One row per line item, with our auto-match suggestion:
+The dialog gives you, per material line: the code, the Bahra item code, the description, whether it **Matched**, and — this is the important column — the **Method**:
 
-- Green badge = high confidence match (≥ 90 %)
-- Yellow badge = medium confidence (75–89 %)
-- Red badge = no match (needs your attention)
+| Method badge | What actually happened | How much to trust it |
+|---|---|---|
+| **Exact** | The BOQ line carried a 9-digit SAP material code and that exact code exists in the Material Master. | Reliable. |
+| **Keyword** | No SAP code on the line, so the system compared the line's text against the keyword list and found one that overlapped. | **Check it.** |
+| *(none)* | Neither rule matched. The line is listed under **Not Matched**. | Handle it yourself. |
 
-You can click the material-code dropdown to change the match.
+Two things worth knowing, because the screen's wording can mislead:
 
-### 4.3 Response form
-Your input area. Fields are configured by your admin — typically:
+- **"Match Score" is not a confidence score.** It is coverage — matched lines ÷ total lines. 100% means every line found *something*, not that every match is correct.
+- **A Keyword match is not a "best" match.** The system does not rank candidates or score similarity. When several materials share a keyword it simply takes the first one it finds. A short keyword can therefore pull in a related-but-wrong material.
 
-- **Unit price** (required)
-- **Lead time (days)** (required)
-- **Remarks** (optional)
-- Other custom fields your company has set up
+So: **Exact** you can take at face value; **Keyword** deserves a look before you price it. If an item your team quotes regularly keeps landing in **Not Matched**, ask your admin to add a keyword for it — that is the supported fix, and it improves every future RFP.
+
+Use the **All / Matched / Not Matched** tabs and the search box to work through a long list.
 
 ---
 
-## 5. Submitting a response
+## 5. Responding to an RFP
 
-**From the portal:**
+Bidders price RFPs **in Outlook**, on the adaptive card the system emails you. The portal is where you look things up and where the finished workbook gets pushed back to the buyer.
 
-1. Open the RFP.
-2. For each line, confirm or change the matched material code.
-3. Enter unit price, lead time, and any remarks.
-4. Click **Submit RFP** at the bottom.
-5. Confirm in the dialog.
+### 5.1 In Outlook (this is where you enter prices)
 
-**From Outlook (adaptive card):**
+1. Open the RFP email. The card refreshes itself and shows the current state of each product line.
+2. Fill in the fields for your product lines — the exact fields are configured by your admin, typically price and lead time.
+3. Click **Submit All Responses**.
+4. The card updates in place to confirm.
 
-1. Open the RFP email.
-2. The card shows each line item.
-3. Fill in the price / lead time fields.
-4. Click **Submit** inside the card.
-5. The card updates in place to show "Submitted — thank you".
+Other buttons on the card:
 
-Both paths do the same thing. Use whichever is convenient.
+- **Refresh Status** — re-checks what has already been answered.
+- **View Files** — opens the RFP's files.
+- **Decline RFP** — say no to the whole RFP.
 
-> **Tip:** If you're away from your desk, the adaptive card works on the Outlook mobile app too.
+> **First answer wins.** Each product line accepts one response. If a colleague has already answered a line, your answer for that same line is not applied — the card shows you what is already settled, which is what **Refresh Status** is for.
+
+> **Tip:** The card works in Outlook on the web, desktop, and mobile.
+
+### 5.2 Pushing the response back to Ariba (portal)
+
+When the buyer's workbook is filled in and ready to go back:
+
+![Submit RFP dialog](../Application-ScreenShot/Submit-RFP-page.png)
+
+1. Click **Submit RFP** in the sidebar's Quick Actions.
+2. Pick the **RFP ID** (search by ID or company) — required.
+3. Pick the **Company** — required. If the RFP belongs to a different buyer, the dialog tells you and stops.
+4. Upload the **Excel file** — required.
+5. Add **Technical PDF Files** if you have them — optional.
+6. Click Submit.
+
+The submission runs in the background and drives the Ariba wizard for you; you don't have to keep the dialog open. If a submission is already running for that RFP, the portal tells you rather than starting a second one.
 
 ---
 
 ## 6. Declining an RFP
 
-**From the portal:**
+![Decline RFP dialog](../Application-ScreenShot/Decline-RFP-page.png)
 
-1. Open the RFP.
-2. Click **Decline**.
-3. Select or type a reason (required).
-4. Confirm.
+**From the portal:** click **Decline RFP** in Quick Actions, select the RFP and its company, and confirm. The automation declines it on Ariba.
 
-**From Outlook:**
+**From Outlook:** click **Decline RFP** on the card.
 
-1. Click **Decline** inside the adaptive card.
-2. Enter a reason.
-3. Click **Submit**.
-
-A declined RFP drops off your active list. If it was declined in error, ask your admin to reassign it.
+A declined RFP drops off the active list. If it was declined in error, ask your admin.
 
 ---
 
-## 7. Partial submissions
+## 7. Downloading new RFPs
 
-You may not have a price for every line. You can:
+![Download RFPs dialog](../Application-ScreenShot/Download-RFP-Button-Page.png)
 
-1. Leave unknown line items blank and submit the rest. The row stays flagged so your admin can see what's missing.
-2. Save a **draft** (if enabled) and come back later. Click **Save draft** instead of Submit.
+The automation pulls new RFPs on its own four times a day. If you don't want to wait, click **Download RFPs** in Quick Actions, pick a company (or **All Companies**), and start it.
 
-Drafts don't count as responses — the reminder email will keep coming until you Submit.
+The run happens in the background and can take a while. Only one download runs at a time — if one is already going, the portal says so.
 
 ---
 
-## 8. Reminders
+## 8. Chasing responses — the Open RFP page
 
-You'll receive a reminder email daily for RFPs you haven't responded to, until:
-- You submit or decline, **or**
-- The RFP deadline passes
+![Open RFP page](../Application-ScreenShot/open-rfps-page.png)
 
-Reminders stop automatically — you do not need to unsubscribe.
+**Open RFP** in the sidebar lists RFPs still awaiting responses, one row per product line, showing who owes what and which reminders have gone out. Click **Reminder History** to see what has already been sent.
+
+As a Bidder you can **Delegate** a pending product line to someone else: click **Delegate** on the row and choose the recipient. The row then shows it was delegated, to whom, by whom, and when — and the new recipient is the one chased from that point.
+
+The **Remind** and **Remind All Pending** buttons need `rfp.open.remind`, which the standard Bidder role does not include, so you may not see them.
+
+> **Heads-up:** the automatic 3-day and 1-day deadline reminder emails are **not being sent at the moment** — this is a known issue your admins are tracking. Don't assume a colleague has been nudged; check this page.
 
 ---
 
 ## 9. Your activity
 
-Click **Activity Logs** in the sidebar to see what you and the system have done recently — RFPs downloaded, submissions made, reminders sent.
+![Activity Logs](../Application-ScreenShot/Activity-log-page.png)
 
-This is a helpful place to verify "did my submission go through?" if you're unsure.
+**Activity Logs** in the sidebar shows what you and the automation have done — RFPs downloaded, submissions, declines. This is the place to answer "did my submission actually go through?".
+
+Use the search box to find a specific RFP. Search runs against the whole table on the server, so it will find old runs that aren't in the visible list.
 
 ---
 
 ## 10. Profile & password
 
+![Profile page](../Application-ScreenShot/User-Profle-Management-page.png)
+
 Click your avatar (top right) → **Profile**.
 
-- Update your display name or phone
-- **Change password** — enter your current password, then the new one
-- Sign out
+- **Display Name** — you can change this.
+- **Email** and **Role** — shown but read-only. Ask an admin to change either.
+
+To change your password:
+
+![Change password](../Application-ScreenShot/Change-password.png)
+
+Enter your current password, then the new one twice, and click **Change Password**.
 
 ---
 
 ## 11. Material insights
 
-Click **Material Insights** in the sidebar. This shows which materials come up most often in RFPs, broken down by customer. Useful for:
+![Material Insights](../Application-ScreenShot/Material-insights-page1.png)
 
-- Identifying frequently requested items you should stock-check
-- Spotting a customer's buying patterns
+**Material Insights** shows which materials come up most often across RFPs, broken down by company. Useful for:
+
+- Spotting frequently requested items worth a stock check
+- Reading a customer's buying patterns
 - Preparing for the next tender cycle
+
+There's also a keyword view showing which keywords are actually pulling matches:
+
+![Material Insights — keywords](../Application-ScreenShot/material-insights-keyword1.png)
 
 ---
 
 ## 12. Frequently asked questions
 
 **Q. I submitted by mistake — can I undo?**
-Not directly. Contact your admin; they can reset the RFP to `In Progress`.
+Not from the portal. Contact your admin.
 
-**Q. The adaptive card in Outlook is blank.**
-Reload the email. If it stays blank, your organisation may not have actionable messages enabled — use the portal instead.
+**Q. The adaptive card in Outlook is blank or the buttons do nothing.**
+Reload the email first. If it stays broken, tell your admin — the card reaches the system through an Entra Application Proxy path they can check. Meanwhile, work the RFP from the portal.
 
-**Q. I can't see an RFP that my colleague says is assigned to me.**
-Check the date filter on the RFP list — it might be hidden by a narrow range. If still missing, your RBAC role may not include it; ask your admin.
+**Q. My colleague answered a line I was working on.**
+First response wins, per line. Click **Refresh Status** on the card to see the current state before filling anything in.
 
-**Q. Why is the match percentage so low?**
-The description on the customer's BOQ is ambiguous or uses non-standard terms. Click the material-code dropdown to select manually, or ask your admin to add a keyword alias.
+**Q. I can't see an RFP a colleague says is assigned to me.**
+Check the date filter on RFP Insights — a narrow range hides things. If it's still missing, your role may be missing `rfp.view`; ask your admin.
+
+**Q. Why is the Match % low?**
+The BOQ lines didn't carry 9-digit SAP codes and nothing in the keyword list overlapped their descriptions. It's not a quality signal about the matches that *did* land. Ask your admin to add keywords for terms that keep missing.
+
+**Q. A match is plainly wrong.**
+Look at the Method badge. If it says **Keyword**, that's expected behaviour — keyword matching is broad and unranked. Fix the BOQ line yourself in the workbook, and tell your admin so they can tighten the keyword.
 
 **Q. My dashboard shows no RFPs at all.**
 Either there genuinely are none in the date range, or your role is missing `rfp.view`. Ask your admin.
 
 **Q. Can I export the RFP list?**
-Yes — use the **Export** button on the RFP Insights page. Exports as XLSX.
+Yes — **Export CSV** or **Export Excel** on RFP Insights.
 
 ---
 
@@ -229,18 +268,20 @@ Yes — use the **Export** button on the RFP Insights page. Exports as XLSX.
 
 | Problem | What to check |
 |---|---|
-| Can't log in | Caps Lock · try "Forgot password" · contact admin if still blocked |
-| "Session expired" pop-up | You've been idle 8+ hours. Click OK and sign in again |
-| Adaptive card button does nothing | Try the portal instead; tell your admin the card failed |
-| Submit button disabled | One or more required fields are empty — scroll up, look for red outlines |
-| Page looks broken / blank | Refresh (Ctrl+F5). If persistent, switch browser or tell your admin |
+| Can't log in | Caps Lock · try **Forgot password?** · if you're rate-limited, wait the stated seconds · contact admin if still blocked |
+| Signed out unexpectedly | Sessions end **2 hours after login**, regardless of activity. Sign back in |
+| Reset link says expired | It only lasts 30 minutes — request a new one |
+| Adaptive card button does nothing | Try the portal; tell your admin the card failed and give them the RFP ID |
+| "Already running" when starting a download or submit | One job of that kind runs at a time. Wait for it to finish |
+| No reminder emails arriving | Known issue — automatic deadline reminders aren't sending. Use the Open RFP page to see who's pending |
+| Page looks broken / blank | Refresh (Ctrl+F5). If it persists, tell your admin |
 
 ---
 
 ## 14. Getting help
 
 - Quick questions → your team lead
-- Access problems → your admin (`admin@bahra-example.com` — confirm in your company)
+- Access problems → your admin
 - System down → on-call IT
 
 Always include:

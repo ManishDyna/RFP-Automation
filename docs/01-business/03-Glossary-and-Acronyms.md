@@ -1,8 +1,8 @@
 ---
 title: Glossary & Acronyms
-version: 1.0
-last_updated: 2026-04-22
-owner: Samir Tak (samir.tak@dynatechconsultancy.com)
+version: 1.1
+last_updated: 2026-07-17
+owner: Manish Soni (Manish.soni@dynatechconsultancy.com)
 audience: Everyone (devs, end-users, stakeholders, ops)
 status: Complete
 ---
@@ -35,10 +35,10 @@ This document is the **single source of truth** for terminology used across the 
 An interactive email rendered as a Microsoft Actionable Message (Adaptive Card) that lets approved recipients respond directly from Outlook — for example, declining an RFP without opening the portal. See also: *Adaptive Card*, *Originator ID*.
 
 ### Approver
-A user role responsible for reviewing RFP submissions before they go out, and for granting or rejecting bid responses. Distinct from *Bidder* (who fills in the bid) and *Admin* (who manages the system).
+A **business role, not a system role.** Managers who oversee bidding use read-only screens (Dashboard, RFP Insights, Analytics, Audit Logs) via a custom role an Admin creates. The system has **no approve/reject workflow** — an RFP goes from open to `submitted` or `declined` with no sign-off step in between. Distinct from *Bidder* (who prices the RFP) and *Admin* (who manages the system).
 
 ### Ariba Portal
-SAP's e-procurement platform (`service.ariba.com`) where buyers (e.g., Saudi Electricity Company) publish RFPs that the automation downloads and processes.
+SAP's e-procurement platform (`service.ariba.com`). Bahra has **one Ariba supplier account**; the automation signs in to it with a single service login and downloads published RFPs. See *Buyer* for how the different customer organisations relate to that one account.
 
 ### Bahra Cables / Bahra Electric
 The customer organization (Saudi-based cable manufacturer) for whom this RFP automation system is built. Internal SharePoint host: `bahracables.sharepoint.com`.
@@ -53,16 +53,29 @@ A user role authorized to view assigned RFPs, download attachments, and submit b
 A structured list (usually Excel or PDF) inside an RFP attachment that itemizes every material the buyer wants quoted: description, quantity, unit, and sometimes specifications. The matching engine extracts BOQ rows and aligns them with internal Material Master entries.
 
 ### Buyer
-The customer organization that issues an RFP (e.g., *Saudi Electricity Company*, *Aramco e-Marketplace*). Configured in `COMPANY_OPTIONS`.
+The customer organisation that issues an RFP. All four buyers live **inside Bahra's single Ariba supplier account** and are switched between using Ariba's company selector (a "more…" dropdown) — they are *not* separate portals, separate logins, or separate integrations. Listed in `COMPANY_OPTIONS` ([config/config.py](../../backend/config/config.py)):
+
+- **Saudi Energy** (the default)
+- **Aramco e-Marketplace**
+- **HADEED - RAJHI STEEL**
+- **Saudi Aramco Mobil Refinery Company Limited**
+
+The portal UI shows short labels (`SEC`, `Aramco`, `HADEED`); the backend maps these to the canonical Ariba names via `COMPANY_ALIASES`.
 
 ### Cron Schedule
-A time-based recurrence pattern (e.g., "every weekday at 9 AM") that defines when the automation polls for new RFPs. Stored in the Automation Schedule table; pushed to Power Automate as a Recurrence trigger update.
+A time-based recurrence pattern that defines when the automation polls Ariba for new RFPs. **The live schedule now runs as Windows Scheduled Tasks on the application server** (registered by `scripts/Register-RfpSchedules.ps1`), not from the portal. The portal's Schedule & Automation dialog still writes to the retired Power Automate flow and **no longer changes the real cadence** — see [Operations Runbook](../03-operations/10-Operations-Runbook.md).
 
 ### Decline / Declined
 The action a Bidder takes when they choose **not** to bid on an RFP. Captures a reason and removes the RFP from the active worklist. One of the four valid RFP statuses (`no`, `saved_draft`, `submitted`, `declined`).
 
+### Delegate
+Handing one product line of an RFP to a different recipient — done from the **Open RFP** page and requires `rfp.open.delegate`. The delegated line shows who it went to, who delegated it, and when; the original recipient stops being chased for it.
+
 ### Keyword / Keyword Master
-A list of search terms (stored in the Keywords table) used by the automation to identify RFPs of interest in incoming emails or portal listings. Maintained via the Master Data → Keyword Master page.
+The list of product terms used by tier 2 of *Material Matching* — when a BOQ line has no 9-digit SAP code, the system compares these keywords against the line's Name and Description. Maintained via **Master Data → Keywords**. Adding a keyword is the supported way to make a commonly-quoted item start matching.
+
+### Match %
+Shown per RFP on the Dashboard. It is **coverage, not confidence**: the share of that RFP's BOQ lines that matched a Material Master entry at all (matched lines ÷ total lines). A low Match % means more lines need manual attention — it does not mean the matches that *were* found are weak.
 
 ### Material Code
 The unique SAP identifier for an item Bahra Electric sells (e.g., a specific cable type and gauge). Stored in the Material Master table; used by the matching engine to link BOQ line items to internal SKUs.
@@ -71,13 +84,27 @@ The unique SAP identifier for an item Bahra Electric sells (e.g., a specific cab
 The reference catalog of all SAP-known materials Bahra Electric can supply. Source of truth for the matching engine.
 
 ### Material Matching
-The fuzzy-comparison process that takes a free-text BOQ line ("Copper cable 4x16 mm² LSZH") and finds the best Material Master entry. Implementation lives in [automation_logic.py](../../automation_logic.py); algorithm details in the LLD.
+The process that links each BOQ line to a Material Master entry. It works in **two tiers, in order**:
+
+1. **Exact code match.** If the BOQ line contains a 9-digit SAP material code, the system looks for that exact code in the Material Master. An identical string is a match; anything else is not. Result label: **Exact**.
+2. **Keyword match.** Only if tier 1 finds nothing. The system splits the line's Name and Description into keywords and looks for a Material Master keyword that is contained in one of them (or contains one of them). Result label: **Keyword**.
+
+If neither tier hits, the line is left **unmatched** for a human to handle.
+
+Two things this is **not**:
+
+- **It is not fuzzy matching.** There is no similarity score, no confidence percentage, and no tunable threshold. A line either satisfies one of the two rules or it does not.
+- **It does not pick a "best" match.** When keyword matching finds several candidate materials, the system takes the **first row it encounters** — it does not rank them. Keyword matching is deliberately broad, so a short keyword can pull in a loosely related material. Treat a **Keyword** result as a suggestion to check, and an **Exact** result as reliable.
+
+The practical lever for improving matching is **data, not settings**: keep the Material Master aligned with SAP and add Keyword Master entries for terms buyers actually use.
+
+Implementation: `process_folder` in [rfp/download_rfp.py](../../backend/rfp/download_rfp.py). Reference data is loaded from Dataverse (with a SharePoint CSV fallback) by [services/master_data_service.py](../../backend/services/master_data_service.py).
 
 ### RFP — Request for Proposal
 A formal procurement document issued by a buyer asking suppliers to quote pricing, lead time, and terms for a list of materials. The unit of work this entire system revolves around.
 
 ### RFP Insights
-The analytics view that summarizes RFP volume, status distribution, win rates, and bidder activity over time. Frontend page: [rfp-insights.tsx](../../frontend/src/pages/rfp-insights.tsx).
+The searchable list of every RFP, with filters (status, company, date range, free-text search, material/keyword match, participation), count tiles across the top, and CSV / Excel / full-analysis exports. Frontend page: [rfp-insights.tsx](../../frontend/src/pages/rfp-insights.tsx). Requires `rfp.view`.
 
 ### RFP Status
 The lifecycle state of an RFP for a given Bidder. Valid values:
@@ -86,7 +113,7 @@ The lifecycle state of an RFP for a given Bidder. Valid values:
 - `submitted` — bid response sent
 - `declined` — Bidder explicitly declined to bid
 
-Defined in `VALID_RFP_STATUSES` in [config/config.py](../../config/config.py).
+Defined in `VALID_RFP_STATUSES` in [config/config.py](../../backend/config/config.py).
 
 ### RFP Team
 The mapping of products (e.g., "Cables", "Wires") to the specific Bidders/emails responsible for those product lines. Stored in the RFP Team table; drives email routing.
@@ -95,10 +122,12 @@ The mapping of products (e.g., "Cables", "Wires") to the specific Bidders/emails
 A Bidder's in-progress bid that has been saved but not yet submitted. The Bidder can return later and complete it.
 
 ### SEC — Saudi Electricity Company
-The primary buyer in the production environment. Default value of `COMPANY_NAME` in [config/config.py](../../config/config.py).
+The primary buyer, shown in the portal UI as **SEC**. Inside Ariba the organisation is named **Saudi Energy**, which is the default value of `COMPANY_NAME` in [config/config.py](../../backend/config/config.py).
 
 ### Submission
-A completed bid response that has been sent (state: `submitted`). Triggers downstream notifications and locks the RFP from further bidder edits.
+A completed bid response that has been sent (state: `submitted`). Triggers downstream notifications.
+
+Adaptive-card responses are **first-response-wins per team row**: once someone answers a given product line, that line is settled and a later answer from a colleague on the same line is not applied.
 
 ### TDS — Technical Data Sheet
 Product datasheet PDFs attached to bid responses to document technical specs of the offered material. Stored in SharePoint at `RFP-logs/TDS-files/`.
@@ -111,7 +140,7 @@ Product datasheet PDFs attached to bid responses to document technical specs of 
 A platform-agnostic JSON UI format from Microsoft used to render interactive content inside Outlook, Teams, and other hosts. The actionable email cards (decline/submit-from-email) are Adaptive Cards.
 
 ### Audit Log
-An append-only Dataverse table (`cr673_bahra_audit_logs`) capturing who did what and when — login attempts, role changes, RFP submissions, system setting edits, etc. Used for compliance and forensic review.
+An append-only Dataverse table (`cr673_bahra_audit_logs`) capturing who did what and when. It covers **authentication, user lifecycle, role changes, master-data changes, and system-setting edits** (including an entry every time a masked secret is revealed). It does **not** currently record RFP operations — downloads, submissions, declines, reminders, and delegations are not written to the audit log. To reconstruct RFP activity, use the **Activity Logs** page instead.
 
 ### Azure AD — Microsoft Entra ID
 The identity provider for both portal users and service-to-service authentication. Tenant ID + Client ID + Client Secret in `config.py` authorize the backend to call Microsoft Graph and Dataverse.
@@ -122,19 +151,19 @@ How long a cached value stays valid before being re-fetched. Examples in this pr
 - `DASHBOARD_TTL_SECONDS = 300` (5 min)
 
 ### Cloud Flow
-A workflow built in Microsoft Power Automate that runs in the cloud (vs. desktop flows). The "cron job" flow named `Bahra-E-binding-cron-job` triggers the automation on schedule.
+A workflow built in Microsoft Power Automate that runs in the cloud (vs. desktop flows). Historically the flow `Bahra-E-binding-cron-job` triggered the RFP download on a schedule. **That flow is retired** — the download and portal-sync schedules now run as Windows Scheduled Tasks on the application server.
 
 ### Dataverse
-Microsoft's low-code business database (formerly "Common Data Service" / "CDS"). Hosts all 16 tables for this system. Accessed via the OData Web API at `https://operations-bahrauat-1.crm11.dynamics.com`.
+Microsoft's low-code business database (formerly "Common Data Service" / "CDS"). Hosts every table this system uses. Accessed via the OData Web API at `https://operations-bahrauat-1.crm11.dynamics.com` (note: a **UAT** organisation is configured as the default — confirm this is intended before relying on it for production reporting).
 
 ### EntitySetName
-The plural form of a Dataverse table's logical name, used in OData URLs. Dataverse auto-pluralizes by adding `es` (not `s`) → `cr673_bahra_roles` becomes `cr673_bahra_roleses`. Always confirm via `EntityDefinitions(LogicalName='...')?$select=EntitySetName`.
+The plural form of a Dataverse table's logical name, used in OData URLs. **Dataverse's pluralisation is not predictable** — it sometimes appends `es`, sometimes `s`, sometimes reshapes the ending (`cr673_bahra_roles` → `cr673_bahra_roleses`, but `cr673_bahra_rfp_reminder_for_info` → `cr673_bahra_rfp_reminder_for_infos`, and `cr673_bahra_user_status` → `cr673_bahra_user_statuses`). Never guess — always confirm via `EntityDefinitions(LogicalName='...')?$select=EntitySetName`.
 
 ### FastAPI
 The Python web framework powering the backend (`dashboard_main.py`, `automation_main.py`). Provides automatic OpenAPI docs at `/docs` (per-endpoint schema, request/response examples).
 
 ### Idle Timeout
-Time without user activity after which the session expires (`IDLE_TIMEOUT_SECONDS = 1800` = 30 min). Distinct from *Session Timeout*, which is the absolute ceiling.
+**Not enforced.** `IDLE_TIMEOUT_SECONDS = 1800` exists in `config.py` but no code reads it, so sitting idle never signs you out. The only timeout that takes effect is *Session Timeout* — a flat 2 hours from login. The name is misleading; do not rely on an idle timeout for security.
 
 ### Logical Name
 The internal schema name of a Dataverse entity or column (e.g., `cr673_bahra_roles`). Used for metadata operations; the API plural (EntitySetName) is used for CRUD.
@@ -146,18 +175,13 @@ The GUID Dataverse assigns to each entity definition. Required for adding/modify
 The unified Microsoft 365 REST API. This system uses it for SharePoint file operations and email sending via the configured app registration's `https://graph.microsoft.com/.default` scope.
 
 ### OData
-The REST query protocol Dataverse exposes (`$select`, `$filter`, `$expand`, `$top`). All Dataverse calls in [helpers/dataverse_helper.py](../../helpers/dataverse_helper.py) use OData.
+The REST query protocol Dataverse exposes (`$select`, `$filter`, `$expand`, `$top`). All Dataverse calls in [helpers/dataverse_helper.py](../../backend/helpers/dataverse_helper.py) use OData.
 
 ### Originator ID
 A trusted-sender GUID Microsoft assigns when registering an Actionable Message provider. Embedded in every actionable card so Outlook will render it as interactive (not just a static image).
 
-### Pandoc
-Command-line document converter used to turn the markdown user manuals into `.docx` files for end users (Phase 4 of documentation).
-
 ### Power Automate
-Microsoft's no-code workflow engine. Two flows in this system:
-1. `Bahra-E-binding-cron-job` — recurrence trigger that runs the RFP automation
-2. Forgot Password flow — sends password reset emails
+Microsoft's no-code workflow engine. Its remaining live use in this system is the **Forgot Password flow**, which sends password-reset emails. The recurrence flows that used to drive the RFP download and portal sync have been replaced by Windows Scheduled Tasks — see *Cron Schedule*.
 
 ### Publisher Prefix
 The 5–8 char namespace prefix on all custom Dataverse objects in a solution. This project uses `cr673_` (e.g., `cr673_bahra_users`).
@@ -166,10 +190,13 @@ The 5–8 char namespace prefix on all custom Dataverse objects in a solution. T
 The pattern where users are assigned Roles, Roles bundle Permissions, and the app checks `useHasPermission("rfp.submit")`-style calls before allowing actions. See [RBAC Permissions Matrix](../03-operations/11-RBAC-Permissions-Matrix.md).
 
 ### Recurrence Trigger
-The Power Automate action that fires a flow on a fixed cadence (every X minutes/hours/days). Patched programmatically when an admin changes the schedule from the portal.
+The Power Automate action that fires a flow on a fixed cadence (every X minutes/hours/days). The portal's Schedule & Automation dialog still patches this trigger on the retired download flow — which is why saving a schedule there reports success but changes nothing that actually runs.
+
+### Scheduled Task
+The Windows Task Scheduler entry that now drives automation on the application server. Two tasks live under the `\Bahra-RFP\` folder — `RFP-Download-OpenRFPs` and `RFP-Sync-Portal` — registered by `scripts/Register-RfpSchedules.ps1`. Times are **server-local (Riyadh)**. Changing the schedule means editing these tasks on the server, not the portal.
 
 ### Session Timeout
-Absolute lifetime of a user session regardless of activity (`SESSION_TIMEOUT_SECONDS = 7200` = 2 hours). Forces re-login after expiry.
+Absolute lifetime of a user session, counted **from login and unaffected by activity** (`SESSION_TIMEOUT_SECONDS = 7200` = 2 hours). Two hours after you sign in you are signed out and must log in again, even if you were working the whole time. See also *Idle Timeout*.
 
 ### SharePoint
 Microsoft's document collaboration platform. Hosts RFP files, automation error logs, and TDS files at `bahracables.sharepoint.com/sites/LiveSite/RFPAutomation`.
@@ -205,7 +232,7 @@ The Dataverse GUID of a Power Automate flow (different from the flow's display n
 | **LLD** | Low Level Design | Class/function-level design — see [06-LLD](../02-architecture/06-LLD-Low-Level-Design.md) |
 | **LSZH** | Low Smoke Zero Halogen | Cable insulation type often appearing in BOQs |
 | **MDY** | Month-Day-Year | Date format used everywhere in the system (`2/23/2026 8:10 PM`) |
-| **MFA** | Multi-Factor Authentication | Enforced via Azure AD policy |
+| **MFA** | Multi-Factor Authentication | Not used for portal login (email + password); the Ariba service account is deliberately MFA-exempt so the automation can sign in unattended |
 | **MS** | Microsoft | Azure, Graph, Dataverse, SharePoint, Power Automate |
 | **OData** | Open Data Protocol | Query syntax for Dataverse Web API |
 | **PDF** | Portable Document Format | Common RFP attachment type |
@@ -232,20 +259,27 @@ The Dataverse GUID of a Power Automate flow (different from the flow's display n
 
 ## D. System Roles
 
+Two roles are seeded, both marked `is_system: true`:
+
 | Role | Description | Permission Set | Source |
 |---|---|---|---|
-| **Admin** | Full system access — all permissions granted | All 41 permissions | `services/permission_definitions.py` → `DEFAULT_ROLES["Admin"]` |
-| **RFP Bidder** | Can view and work with RFPs, restricted from admin features | `rfp.view`, `rfp.download`, `rfp.submit`, `rfp.decline`, `dashboard.view`, `logs.view`, `material_insights.view` | `services/permission_definitions.py` → `DEFAULT_ROLES["RFP Bidder"]` |
-| **Approver** *(planned)* | Reviews and approves bid responses before submission | TBD | Not yet implemented |
-| **Custom roles** | Created via the portal's Role Management page | Any subset of the 41 permissions | Stored in `cr673_bahra_roles` |
+| **Admin** | Full system access | **All 42 permissions** (computed as every key in `PERMISSIONS`, so it stays complete as permissions are added) | `services/permission_definitions.py` → `DEFAULT_ROLES["Admin"]` |
+| **RFP Bidder** | Can view and work with RFPs, restricted from admin features | **Exactly these 10:** `rfp.view`, `rfp.download`, `rfp.submit`, `rfp.decline`, `rfp.open.view`, `rfp.open.delegate`, `rfp.sharepoint.view`, `dashboard.view`, `logs.view`, `material_insights.view` | `services/permission_definitions.py` → `DEFAULT_ROLES["RFP Bidder"]` |
+| **Custom roles** | Created via the portal's Role Management page | Any subset of the 42 permissions | Stored in `cr673_bahra_roles` |
 
-System roles (`is_system: true`) cannot be deleted from the portal. Custom roles can.
+Note that **RFP Bidder does not include `rfp.open.remind`** (sending reminders) or `analytics.view` — grant those through a custom role if a bidder needs them.
+
+There is **no Approver role** — see *Approver* in section A.
+
+The Admin role cannot be permanently deleted from the portal, and **must not be renamed**: some checks match the literal role name `Admin`, so renaming it silently breaks admin access.
 
 ---
 
 ## E. Permission Vocabulary
 
-Permissions follow a strict naming pattern: **`module.action`** (lowercase, dot-separated, snake_case).
+There are **42 permissions**. Each follows a strict naming pattern: **`module.action`** (lowercase, dot-separated, snake_case).
+
+Two groupings of the same 42 keys exist in the code. The table below is the **backend module namespace** (`MODULE_LABELS`) — the prefix you see in a permission key. The **Role Management screen** groups the same keys differently, by where they appear in the UI (Sidebar Menus · RFP Operations · User Management · Role Management · Master Data · System Settings · SAP Password). If a label in the portal doesn't match this table, that is why.
 
 ### Modules
 
@@ -280,8 +314,12 @@ Permissions follow a strict naming pattern: **`module.action`** (lowercase, dot-
 | `submit` | Send a finalized bid |
 | `decline` | Mark an RFP as declined |
 | `change` | Domain-specific mutation (e.g., `sap_password.change`) |
+| `remind` | Send a reminder to a non-responding recipient (`rfp.open.remind`) |
+| `delegate` | Hand a product line to another recipient (`rfp.open.delegate`) |
 
-Full list of all 41 permissions: see [services/permission_definitions.py](../../services/permission_definitions.py) and [11-RBAC Permissions Matrix](../03-operations/11-RBAC-Permissions-Matrix.md).
+**Permission changes take effect only after the affected user signs out and back in.** Permissions are read from the session, which is fixed at login — editing a role does not update anyone who is already signed in.
+
+Full list of all 42 permissions: see [services/permission_definitions.py](../../backend/services/permission_definitions.py) and [11-RBAC Permissions Matrix](../03-operations/11-RBAC-Permissions-Matrix.md).
 
 ---
 
@@ -292,7 +330,7 @@ Full list of all 41 permissions: see [services/permission_definitions.py](../../
 | Object | Convention | Example |
 |---|---|---|
 | Table logical name | `cr673_bahra_<entity_name>` (snake_case, singular or plural-as-stored) | `cr673_bahra_users` |
-| Table API plural (EntitySetName) | logical name + `es` (auto-pluralized by Dataverse) | `cr673_bahra_userses` |
+| Table API plural (EntitySetName) | Assigned by Dataverse — **not derivable**; look it up, never guess | `cr673_bahra_userses` |
 | Column logical name | `cr673_<column_name>` | `cr673_status`, `cr673_email` |
 
 ### Code
@@ -321,7 +359,7 @@ Full list of all 41 permissions: see [services/permission_definitions.py](../../
 
 - **Display & storage:** MDY format with no leading zeros — `2/23/2026 8:10 PM`
 - **Python format string (Windows):** `%#m/%#d/%Y %#I:%M %p`
-- **YAML frontmatter `last_updated`:** ISO 8601 — `2026-04-22`
+- **YAML frontmatter `last_updated`:** ISO 8601 — `2026-07-17`
 
 ---
 

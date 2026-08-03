@@ -84,7 +84,7 @@ export default function LoginPage() {
           {/* Logo & Brand */}
           <div className="text-center mb-5">
             <div className="inline-block mb-2">
-              <img src="/bahra-logo.svg" alt="Bahra Electric" className="h-10 w-auto" />
+              <img src={`${import.meta.env.BASE_URL}bahra-logo.svg`} alt="Bahra Electric" className="h-10 w-auto" />
             </div>
             <h1 className="text-xl font-bold text-slate-800">RFP Automation System</h1>
           </div>

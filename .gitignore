@@ -1,18 +1,21 @@
-ALLRFPs
-ALLRFPs_old
+# Python virtualenv (stays at repo root)
 env
-LOGS
-_pycache_
+
+# Python caches
 __pycache__
+_pycache_
 .cache
-config
-helpers/__pycache__
-tests/__pycache__
-core/__pycache__
-frontend/__pycache__
-services/__pycache__
-rfp/__pycache__
-config/__pycache__
-utils/__pycache__
-routes/__pycache__
-config/config.py
+
+# Backend secrets (never committed)
+backend/config/config.py
+
+# Backend runtime data & logs (outputs; some seed files under these are force-tracked)
+backend/ALLRFPs
+backend/ALLRFPs_old
+backend/LOGS
+backend/logs
+
+# Guard against accidental npm installs at the repo root (frontend has its own package.json)
+/node_modules
+/package-lock.json
+/package.json

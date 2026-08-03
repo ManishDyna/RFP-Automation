@@ -18,6 +18,7 @@ const LoginPage = lazy(() => import('@/pages/login'))
 const DashboardPage = lazy(() => import('@/pages/dashboard'))
 const RfpInsightsPage = lazy(() => import('@/pages/rfp-insights'))
 const LogsPage = lazy(() => import('@/pages/logs'))
+const OpenRfpsPage = lazy(() => import('@/pages/open-rfps'))
 const ProfilePage = lazy(() => import('@/pages/profile'))
 const AnalyticsPage = lazy(() => import('@/pages/analytics'))
 const UserManagementPage = lazy(() => import('@/pages/admin/users'))
@@ -41,7 +42,7 @@ function LoadingScreen() {
       <div className="text-center">
         <div className="relative">
           <div className="w-20 h-20 rounded-2xl bg-white flex items-center justify-center shadow-xl shadow-slate-200/50 mx-auto mb-6 border border-slate-100">
-            <img src="/bahra-logo.svg" alt="Bahra Electric" className="h-12 w-auto" />
+            <img src={`${import.meta.env.BASE_URL}bahra-logo.svg`} alt="Bahra Electric" className="h-12 w-auto" />
           </div>
           <div className="absolute -inset-2 rounded-2xl bg-indigo-500/20 animate-ping" />
         </div>
@@ -154,6 +155,11 @@ function ProtectedLayout() {
               <Route path="/dashboard/logs" element={
                 <PermissionGuard permission="logs.view" fallback={<AccessDenied />}>
                   <LogsPage />
+                </PermissionGuard>
+              } />
+              <Route path="/dashboard/open-rfps" element={
+                <PermissionGuard permission="rfp.open.view" fallback={<AccessDenied />}>
+                  <OpenRfpsPage />
                 </PermissionGuard>
               } />
               <Route path="/dashboard/profile" element={<ProfilePage />} />

@@ -19,10 +19,10 @@ import {
   Package,
   Database,
   SlidersHorizontal,
+  MailWarning,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { useHasPermission } from '@/hooks/use-auth'
@@ -53,6 +53,7 @@ export function Sidebar({
   const canViewRfpInsights = useHasPermission('rfp.view')
   const canViewMaterialInsights = useHasPermission('material_insights.view')
   const canViewLogs = useHasPermission('logs.view')
+  const canViewOpenRfp = useHasPermission('rfp.open.view')
 
   // RFP operation permissions
   const canDownloadRfp = useHasPermission('rfp.download')
@@ -130,7 +131,7 @@ export function Sidebar({
                 collapsed ? 'p-1.5 w-12 h-12' : 'p-[6px] w-full mt-4'
               )}>
                 <img
-                  src="/bahra-logo.svg"
+                  src={`${import.meta.env.BASE_URL}bahra-logo.svg`}
                   alt="Bahra Electric"
                   className={cn('w-auto', collapsed ? 'h-8' : 'h-12 max-w-full')}
                 />
@@ -198,6 +199,15 @@ export function Sidebar({
                     collapsed={collapsed}
                   />
                 )}
+                {canViewOpenRfp && (
+                  <NavItem
+                    path="/dashboard/open-rfps"
+                    icon={MailWarning}
+                    label="Open RFP"
+                    active={location.pathname === '/dashboard/open-rfps'}
+                    collapsed={collapsed}
+                  />
+                )}
               </NavSection>
 
               {/* Admin Section */}
@@ -261,7 +271,7 @@ export function Sidebar({
                     <NavItem
                       path="/admin/system-settings"
                       icon={SlidersHorizontal}
-                      label="System Settings"
+                      label="System Config"
                       active={location.pathname === '/admin/system-settings'}
                       collapsed={collapsed}
                     />

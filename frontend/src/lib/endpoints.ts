@@ -30,8 +30,11 @@
 //    - Materials: /dashboard/rfp/:id/materials
 // =============================================================================
 
-const API_PREFIX = '/api'
-const DASHBOARD_PREFIX = '/dashboard'
+// App is served under the "/rfp" path prefix. The reverse proxy (and the Vite
+// dev proxy) strip "/rfp" before forwarding, so the backend still serves /api
+// and /dashboard — only the browser-facing URLs carry the prefix.
+const API_PREFIX = '/rfp/api'
+const DASHBOARD_PREFIX = '/rfp/dashboard'
 
 export const ENDPOINTS = {
   // ==================== AUTH (routes/api.py) ====================
@@ -68,7 +71,9 @@ export const ENDPOINTS = {
     DATA: `${API_PREFIX}/dashboard/data`,
     RFP_DETAILS: `${API_PREFIX}/dashboard/rfp-details`,
     RFP_EXPORT: `${API_PREFIX}/dashboard/rfp-details/export`,
+    RFP_EXPORT_FULL_ANALYSIS: `${API_PREFIX}/dashboard/rfp-details/export-full-analysis`,
     SUBMIT_RFP: `${API_PREFIX}/dashboard/submit-rfp`,
+    LIST_TDS_FILES: `${API_PREFIX}/dashboard/list-tds-files`,
     VALIDATE_RFP: `${API_PREFIX}/validate-rfp`,
     VIEW_LOGS: `${API_PREFIX}/dashboard/view-logs`,
     MATERIAL_INSIGHTS: `${API_PREFIX}/dashboard/material-insights`,
@@ -142,6 +147,14 @@ export const ENDPOINTS = {
     LIST: `${API_PREFIX}/audit-logs`,
   },
 
+  // ==================== OPEN RFP (routes/open_rfp.py) ====================
+  OPEN_RFP: {
+    LIST:     `${API_PREFIX}/open-rfp/list`,
+    STATUS:   (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/status`,
+    REMIND:   (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/remind`,
+    DELEGATE: (rfpId: string) => `${API_PREFIX}/open-rfp/${encodeURIComponent(rfpId)}/delegate`,
+  },
+
   // ==================== MASTER DATA (routes/master_data_routes.py) ====================
   MASTER_DATA: {
     MATERIALS: {
@@ -177,6 +190,10 @@ export const ENDPOINTS = {
   // ==================== CONFIG (routes/api.py) ====================
   CONFIG: {
     COMPANY_OPTIONS: `${API_PREFIX}/company-options`,
+  },
+  // ==================== SHAREPOINT (routes/sharepoint.py) ====================
+  SHAREPOINT: {
+    RFP_FOLDER: `${API_PREFIX}/sharepoint/rfp-folder`,
   },
   // ==================== SYSTEM SETTINGS (routes/system_settings_routes.py) ====================
   SYSTEM_SETTINGS: {

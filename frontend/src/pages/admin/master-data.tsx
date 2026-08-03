@@ -1,10 +1,10 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { ArrowDown, ArrowUp, Columns3, Database, Eye, Lock, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowUp, Columns3, Database, Download, Eye, Lock, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react'
 
 import { PageWrapper } from '@/components/layout/page-wrapper'
 import { Card, CardContent } from '@/components/ui/card'
@@ -57,6 +57,7 @@ import { useHasPermission } from '@/hooks/use-auth'
 const materialSchema = z.object({
   material_code: z.string().min(1, 'Material code is required').max(100),
   description: z.string().max(2000).optional(),
+  bahra_item_code: z.string().max(200).optional(),
 })
 type MaterialForm = z.infer<typeof materialSchema>
 
@@ -71,13 +72,40 @@ const columnSchema = z.object({
     .max(100)
     .regex(/^[a-z][a-z0-9_]*$/, 'Lowercase letters, numbers, underscores only. Must start with a letter.'),
   column_label: z.string().min(1, 'Label is required').max(200),
-  column_type: z.enum(['text', 'dropdown', 'yes_no']),
+  column_type: z.enum(['text', 'dropdown', 'yes_no', 'button']),
   column_category: z.enum(['display', 'input']),
   sort_order: z.string().optional(),
   dropdown_options: z.string().optional(),
+  button_url: z.string().optional(),
   is_required: z.boolean().optional(),
 })
 type ColumnForm = z.infer<typeof columnSchema>
+
+// ─── CSV Export Helper ───────────────────────────────────────────────────────
+
+function escapeCsvCell(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  const str = String(value)
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`
+  }
+  return str
+}
+
+function downloadCsv(filename: string, headers: string[], rows: (string | undefined)[][]) {
+  const headerLine = headers.map(escapeCsvCell).join(',')
+  const bodyLines = rows.map((row) => row.map(escapeCsvCell).join(','))
+  const csv = '﻿' + [headerLine, ...bodyLines].join('\r\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
 
 // ─── Import Dialog ────────────────────────────────────────────────────────────
 
@@ -107,7 +135,7 @@ function ImportDialog({ open, onClose, type, onImport, isPending }: ImportDialog
 
   const hint =
     type === 'materials'
-      ? 'Required column: material_code. Optional: description.'
+      ? 'Required column: material_code. Optional: description, bahra_item_code.'
       : type === 'keywords'
         ? 'Required column: keyword (or the first column is used).'
         : 'Required columns: product, name, email.'
@@ -183,13 +211,17 @@ function MaterialsTab() {
 
   const openAdd = () => {
     setEditingItem(null)
-    reset({ material_code: '', description: '' })
+    reset({ material_code: '', description: '', bahra_item_code: '' })
     setDialogOpen(true)
   }
 
   const openEdit = (item: any) => {
     setEditingItem(item)
-    reset({ material_code: item.material_code ?? '', description: item.description ?? '' })
+    reset({
+      material_code: item.material_code ?? '',
+      description: item.description ?? '',
+      bahra_item_code: item.bahra_item_code ?? '',
+    })
     setDialogOpen(true)
   }
 
@@ -229,6 +261,25 @@ function MaterialsTab() {
 
   const materials = data?.materials ?? []
 
+  const handleExportCsv = () => {
+    if (materials.length === 0) {
+      toast.error('Nothing to export')
+      return
+    }
+    const stamp = new Date().toISOString().slice(0, 10)
+    downloadCsv(
+      `material-codes-${stamp}.csv`,
+      ['Material Code', 'Description', 'Bahra Item Code', 'Created Date'],
+      materials.map((item: any) => [
+        item.material_code ?? '',
+        item.description ?? '',
+        item.bahra_item_code ?? '',
+        item.created_date ? String(item.created_date).slice(0, 10) : '',
+      ])
+    )
+    toast.success(`Exported ${materials.length} material${materials.length !== 1 ? 's' : ''}`)
+  }
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -242,6 +293,14 @@ function MaterialsTab() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <Button
+          variant="outline"
+          onClick={handleExportCsv}
+          disabled={isLoading || materials.length === 0}
+        >
+          <Download className="h-4 w-4 mr-2" />
+          Export CSV
+        </Button>
         {canCreate && (
           <>
             <Button variant="outline" onClick={() => setImportOpen(true)}>
@@ -280,6 +339,7 @@ function MaterialsTab() {
               <TableRow>
                 <TableHead className="w-[200px]">Material Code</TableHead>
                 <TableHead>Description</TableHead>
+                <TableHead className="w-[180px]">Bahra Item Code</TableHead>
                 <TableHead className="w-[160px]">Created</TableHead>
                 {(canEdit || canDelete) && <TableHead className="text-right w-[100px]">Actions</TableHead>}
               </TableRow>
@@ -290,6 +350,9 @@ function MaterialsTab() {
                   <TableCell className="font-mono font-medium">{item.material_code}</TableCell>
                   <TableCell className="text-muted-foreground max-w-[400px] truncate">
                     {item.description || <span className="italic opacity-50">—</span>}
+                  </TableCell>
+                  <TableCell className="font-mono text-sm">
+                    {item.bahra_item_code || <span className="italic opacity-50">—</span>}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {item.created_date ? item.created_date.slice(0, 10) : '—'}
@@ -342,6 +405,17 @@ function MaterialsTab() {
             <div className="space-y-1">
               <Label>Description</Label>
               <Input {...register('description')} placeholder="Optional description" />
+            </div>
+            <div className="space-y-1">
+              <Label>Bahra Item Code</Label>
+              <Input
+                {...register('bahra_item_code')}
+                placeholder="e.g. 71050004, FCS00645, or BEL908202053-SEC"
+                className="font-mono"
+              />
+              {errors.bahra_item_code && (
+                <p className="text-xs text-destructive">{errors.bahra_item_code.message}</p>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
@@ -468,6 +542,23 @@ function KeywordsTab() {
 
   const keywords = data?.keywords ?? []
 
+  const handleExportCsv = () => {
+    if (keywords.length === 0) {
+      toast.error('Nothing to export')
+      return
+    }
+    const stamp = new Date().toISOString().slice(0, 10)
+    downloadCsv(
+      `keywords-${stamp}.csv`,
+      ['Keyword', 'Created Date'],
+      keywords.map((item: any) => [
+        item.keyword ?? '',
+        item.created_date ? String(item.created_date).slice(0, 10) : '',
+      ])
+    )
+    toast.success(`Exported ${keywords.length} keyword${keywords.length !== 1 ? 's' : ''}`)
+  }
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -481,6 +572,14 @@ function KeywordsTab() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <Button
+          variant="outline"
+          onClick={handleExportCsv}
+          disabled={isLoading || keywords.length === 0}
+        >
+          <Download className="h-4 w-4 mr-2" />
+          Export CSV
+        </Button>
         {canCreate && (
           <>
             <Button variant="outline" onClick={() => setImportOpen(true)}>
@@ -711,11 +810,19 @@ function RfpTeamTab() {
         return
       }
     }
-    // Validate email format if email field exists
+    // Email field may contain multiple comma-separated alternates (any one of
+    // them can respond on behalf of the row — first-response-wins).
     const emailVal = formValues['email']
-    if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
-      toast.error('Must be a valid email')
-      return
+    if (emailVal) {
+      const parts = emailVal.split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+      const pattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      const bad = parts.find((p) => !pattern.test(p))
+      if (bad) {
+        toast.error(`'${bad}' is not a valid email`)
+        return
+      }
+      // Normalize: lowercased, comma-separated, no extra whitespace
+      formValues['email'] = parts.map((p) => p.toLowerCase()).join(', ')
     }
     saveMutation.mutate(formValues)
   }
@@ -817,7 +924,9 @@ function RfpTeamTab() {
                 <TableRow key={item.record_id}>
                   {teamFieldColumns.map((col: any) => (
                     <TableCell key={col.column_key} className={col.column_key === 'email' ? 'font-mono text-sm text-muted-foreground' : ''}>
-                      {item[col.column_key] || <span className="italic opacity-50">—</span>}
+                      {col.column_type === 'button'
+                        ? <Badge variant="outline" className="text-xs">Button</Badge>
+                        : (item[col.column_key] || <span className="italic opacity-50">—</span>)}
                     </TableCell>
                   ))}
                   <TableCell className="text-sm text-muted-foreground">
@@ -861,7 +970,7 @@ function RfpTeamTab() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleFormSubmit} className="space-y-4">
-            {teamFieldColumns.map((col: any) => {
+            {teamFieldColumns.filter((col: any) => col.column_type !== 'button').map((col: any) => {
               const isRequired = String(col.is_required).toLowerCase() === 'true'
               return (
                 <div key={col.column_key} className="space-y-1">
@@ -900,9 +1009,21 @@ function RfpTeamTab() {
                         <SelectItem value="No">No</SelectItem>
                       </SelectContent>
                     </Select>
+                  ) : col.column_key === 'email' ? (
+                    <>
+                      <Input
+                        type="text"
+                        value={formValues[col.column_key] || ''}
+                        onChange={(e) => handleFormChange(col.column_key, e.target.value)}
+                        placeholder="alice@co.com, bob@co.com"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Comma-separate multiple emails to allow alternates (anyone listed can respond — first reply wins).
+                      </p>
+                    </>
                   ) : (
                     <Input
-                      type={col.column_key === 'email' ? 'email' : 'text'}
+                      type="text"
                       value={formValues[col.column_key] || ''}
                       onChange={(e) => handleFormChange(col.column_key, e.target.value)}
                       placeholder={`Enter ${col.column_label.toLowerCase()}`}
@@ -968,6 +1089,9 @@ function ColumnConfigTab() {
   const [editingItem, setEditingItem]   = useState<any>(null)
   const [deleteItem, setDeleteItem]     = useState<any>(null)
   const [previewOpen, setPreviewOpen]   = useState(false)
+  // UI-only mode for the Button column dialog. 'builtin' = wire to the upload
+  // page (storage value forced to '{upload_url}'). 'custom' = admin-typed URL.
+  const [buttonMode, setButtonMode]     = useState<'builtin' | 'custom'>('builtin')
 
   const { data, isLoading } = useQuery({
     queryKey: ['rfp-team-columns'],
@@ -987,6 +1111,7 @@ function ColumnConfigTab() {
     reset,
     control,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<ColumnForm>({
     resolver: zodResolver(columnSchema),
@@ -999,44 +1124,75 @@ function ColumnConfigTab() {
 
   const watchType = watch('column_type')
 
+  // Button columns can only be Display (no value to collect). When the user
+  // switches Type to Button, force category=display. The URL value comes from
+  // the buttonMode picker below — we no longer auto-fill the input here.
+  useEffect(() => {
+    if (watchType === 'button') {
+      setValue('column_category', 'display')
+    }
+  }, [watchType, setValue])
+
   const closeDialog = () => {
     setDialogOpen(false)
     setEditingItem(null)
     reset({
       column_key: '', column_label: '', column_type: 'text',
       column_category: 'display', sort_order: '', dropdown_options: '',
-      is_required: false,
+      button_url: '', is_required: false,
     })
   }
 
   const openAdd = () => {
     setEditingItem(null)
+    setButtonMode('builtin')
     reset({
       column_key: '', column_label: '', column_type: 'text',
       column_category: 'display', sort_order: '', dropdown_options: '',
-      is_required: false,
+      button_url: '', is_required: false,
     })
     setDialogOpen(true)
   }
 
   const openEdit = (item: any) => {
-    setEditingItem(item)
+    const ct = item.column_type ?? 'text'
+    const savedUrl = item.dropdown_options ?? ''
+    // Builtin mode iff the saved value is exactly '{upload_url}'.
+    const mode: 'builtin' | 'custom' = ct === 'button' && savedUrl.trim() === '{upload_url}' ? 'builtin' : 'custom'
+    setButtonMode(mode)
     reset({
       column_key: item.column_key ?? '',
       column_label: item.column_label ?? '',
-      column_type: item.column_type ?? 'text',
+      column_type: ct,
       column_category: item.column_category ?? 'display',
       sort_order: item.sort_order ?? '',
-      dropdown_options: item.dropdown_options ?? '',
+      dropdown_options: ct === 'button' ? '' : savedUrl,
+      // In builtin mode the URL field is hidden, so leave button_url blank.
+      // The save mutation will write '{upload_url}' for us.
+      button_url: ct === 'button' && mode === 'custom' ? savedUrl : '',
       is_required: String(item.is_required).toLowerCase() === 'true',
     })
+    setEditingItem(item)
     setDialogOpen(true)
   }
 
   const saveMutation = useMutation({
     mutationFn: (formData: ColumnForm) => {
+      // Button URL is persisted in the dropdown_options field (no DB migration needed).
+      // Builtin mode hides the URL input and writes '{upload_url}' so the server-side
+      // resolver wires the button to the existing /upload page + SharePoint pipeline.
+      const dropdownOptions = formData.column_type === 'button'
+        ? (buttonMode === 'builtin'
+            ? '{upload_url}'
+            : (formData.button_url ?? '').trim())
+        : (formData.dropdown_options ?? '')
       const payload: any = {
-        ...formData,
+        column_key: formData.column_key,
+        column_label: formData.column_label,
+        column_type: formData.column_type,
+        column_category: formData.column_category,
+        sort_order: formData.sort_order,
+        dropdown_options: dropdownOptions,
         is_required: formData.is_required ? 'true' : 'false',
       }
       return editingItem
@@ -1087,7 +1243,11 @@ function ColumnConfigTab() {
     cat === 'display' ? 'Display' : cat === 'input' ? 'Input' : cat
 
   const typeLabel = (t: string) =>
-    t === 'text' ? 'Text' : t === 'dropdown' ? 'Dropdown' : t === 'yes_no' ? 'Yes/No' : t
+    t === 'text' ? 'Text'
+    : t === 'dropdown' ? 'Dropdown'
+    : t === 'yes_no' ? 'Yes/No'
+    : t === 'button' ? 'Button'
+    : t
 
   return (
     <div className="space-y-4">
@@ -1226,7 +1386,7 @@ function ColumnConfigTab() {
                 <p className="text-xs text-destructive">{errors.column_label.message}</p>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className={watchType === 'button' ? 'space-y-1' : 'grid grid-cols-2 gap-4'}>
               <div className="space-y-1">
                 <Label>Type *</Label>
                 <Controller
@@ -1239,27 +1399,30 @@ function ColumnConfigTab() {
                         <SelectItem value="text">Text</SelectItem>
                         <SelectItem value="dropdown">Dropdown</SelectItem>
                         <SelectItem value="yes_no">Yes / No</SelectItem>
+                        <SelectItem value="button">Button (hyperlink)</SelectItem>
                       </SelectContent>
                     </Select>
                   )}
                 />
               </div>
-              <div className="space-y-1">
-                <Label>Category *</Label>
-                <Controller
-                  name="column_category"
-                  control={control}
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="display">Display (read-only)</SelectItem>
-                        <SelectItem value="input">Input (editable)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </div>
+              {watchType !== 'button' && (
+                <div className="space-y-1">
+                  <Label>Category *</Label>
+                  <Controller
+                    name="column_category"
+                    control={control}
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="display">Display (read-only)</SelectItem>
+                          <SelectItem value="input">Input (editable)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+              )}
             </div>
             {watchType === 'dropdown' && (
               <div className="space-y-1">
@@ -1269,6 +1432,89 @@ function ColumnConfigTab() {
                   placeholder='["Option A", "Option B", "Option C"]'
                 />
                 <p className="text-xs text-muted-foreground">Enter a JSON array of strings.</p>
+              </div>
+            )}
+            {watchType === 'button' && (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label>Button behavior *</Label>
+                  <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+                    <button
+                      type="button"
+                      onClick={() => setButtonMode('builtin')}
+                      className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                        buttonMode === 'builtin'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Built-in upload page
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setButtonMode('custom')}
+                      className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                        buttonMode === 'custom'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Custom URL
+                    </button>
+                  </div>
+                </div>
+
+                {buttonMode === 'builtin' ? (
+                  <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2 text-xs">
+                    <div className="font-semibold text-foreground">
+                      Each recipient sees a button labeled “{watch('column_label') || 'your label'}” in their email.
+                    </div>
+                    <div className="text-muted-foreground leading-relaxed">When they click it:</div>
+                    <ol className="list-decimal pl-5 space-y-1 text-muted-foreground leading-relaxed">
+                      <li>A secure upload page opens. The link is unique to that recipient + RFP and expires in <strong>72 hours</strong>.</li>
+                      <li>They pick a <strong>TIR file</strong> and a <strong>Pricing file</strong> (max 25 MB each).</li>
+                      <li>Files are saved to SharePoint at:<br/>
+                        <code className="text-[10px] break-all">RFP-logs/ALLRFPs/&#123;Company&#125;/&#123;RFP&#125;/TDS-files/</code>
+                      </li>
+                      <li>The upload is recorded in Dataverse on that recipient&#39;s RFP response row.</li>
+                    </ol>
+                    <div className="pt-1">
+                      <a
+                        href="/rfp/upload?token=DEMO_PREVIEW"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline"
+                      >
+                        ↗ Preview the upload page
+                      </a>
+                      <span className="text-muted-foreground"> (opens the real page with a fake token)</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label>Button URL *</Label>
+                    <Input
+                      {...register('button_url')}
+                      placeholder="https://my-portal.example.com/{rfp_id}/upload"
+                    />
+                    <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs">
+                      <div className="font-semibold text-foreground">Per-row placeholders</div>
+                      <div className="text-muted-foreground leading-relaxed">
+                        Replaced when the email is sent — values come from the recipient&#39;s row in the team table:
+                      </div>
+                      <ul className="space-y-0.5 font-mono text-[11px]">
+                        <li><code>&#123;rfp_id&#125;</code><span className="text-muted-foreground"> → e.g. SEC RFP-c0047665</span></li>
+                        <li><code>&#123;company_name&#125;</code><span className="text-muted-foreground"> → e.g. Saudi Energy</span></li>
+                        <li><code>&#123;product&#125;</code><span className="text-muted-foreground"> → e.g. Cables</span></li>
+                        <li><code>&#123;name&#125;</code><span className="text-muted-foreground"> → e.g. John Doe</span></li>
+                        <li><code>&#123;email&#125;</code><span className="text-muted-foreground"> → e.g. john@bahra.com</span></li>
+                      </ul>
+                      <p className="text-muted-foreground leading-relaxed pt-1">
+                        Note: this app does not handle the upload itself — whatever server you point at must accept the file.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             <div className="space-y-1">
@@ -1506,11 +1752,42 @@ function EmailPreviewContent({
                   >
                     {columns.map((col: any) => {
                       const isInput = col.column_category === 'input'
+                      const isButton = col.column_type === 'button'
                       const value = member[col.column_key] ?? ''
 
                       let cellContent: React.ReactNode = value
 
-                      if (isInput && isHighlighted) {
+                      if (isButton) {
+                        // Render a clickable hyperlink button. URL stored in dropdown_options;
+                        // placeholders are substituted with sample values for preview.
+                        const rawUrl = (col.dropdown_options || '').toString()
+                        const sampleUrl = rawUrl
+                          .replace(/\{upload_url\}/g, 'http://localhost:8000/rfp/upload?token=DEMO_PREVIEW')
+                          .replace(/\{rfp_id\}/g, 'Sample-RFP-Title')
+                          .replace(/\{company_name\}/g, 'Saudi Energy')
+                          .replace(/\{product\}/g, encodeURIComponent(member.product || ''))
+                          .replace(/\{name\}/g, encodeURIComponent(member.name || ''))
+                          .replace(/\{email\}/g, encodeURIComponent(member.email || ''))
+                        cellContent = (
+                          <a
+                            href={sampleUrl || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: 'inline-block',
+                              padding: '4px 12px',
+                              backgroundColor: '#0078d4',
+                              color: '#fff',
+                              borderRadius: 3,
+                              textDecoration: 'none',
+                              fontSize: 12,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {col.column_label}
+                          </a>
+                        )
+                      } else if (isInput && isHighlighted) {
                         // Show actual widget for the highlighted (current) member
                         cellContent = renderInputWidget(col)
                       } else if (isInput) {
