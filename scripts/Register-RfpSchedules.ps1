@@ -53,18 +53,14 @@ if (-not (Test-Path $ScriptPath)) {
 # "12:00" fired at 09:30 Riyadh. These times are Riyadh times; they are NOT a
 # literal carry-over of the old flow's clock.
 #
-# SCOPE: download + sync only. The reminder job stays on Power Automate by
-# decision, so it is deliberately NOT registered here. Invoke-RfpAutomation.ps1
-# still accepts -Job reminder for manual/ad-hoc runs.
+# SCOPE: download + reminder + sync. The reminder job was originally left on
+# Power Automate, but that flow fires at the same dead devtunnel as the other
+# two, so reminders were not sending at all. It is now registered here.
 #
-# TURN THESE TWO FLOWS OFF before enabling these tasks, or both fire:
-#   Bahra-E-binding-cron-job          -> /download-rfps-automation
+# TURN ALL THREE FLOWS OFF before enabling these tasks, or both fire:
+#   Bahra-E-binding-cron-job            -> /download-rfps-automation
 #   Bahra-sync-open-rfp-status-cron-job -> /api/sync_portal_data
-#
-# LEAVE ON (out of scope here):
-#   Bahra-RFP-Reminder-Emails-Cron-job -> /api/rfp-reminder
-# ...but note it points at the same dead devtunnel as the other two, so reminders
-# are NOT sending today. It needs a publicly reachable URL to work at all.
+#   Bahra-RFP-Reminder-Emails-Cron-job  -> /api/rfp-reminder
 # ---------------------------------------------------------------------------
 $Schedules = @(
     @{
@@ -97,6 +93,23 @@ $Schedules = @(
             (New-ScheduledTaskTrigger -Daily -At '21:00')
         )
         Timeout     = 60
+    },
+    @{
+        Name        = 'RFP-Reminder-Emails'
+        Job         = 'reminder'
+        Description = 'Sends 3-day / 1-day deadline reminder emails to bidders. Replaces the Bahra-RFP-Reminder-Emails-Cron-job flow.'
+        # Twice daily during working hours. The job is window-based (deadline
+        # <=72h / <=24h) and idempotent per stage via the Reminder_3Day_Sent /
+        # Reminder_1Day_Sent flags, so a second run cannot double-send - it only
+        # halves how long an RFP sits in a window before anyone is chased.
+        # Offset from download/sync so it is not queued behind a Playwright run.
+        Triggers    = @(
+            (New-ScheduledTaskTrigger -Daily -At '08:00')
+            (New-ScheduledTaskTrigger -Daily -At '16:00')
+        )
+        # /api/rfp-reminder is synchronous, so this only sizes ExecutionTimeLimit;
+        # the runner's own cap is Invoke-WebRequest -TimeoutSec 900.
+        Timeout     = 30
     }
 )
 
