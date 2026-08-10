@@ -1254,7 +1254,7 @@ async def run_automation_sync_portal(rfp_ids: list[str] | None = None):
 
         try:
             log_event("SYNC", "SharePoint", "Uploading", f"Uploading {json_filename} to SharePoint")
-            graph_client.sync_local_to_sharepoint(json_path, f"{get_setting('SP_BASE_FOLDER', 'RFP-logs')}/Sync-Data")
+            graph_client.sync_local_to_sharepoint(json_path, f"{get_setting('SP_BASE_FOLDER', 'RFP-logs-prod')}/Sync-Data")
             log_event("SYNC", "SharePoint", "Success", f"JSON file uploaded to SharePoint: {json_filename}")
         except Exception as e:
             log_event("SYNC", "SharePoint", "Fail", f"Failed to upload JSON to SharePoint: {str(e)}")
@@ -1875,7 +1875,7 @@ def verify_sharepoint_files_against_dataverse(graph_client, company_name: str = 
         # ── PHASE 2: Check SharePoint files against DB ──
         log_event("SP_DV_SYNC", "Verify", "Step", "Scanning SharePoint for files without DB entries")
 
-        sp_allrfps_path = f"{get_setting('SP_BASE_FOLDER', 'RFP-logs')}/ALLRFPs"
+        sp_allrfps_path = f"{get_setting('SP_BASE_FOLDER', 'RFP-logs-prod')}/ALLRFPs"
 
         # List company folders
         if company_name:

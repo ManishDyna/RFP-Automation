@@ -203,13 +203,13 @@ def get_rfp_excel_file_path(rfp_title: str, company_name: str) -> str:
     return os.path.join(material_folder, f"{clean_title}.xls")
 
 def get_sharepoint_rfp_path(rfp_title: str, company_name: str) -> str:
-    """Get SharePoint base path for RFP: RFP-logs/ALLRFPs/CompanyName/RFP_title"""
+    """Get SharePoint base path for RFP: RFP-logs-prod/ALLRFPs/CompanyName/RFP_title"""
     clean_title = clean_rfp_title(rfp_title)
     safe_company_name = re.sub(r'[<>:"/\\|?*]', '_', company_name).strip().rstrip('.')
-    return f"{get_setting('SP_BASE_FOLDER', 'RFP-logs')}/ALLRFPs/{safe_company_name}/{clean_title}"
+    return f"{get_setting('SP_BASE_FOLDER', 'RFP-logs-prod')}/ALLRFPs/{safe_company_name}/{clean_title}"
 
 def get_sharepoint_rfp_material_path(rfp_title: str, company_name: str, filename: str = None) -> str:
-    """Get SharePoint downloaded-rfp path: RFP-logs/ALLRFPs/CompanyName/RFP_title/downloaded-rfp/"""
+    """Get SharePoint downloaded-rfp path: RFP-logs-prod/ALLRFPs/CompanyName/RFP_title/downloaded-rfp/"""
     base_path = get_sharepoint_rfp_path(rfp_title, company_name)
     material_path = f"{base_path}/downloaded-rfp"
     if filename:
@@ -217,7 +217,7 @@ def get_sharepoint_rfp_material_path(rfp_title: str, company_name: str, filename
     return material_path
 
 def get_sharepoint_rfp_tds_path(rfp_title: str, company_name: str, material_code: str = None) -> str:
-    """Get SharePoint TDS-files path: RFP-logs/ALLRFPs/CompanyName/RFP_title/TDS-files/"""
+    """Get SharePoint TDS-files path: RFP-logs-prod/ALLRFPs/CompanyName/RFP_title/TDS-files/"""
     base_path = get_sharepoint_rfp_path(rfp_title, company_name)
     tds_path = f"{base_path}/TDS-files"
     if material_code:
@@ -233,7 +233,7 @@ def get_sharepoint_rfp_pricing_path(rfp_title: str, company_name: str, filename:
     return pricing_path
 
 def get_sharepoint_rfp_savedrfp_path(rfp_title: str, company_name: str, filename: str = None) -> str:
-    """Get SharePoint rfp-upload-file path: RFP-logs/ALLRFPs/CompanyName/RFP_title/rfp-upload-file/"""
+    """Get SharePoint rfp-upload-file path: RFP-logs-prod/ALLRFPs/CompanyName/RFP_title/rfp-upload-file/"""
     base_path = get_sharepoint_rfp_path(rfp_title, company_name)
     rfp_upload_file_path = f"{base_path}/rfp-upload-file"
     if filename:

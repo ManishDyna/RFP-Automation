@@ -105,7 +105,7 @@ class GraphClient:
         return res.json().get("webUrl")
 
     def ensure_folder_path(self, folder_path):
-        """Ensure nested folder path exists (e.g., 'RFP-logs/ALLRFPs/2025')."""
+        """Ensure nested folder path exists (e.g., 'RFP-logs-prod/ALLRFPs/2025')."""
         segments = [seg.rstrip('.') for seg in folder_path.strip("/").split("/") if seg]
         current_path = ""
         parent_id = None
@@ -305,7 +305,7 @@ class GraphClient:
         List all files in a SharePoint directory.
 
         Args:
-            sp_directory_path: SharePoint directory path (e.g., 'RFP-logs/ALLRFPs/CompanyName')
+            sp_directory_path: SharePoint directory path (e.g., 'RFP-logs-prod/ALLRFPs/CompanyName')
             file_extensions: Optional list of file extensions to filter (e.g., ['.xls', '.xlsx'])
 
         Returns:
@@ -350,7 +350,7 @@ class GraphClient:
         List immediate subfolders in a SharePoint directory (non-recursive).
 
         Args:
-            sp_directory_path: SharePoint directory path (e.g., 'RFP-logs/ALLRFPs')
+            sp_directory_path: SharePoint directory path (e.g., 'RFP-logs-prod/ALLRFPs')
 
         Returns:
             List of folder info dicts with 'name' and 'path' keys
@@ -382,7 +382,7 @@ class GraphClient:
         Args:
             company_name: Company name to fetch RFPs for
             local_output_dir: Local directory to save files (e.g., OUTPUT_DIR)
-            sp_base_folder: SharePoint base folder (e.g., 'RFP-logs')
+            sp_base_folder: SharePoint base folder (e.g., 'RFP-logs-prod')
 
         Returns:
             List of downloaded file paths
@@ -406,7 +406,7 @@ class GraphClient:
             file_name = file_info['name']
 
             # Determine local path based on SharePoint structure
-            # SP: RFP-logs/ALLRFPs/CompanyName/RFP_title/downloaded-rfp/file.xls
+            # SP: RFP-logs-prod/ALLRFPs/CompanyName/RFP_title/downloaded-rfp/file.xls
             # Local: OUTPUT_DIR/CompanyName/RFP_title/downloaded-rfp/file.xls
             relative_path = sp_path.replace(f"{sp_base_folder}/ALLRFPs/", "")
             local_path = os.path.join(local_output_dir, relative_path)
@@ -531,7 +531,7 @@ class GraphClient:
         Recursively download all files and folders from a SharePoint directory to local system.
 
         Args:
-            sp_folder_path: SharePoint folder path (e.g., 'RFP-logs' or 'RFP-logs/ALLRFPs')
+            sp_folder_path: SharePoint folder path (e.g., 'RFP-logs-prod' or 'RFP-logs-prod/ALLRFPs')
             local_base_dir: Local directory to download into (e.g., 'C:/Downloads/SharePoint-Backup')
             skip_existing: If True, skip files that already exist locally
 
