@@ -1,5 +1,73 @@
 from core.common_imports import *
 from core.log_events import log_rfp_activity
+from core.rfp_row_parser import (
+    RFP_TABLE_SELECTOR,
+    RFP_ROW_CLASS,
+    RFP_GROUP_ROW_CLASS,
+    RFP_OPEN_GROUP_RE,
+    is_open_group_header,
+    parse_open_group_count,
+    parse_open_rfp_row,
+)
+
+# Expanding a status group is an AJAX postback, so the Open rows appear a
+# round-trip after the click. Poll the real extraction rather than a proxy
+# selector — see _collect_open_rows.
+OPEN_ROWS_POLL_ATTEMPTS = 40
+OPEN_ROWS_POLL_INTERVAL_MS = 500
+
+
+async def _collect_open_rows(table):
+    """Row handles belonging to the "Status: Open" group.
+
+    Walks the table sequentially, toggling membership at each tableGroupBy
+    header, so other groups (Completed, Pending Selection) are skipped even
+    when they are expanded too. Rows of Ariba's nested `<table class="mls">`
+    cell wrappers carry no class and fall through both branches.
+    """
+    rows = []
+    in_open_group = False
+    for tr in await table.locator('tr').element_handles():
+        class_attr = (await tr.get_attribute('class')) or ''
+        if RFP_GROUP_ROW_CLASS in class_attr:
+            in_open_group = is_open_group_header((await tr.inner_text()) or '')
+            continue
+        if in_open_group and RFP_ROW_CLASS in class_attr:
+            rows.append(tr)
+    return rows
+
+
+async def _dump_listing_table(frame, company, attempt):
+    """Save the listing table's markup when extraction comes back empty.
+
+    Zero rows means either the group is genuinely empty or Ariba reshaped its
+    markup again — and those look identical in the log. This dump is the
+    fixture needed to add a new generation to
+    Support-Files/verify_open_rfp_selectors.py.
+    """
+    try:
+        # Separates "the table filter matched nothing" from "the rows never
+        # arrived" — the two ways this can come back empty.
+        all_tables = await frame.locator(RFP_TABLE_SELECTOR).count()
+        open_tables = await frame.locator(RFP_TABLE_SELECTOR).filter(
+            has_text=RFP_OPEN_GROUP_RE
+        ).count()
+        all_rows = await frame.locator(f'{RFP_TABLE_SELECTOR} tr.{RFP_ROW_CLASS}').count()
+        print(
+            f"  -> diagnostics: {all_tables} x {RFP_TABLE_SELECTOR}, "
+            f"{open_tables} containing a 'Status: Open (N)' header, "
+            f"{all_rows} tr.{RFP_ROW_CLASS} in total"
+        )
+
+        html = await frame.locator(RFP_TABLE_SELECTOR).first.evaluate('el => el.outerHTML')
+        safe_company = re.sub(r'[^A-Za-z0-9]+', '-', company or 'unknown').strip('-')
+        os.makedirs('LOGS', exist_ok=True)
+        path = os.path.join('LOGS', f'open_rfp_table_{safe_company}_attempt{attempt}.html')
+        with open(path, 'w', encoding='utf-8') as handle:
+            handle.write(html)
+        print(f"  -> listing table markup dumped to {path}")
+    except Exception as e:
+        print(f"  -> could not dump listing table markup: {e}")
 
 # ===== LOGIN =====
 # Ariba's generated widget ids (_boebpb, _xcbcqb, ...) rotate on every SAP
@@ -152,92 +220,86 @@ async def scrape_open_rfps(page, company=COMPANY_NAME, max_retries=3):
                 raise Exception("SupplierFrame not found")
 
             # Expand the "Status: Open" group.
-            # Primary: locate by text content (Ariba IDs like _03mdrd are dynamic).
+            # Located by text content — Ariba's generated ids rotate on every SAP
+            # redeploy, so there is no id worth falling back to (the old
+            # `a[id*="_03mdrd"]` fallback could only ever time out).
             # State-aware: only click when collapsed — clicking an expanded group
             # would collapse it and hide the Open RFP rows.
-            # Fallback: original ID-based selector, also state-aware. Open
-            toggled = False
-            try:
-                open_group_row = frame.locator(
-                    'tr.tableGroupBy',
-                    has_text=re.compile(r'Status:\s*Open\s*\(\d+\)')
-                ).first
-                await open_group_row.wait_for(state='visible', timeout=15000)
+            open_group_row = frame.locator(
+                f'tr.{RFP_GROUP_ROW_CLASS}',
+                has_text=RFP_OPEN_GROUP_RE
+            ).first
+            await open_group_row.wait_for(state='visible', timeout=15000)
 
-                toggle_link = open_group_row.locator('a[bh="GAT"]').first
-                toggle_icon = toggle_link.locator('span[class*="w-togglebox-icon-"]').first
-                icon_class = (await toggle_icon.get_attribute('class')) or ''
+            toggle_link = open_group_row.locator('a[bh="GAT"]').first
+            toggle_icon = toggle_link.locator('span[class*="w-togglebox-icon-"]').first
+            icon_class = (await toggle_icon.get_attribute('class')) or ''
 
-                if 'w-togglebox-icon-off' in icon_class:
-                    await toggle_link.click(timeout=5000)
-                    print("Expanded 'Status: Open' group")
-                else:
-                    print("'Status: Open' group already expanded — skip click")
-                toggled = True
-            except Exception as e:
-                print(f"Text-based selector failed, falling back to ID: {e}")
-
-            if not toggled:
-                try:
-                    await frame.wait_for_selector('a[id*="_03mdrd"]', timeout=20000)
-                    fallback_link = frame.locator('a[id*="_03mdrd"]').first
-                    fallback_icon = fallback_link.locator('span[class*="w-togglebox-icon-"]').first
-                    icon_class = (await fallback_icon.get_attribute('class')) or ''
-                    if 'w-togglebox-icon-off' in icon_class:
-                        await fallback_link.click()
-                        print("Expanded 'Status: Open' group via fallback ID selector")
-                    else:
-                        print("'Status: Open' group already expanded (fallback path) — skip click")
-                except Exception as e:
-                    log_event("RFP", "Scrape", "Fail", f"Both Status:Open selectors failed: {e}")
-                    raise
+            if 'w-togglebox-icon-off' in icon_class:
+                await toggle_link.click(timeout=5000)
+                print("Expanded 'Status: Open' group")
+            else:
+                print("'Status: Open' group already expanded — skip click")
 
             # Wait until the RFP table is fully loaded
-            await frame.wait_for_selector('#_swbzed tr.tableRow1', timeout=20000)
+            await frame.wait_for_selector(
+                f'{RFP_TABLE_SELECTOR} tr.{RFP_ROW_CLASS}', timeout=20000
+            )
 
-            # Extract only rows that belong to the "Status: Open" group.
-            # Walk the table sequentially; toggle in_open_group when we cross a
-            # tableGroupBy header so other groups (Completed, Pending Selection)
-            # are ignored even when they are also expanded.
-            all_trs = await frame.query_selector_all('#_swbzed tr')
+            # Resolve the listing table by the group header it contains, so a
+            # second `table.tableBody` elsewhere in the frame cannot bleed its
+            # rows into the walk below.
+            table = frame.locator(RFP_TABLE_SELECTOR).filter(
+                has_text=RFP_OPEN_GROUP_RE
+            ).first
+
+            # Expanding the group is an AJAX postback: the Open rows only exist
+            # after the round-trip, while rows of other already-expanded groups
+            # are on screen throughout. So waiting on `tr.tableRow1` above is
+            # satisfied too early and the walk finds nothing. Poll the real
+            # extraction until it reaches the size the header advertises —
+            # the wait condition and the extraction are then the same thing.
+            expected_open = parse_open_group_count(await open_group_row.inner_text())
             rows = []
-            in_open_group = False
-            for tr in all_trs:
-                class_attr = (await tr.get_attribute('class')) or ''
-                if 'tableGroupBy' in class_attr:
-                    header_text = (await tr.inner_text()) or ''
-                    in_open_group = bool(re.search(r'Status:\s*Open\s*\(\d+\)', header_text))
-                    continue
-                if in_open_group and 'tableRow1' in class_attr:
-                    rows.append(tr)
+            for _ in range(OPEN_ROWS_POLL_ATTEMPTS):
+                rows = await _collect_open_rows(table)
+                if expected_open is None:
+                    if rows:
+                        break
+                elif len(rows) >= expected_open:
+                    break
+                await page.wait_for_timeout(OPEN_ROWS_POLL_INTERVAL_MS)
 
-            print(f"Data Extraction:-- {len(rows)} Open RFP rows")
+            advertised = '' if expected_open is None else f" (header advertises {expected_open})"
+            print(f"Data Extraction:-- {len(rows)} Open RFP rows{advertised}")
+
+            if not rows:
+                await _dump_listing_table(frame, company, attempt)
+
             open_rfps = []
 
-            for row in rows:
-                cells = await row.query_selector_all('td')
-                if not cells:
-                    continue
+            from core.log_events import normalize_date_format
 
-                link_el = await cells[0].query_selector('a')
+            for row in rows:
+                # Direct-child <td> only. Ariba wraps each cell in a nested
+                # <table class="mls">, so a descendant `td` query returns ~10
+                # elements per row and the field positions shift whenever that
+                # nesting changes — silently, with no error. `./td` is a stable
+                # five columns across every captured markup generation.
+                cells = await row.query_selector_all('xpath=./td')
+                cell_texts = [await cell.inner_text() for cell in cells]
+
+                link_el = await cells[0].query_selector('a') if cells else None
                 rfp_link = await link_el.get_attribute("href") if link_el else ""
-                title = await cells[1].inner_text() if len(cells) > 1 else ""
-                rfp_id = await cells[3].inner_text() if len(cells) > 3 else ""
-                RFP_End_Date = await cells[5].inner_text() if len(cells) > 5 else ""
-                rfp_type = await cells[8].inner_text() if len(cells) > 8 else ""
-                participant = await cells[9].inner_text() if len(cells) > 9 else ""
+
+                fields = parse_open_rfp_row(cell_texts, rfp_link)
+                if fields is None:
+                    continue  # spacer/layout row, not an RFP
 
                 # Only add non-participated RFPs for downloading
-                # if participant.strip().lower() == "no":
-                from core.log_events import normalize_date_format
-                open_rfps.append({
-                    "Title": title.strip(),
-                    "Link": rfp_link.strip(),
-                    "ID": rfp_id.strip(),
-                    "Event Type": rfp_type.strip(),
-                    "RFP_End_Date": normalize_date_format(RFP_End_Date.strip()),
-                    "Status": participant.strip(),
-                })
+                # if fields["Status"].lower() == "no":
+                fields["RFP_End_Date"] = normalize_date_format(fields["RFP_End_Date"])
+                open_rfps.append(fields)
 
             if open_rfps:
                 log_event("RFP", "Scrape", "Success", f"Found {len(open_rfps)} RFPs")

@@ -332,9 +332,24 @@ Executable doesn't exist at C:\Windows\system32\config\systemprofile\AppData\Loc
 
 ### 7.3 Scraper logs in then times out
 
-**Cause:** Ariba changed its DOM.
+**Signature:** Login and SelectCompany both log `Success`, then Scrape fails for **every** company with a `wait_for_selector` timeout. A follow-up `Page.reload: Timeout 60000ms exceeded` may appear — that is the *recovery* failing, not the cause; read the `Scrape / Fail` line above it.
 
-**Fix:** Open the latest failure folder under `backend\LOGS\` — it holds `error.png` and the page HTML at the moment of failure. Update the selector. Selectors live in `COMPANY_RFP_SELECTORS` in [`backend/config/config.py`](../backend/config/config.py); note all four companies currently map to the **same** default selector list, so a "one company broke" report usually means the shared list broke.
+**Cause:** Ariba regenerated its DOM ids. Every `_xxxxxx` id on the portal (`#_swbzed`, `#_gktadc`, `#_03mdrd` …) is generated per deployment and **will** rotate — the listing table alone has been `_qml6w` → `_swbzed` → `_r5iirb`.
+
+**Fix:** Never re-pin a raw id. The listing scrape anchors on Ariba's semantic classes instead — `RFP_TABLE_SELECTOR` / `RFP_ROW_CLASS` / `RFP_GROUP_ROW_CLASS` in [`backend/core/common_process.py`](../backend/core/common_process.py). If those classes ever change:
+
+1. Capture the live markup (DevTools → copy the listing `<table>`) into `backend/Support-Files/Analysis-Files/`.
+2. Update the three constants.
+3. Re-run the offline check before touching the portal:
+   ```powershell
+   cd backend
+   ..\env\Scripts\python.exe Support-Files\verify_open_rfp_selectors.py
+   ```
+   It replays the real extractor against captured pages from two different portal generations and diffs every field.
+
+**Detail-page buttons** (`Download Content` and the tab/respond controls) use candidate lists — `DETAIL_TAB_SELECTORS`, `RESPOND_BUTTON_SELECTORS`, `DOWNLOAD_BUTTON_SELECTORS` in [`backend/rfp/download_rfp.py`](../backend/rfp/download_rfp.py) — tried in order, stable anchor first, last-known id last. Add the new selector to the front of the relevant tuple. When a download fails, the flow now writes `page_download_*.html` into `backend\LOGS\`: that dump is the detail page's real markup and the fastest way to find the current label.
+
+> `COMPANY_RFP_SELECTORS` in [`backend/config/config.py`](../backend/config/config.py) is **not** involved in this failure — it only governs owner/publish-time extraction on the RFP detail page, and all four companies map to the same default list.
 
 ### 7.4 Chromium processes pile up
 
