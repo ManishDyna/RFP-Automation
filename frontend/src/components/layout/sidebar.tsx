@@ -9,7 +9,6 @@ import {
   Download,
   Send,
   Ban,
-  Clock,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -32,7 +31,6 @@ interface SidebarProps {
   onDownloadRfps: () => void
   onSubmitRfp: () => void
   onDeclineRfp: () => void
-  onSchedule: () => void
   onChangeSapPassword: () => void
   collapsed: boolean
   onCollapsedChange: (collapsed: boolean) => void
@@ -42,7 +40,6 @@ export function Sidebar({
   onDownloadRfps,
   onSubmitRfp,
   onDeclineRfp,
-  onSchedule,
   onChangeSapPassword,
   collapsed,
   onCollapsedChange,
@@ -66,7 +63,6 @@ export function Sidebar({
   const canViewAuditLogs = useHasPermission('audit_logs.view')
   const canViewAnalytics = useHasPermission('analytics.view')
   const canViewSapLogs = useHasPermission('sap_password.view')
-  const canSchedule = useHasPermission('schedule_automation.manage')
   const canChangeSapPassword = useHasPermission('sap_password.change')
   const canViewMaterialMaster = useHasPermission('material_master.view')
   const canViewKeywordMaster = useHasPermission('keyword_master.view')
@@ -326,7 +322,7 @@ export function Sidebar({
               )}
 
               {/* Settings Section */}
-              {(canSchedule || canChangeSapPassword) && (
+              {canChangeSapPassword && (
                 <div className={cn('mt-6', collapsed ? 'px-0' : 'px-1')}>
                   {!collapsed && (
                     <div className="flex items-center gap-2 px-2 mb-3">
@@ -337,15 +333,6 @@ export function Sidebar({
                     </div>
                   )}
                   <div className="space-y-1.5">
-                    {canSchedule && (
-                      <QuickAction
-                        icon={Clock}
-                        label="Schedule"
-                        onClick={onSchedule}
-                        collapsed={collapsed}
-                        variant="ghost"
-                      />
-                    )}
                     {canChangeSapPassword && (
                       <QuickAction
                         icon={KeyRound}
