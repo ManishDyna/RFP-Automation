@@ -33,7 +33,6 @@ const SystemSettingsPage = lazy(() => import('@/pages/admin/system-settings'))
 import { SubmitRfpDialog } from '@/components/dialogs/submit-rfp-dialog'
 import { DeclineRfpDialog } from '@/components/dialogs/decline-rfp-dialog'
 import { DownloadCompanyDialog } from '@/components/dialogs/download-company-dialog'
-import { ScheduleDialog } from '@/components/dialogs/schedule-dialog'
 import { SapPasswordDialog } from '@/components/dialogs/sap-password-dialog'
 
 function LoadingScreen() {
@@ -75,7 +74,6 @@ function ProtectedLayout() {
   const [declineRfpOpen, setDeclineRfpOpen] = useState(false)
   const [downloadCompanyOpen, setDownloadCompanyOpen] = useState(false)
   const [downloadMode, setDownloadMode] = useState<'open' | 'all'>('all')
-  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [sapPasswordOpen, setSapPasswordOpen] = useState(false)
 
   // Fetch dashboard data for last automation time (shares cache with dashboard page)
@@ -117,7 +115,6 @@ function ProtectedLayout() {
         onDownloadRfps={() => { setDownloadMode('open'); setDownloadCompanyOpen(true) }}
         onSubmitRfp={() => openSubmitRfpDialog()}
         onDeclineRfp={() => setDeclineRfpOpen(true)}
-        onSchedule={() => setScheduleOpen(true)}
         onChangeSapPassword={() => setSapPasswordOpen(true)}
         collapsed={sidebarCollapsed}
         onCollapsedChange={setSidebarCollapsed}
@@ -211,7 +208,6 @@ function ProtectedLayout() {
       />
       <DeclineRfpDialog open={declineRfpOpen} onOpenChange={setDeclineRfpOpen} />
       <DownloadCompanyDialog open={downloadCompanyOpen} onOpenChange={setDownloadCompanyOpen} mode={downloadMode} />
-      <ScheduleDialog open={scheduleOpen} onOpenChange={setScheduleOpen} />
       <SapPasswordDialog open={sapPasswordOpen} onOpenChange={setSapPasswordOpen} />
     </div>
   )
