@@ -6,13 +6,9 @@ Moved from Dashboard/backend/dashboard_backend.py
 from core.common_imports import *
 from helpers.core_helper import DATAVERSE, get_rfp_activity_data_from_db, get_rfp_activity_data_lightweight, get_matched_data_for_rfps
 from fastapi import HTTPException
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import time
 from services.system_settings_service import get_setting
-
-# IST offset: UTC+5:30
-_IST_OFFSET = timedelta(hours=5, minutes=30)
-_IST_TZ = timezone(_IST_OFFSET)
 
 
 def _derive_match_flags(matched_data_str):
@@ -58,10 +54,18 @@ def _derive_match_flags(matched_data_str):
     return material_matched, keyword_matched, match_pct_data
 
 
-def _ist_to_utc_iso(dt_val) -> str:
+def _wall_clock_iso(dt_val) -> str:
     """
-    Convert a naive datetime (assumed IST) to UTC ISO 8601 string with 'Z' suffix.
-    This allows the frontend browser to correctly display it in the user's local timezone.
+    Serialise a datetime as ISO 8601 WITHOUT shifting it across timezones.
+
+    Values in Dataverse are already stored as KSA-local wall-clock text
+    (e.g. '8/11/2026 10:05 AM') even when they carry a 'Z'. Converting them
+    to real UTC used to subtract 5:30, and neither frontend formatter adds it
+    back — `formatDateMDY` parses the components literally and `formatLongDate`
+    reads them with getUTC* — so the shift surfaced verbatim in the UI (the
+    "Last Automation Ran" badge showed 4:35 AM for a 10:05 AM run).
+
+    The 'Z' suffix is kept so getUTC* reads back these exact components.
     Returns '-' for invalid/empty values.
     """
     if dt_val is None:
@@ -76,13 +80,9 @@ def _ist_to_utc_iso(dt_val) -> str:
         except Exception:
             return "-"
     if hasattr(dt_val, 'tzinfo') and dt_val.tzinfo is not None:
-        # Already timezone-aware — convert directly to UTC
-        utc_dt = dt_val.astimezone(timezone.utc)
-    else:
-        # Naive datetime — assume IST
-        ist_dt = dt_val.replace(tzinfo=_IST_TZ)
-        utc_dt = ist_dt.astimezone(timezone.utc)
-    return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Drop the offset rather than converting — the components are the truth
+        dt_val = dt_val.replace(tzinfo=None)
+    return dt_val.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 # ===== DASHBOARD DATA CACHE (TTL) =====
 import threading
@@ -108,10 +108,10 @@ def format_publish_time(publish_time_str):
         if isinstance(publish_time_str, str):
             dt = pd.to_datetime(publish_time_str, errors="coerce")
             if pd.notna(dt):
-                return _ist_to_utc_iso(dt)
+                return _wall_clock_iso(dt)
 
         if hasattr(publish_time_str, 'strftime'):
-            return _ist_to_utc_iso(publish_time_str)
+            return _wall_clock_iso(publish_time_str)
 
     except Exception as e:
         print(f"Error formatting publish time '{publish_time_str}': {e}")
@@ -463,7 +463,7 @@ def get_dashboard_data():
         last_run_action = "-"
         if not auto_df.empty and "RunDate" in auto_df.columns and auto_df["RunDate"].notna().any():
             last_row = auto_df.iloc[0]
-            last_run_time = _ist_to_utc_iso(last_row["RunDate"])
+            last_run_time = _wall_clock_iso(last_row["RunDate"])
             last_run_id = str(last_row.get("RunID", "-")) if last_row.get("RunID", "") else "-"
             last_run_action = str(last_row.get("Action", "-")) if last_row.get("Action", "") else "-"
 
@@ -497,8 +497,8 @@ def get_dashboard_data():
                 if not pt_series.empty:
                     if pt_series.dt.tz is not None:
                         pt_series = pt_series.dt.tz_localize(None)
-                    first_publish_iso = _ist_to_utc_iso(pt_series.min())
-                    last_publish_iso = _ist_to_utc_iso(pt_series.max())
+                    first_publish_iso = _wall_clock_iso(pt_series.min())
+                    last_publish_iso = _wall_clock_iso(pt_series.max())
         except Exception as e:
             print(f"Error computing publish timeline: {e}")
 
