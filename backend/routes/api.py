@@ -267,8 +267,16 @@ async def api_forgot(request: Request):
 
     secret = request.app.state.__dict__.get("secret_key", "change-me-please")
     token = _sign_token(secret, {"email": email}, ttl_seconds=1800)
-    base_url = str(request.base_url).rstrip("/")
-    reset_link = f"{base_url}/reset-password?token={token}"
+    # The link is opened from an email, so it must carry the public hostname.
+    # request.base_url only reports the local bind address behind the reverse proxy
+    # (127.0.0.1:8000), which is why reset links used to point at localhost.
+    # FRONTEND_URL already includes the "/rfp" prefix (Dataverse System Settings,
+    # falling back to config.py); request.base_url stays as a last-resort default.
+    base_url = (get_setting("FRONTEND_URL", "") or str(request.base_url)).rstrip("/")
+    # "/api/" prefix is required: in production IIS proxies only /api/*, /upload/*,
+    # /health and /dashboard/* to the backend — a bare /reset-password is served by
+    # the SPA instead, which has no such route and redirects to the login page.
+    reset_link = f"{base_url}/api/reset-password?token={token}"
 
     payload = {
         "to": email,
@@ -397,11 +405,18 @@ async def api_reset_password(request: Request):
     return JSONResponse({"ok": True})
 
 
-# ==================== RESET PASSWORD HTML PAGE (Root Level) ====================
+# ==================== RESET PASSWORD HTML PAGE ====================
 
-@reset_router.get("/reset-password")
-async def reset_password_page(request: Request):
-    """Serve the reset password form page (opened from email link)."""
+def _render_reset_password_page() -> HTMLResponse:
+    """Build the reset-password form page (opened from the email link).
+
+    Registered at two paths — the root-level "/reset-password" (hitting the backend
+    directly, e.g. local dev on :8000) and "/api/reset-password". In production IIS
+    only reverse-proxies /api/*, /upload/*, /health and /dashboard/* to the backend;
+    every other path falls through to the SPA's index.html, which has no
+    /reset-password route and bounces the visitor to the login page. So the emailed
+    link must use the "/api" path — see the reset_link built in api_forgot().
+    """
     # App is served under "/rfp"; the login page is <origin>/rfp/login. The real
     # prod value is set in Dataverse System Settings — this fallback carries "/rfp".
     frontend_url = get_setting("FRONTEND_URL", "http://localhost:3000/rfp").rstrip("/")
@@ -499,7 +514,10 @@ async def reset_password_page(request: Request):
             btn.innerHTML = '<span class="spinner"></span> Resetting...';
 
             try {{
-                const res = await fetch('/rfp/reset-password', {{
+                // POST back to whichever path served this page — both
+                // /reset-password and /api/reset-password accept it — so the
+                // request stays on a path the reverse proxy forwards.
+                const res = await fetch(window.location.pathname, {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
                     body: JSON.stringify({{ token: token, password: password }})
@@ -522,6 +540,19 @@ async def reset_password_page(request: Request):
     </script>
 </body>
 </html>""")
+
+
+@reset_router.get("/reset-password")
+async def reset_password_page():
+    """Root-level page — reachable when the backend is hit directly (local dev)."""
+    return _render_reset_password_page()
+
+
+@router.get("/reset-password")
+async def api_reset_password_page():
+    """Same page under /api, the prefix IIS reverse-proxies. This is the one the
+    emailed link points at in production."""
+    return _render_reset_password_page()
 
 
 @reset_router.post("/reset-password")
