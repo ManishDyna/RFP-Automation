@@ -47,6 +47,9 @@ def list_sap_password_records(top: int = 200) -> List[Dict]:
             table_api_name=get_setting('SAP_PASSWORD_TABLE_API', 'cr673_bahra_sap_infomations'),
             select_columns=["id", "username", "password", "created", "updated", "created_by", "updated_by"],
             top=top,
+            # Newest first. `id` is a Dataverse autonumber (sap-{SEQNUM:4}) — the same
+            # key credentials_provider uses, so the top row is the one the next login uses.
+            order_by="id desc",
             table_logical_name=get_setting('SAP_PASSWORD_TABLE_LOGICAL', 'cr673_bahra_sap_infomation'),
             use_display_names=True,
         )

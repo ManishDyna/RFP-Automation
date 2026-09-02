@@ -107,7 +107,7 @@ working directory set to `backend/`).
 | Helpers | `backend/helpers/` | `dataverse_helper.py` (the `DataverseClient`), `core_helper.py` (exports the global `DATAVERSE` client + Playwright utilities), `sharepoint_helper.py` (Graph client), `email_helper.py`, `failure_logger.py`, `progress_helper.py` |
 | Core | `backend/core/` | `common_imports.py` (a "star" import bundle reused by automation code), `common_process.py`, `log_events.py` (writes to RFP activity log table), `local_log.py` |
 | Middleware | `backend/middleware/auth.py` | `get_current_user`, `require_permission(key)`, `require_admin` FastAPI dependencies |
-| Config | `backend/config/config.py` | All table names, secrets, URLs, email recipients, session timeouts. `config/runtime_config.py` exposes `USERNAME`/`PASSWORD` resolved at import time from Dataverse via `helpers/credentials_provider.py` |
+| Config | `backend/config/config.py` | All table names, secrets, URLs, email recipients, session timeouts. `helpers/credentials_provider.py:get_sap_credentials()` reads the SAP Ariba username/password from Dataverse at each portal login (never at import time, so a password changed in the dashboard is used by the next login without a restart) |
 
 ### Frontend layout
 

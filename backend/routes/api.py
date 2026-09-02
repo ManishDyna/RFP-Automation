@@ -13,7 +13,7 @@ from services.dashboard_service import (
     get_material_insights_cached, get_material_insights_grouped_cached,
     get_raw_rfp_data_cached, search_logs_from_dataverse, get_logs_totals_cached,
 )
-from services.sap_service import create_sap_password_record, list_sap_password_records_cached
+from services.sap_service import create_sap_password_record, list_sap_password_records_cached, invalidate_sap_password_cache
 from services.dynamic_role_service import get_user_permissions
 from services.audit_service import log_event, AuditAction, AuditCategory
 from services.user_lifecycle_service import (
@@ -1838,6 +1838,9 @@ async def api_sap_change_password(request: Request, user: dict = Depends(require
     )
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to save SAP password")
+    # New record added; make sure the logs page reflects it immediately.
+    # (The automation itself needs no invalidation: it reads Dataverse on every login.)
+    invalidate_sap_password_cache()
 
     return JSONResponse({"ok": True})
 
