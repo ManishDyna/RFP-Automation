@@ -1,0 +1,450 @@
+[33mcommit 0bf41b1f76bb160490686be3d932ac6c7d0ffeaa[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m)[m
+Merge: 409b4e9 b9ff373
+Author: D365FOadmin <D365FOadmin@bahra-cables.com>
+Date:   Tue Aug 11 12:33:54 2026 +0300
+
+    Merge branch 'master' of https://github.com/ManishDyna/RFP-Automation
+
+[33mcommit b9ff3732ea32a7f9ea728613891e48ffa1c7e89d[m
+Merge: 0303c47 dd21010
+Author: ManishDyna <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue Aug 11 14:53:41 2026 +0530
+
+    Merge pull request #4 from ManishDyna/main
+    
+    Date Format Changes
+
+[33mcommit dd21010233ce8eb47035a34aab5b2ab8ed6edb37[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue Aug 11 14:40:36 2026 +0530
+
+    Date Format Changes
+
+[33mcommit 409b4e9587cccc5e6040285d870d89976581a15b[m
+Merge: 53ffb44 0303c47
+Author: D365FOadmin <D365FOadmin@bahra-cables.com>
+Date:   Mon Aug 10 19:34:47 2026 +0300
+
+    Merge branch 'master' of https://github.com/ManishDyna/RFP-Automation
+
+[33mcommit 0303c472fb74bcb22192aee6ab3b69bbd8d8bd68[m
+Merge: 19f7e12 d1f4722
+Author: ManishDyna <Manish.Soni@dynatechconsultancy.com>
+Date:   Mon Aug 10 21:59:05 2026 +0530
+
+    Merge pull request #3 from ManishDyna/main
+    
+    Main
+
+[33mcommit 53ffb44ed14566e301bcdffec3e266547fb98914[m
+Author: D365FOadmin <D365FOadmin@bahra-cables.com>
+Date:   Mon Aug 10 19:25:28 2026 +0300
+
+    Production Live server
+
+[33mcommit d1f47225b444235ee470bc0db37ef8451f48a834[m
+Merge: fbe557b 2be264c
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Mon Aug 10 21:42:50 2026 +0530
+
+    Merge branch 'main' of github into main
+
+[33mcommit fbe557bb56360eea3062ec8b7a64b3f7bee0de3d[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Mon Aug 10 21:36:30 2026 +0530
+
+    [Fixes] Open RFPs Issue ID issue
+
+[33mcommit 19f7e12760a1a8d0344c47efc1b5eeabd9100282[m
+Merge: 5521011 2be264c
+Author: ManishDyna <Manish.Soni@dynatechconsultancy.com>
+Date:   Mon Aug 3 12:24:00 2026 +0530
+
+    Merge pull request #2 from ManishDyna/main
+    
+    Main
+
+[33mcommit 2be264c641f4072b832a777492db3d640723bf95[m
+Merge: 92a3f71 5521011
+Author: ManishDyna <Manish.Soni@dynatechconsultancy.com>
+Date:   Mon Aug 3 12:23:48 2026 +0530
+
+    Merge branch 'master' into main
+
+[33mcommit 92a3f7160e02d7edaa070989d56fd05c573eca53[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Mon Aug 3 12:08:07 2026 +0530
+
+    Documents updations
+
+[33mcommit 2e4235c497e3a125f29ceedcedfc78d0bae9340d[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue Jul 21 12:43:49 2026 +0530
+
+    Solve Login bug in the system | ID changes
+
+[33mcommit 57a086da6f20ed589f5f53a3d956eee969404360[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Fri Jul 17 15:35:20 2026 +0530
+
+    Documentation Updation
+
+[33mcommit bed161ec148417779d0babe804093b1dbb1f64f4[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Thu Jul 16 17:57:39 2026 +0530
+
+    Changes in Invoke file
+
+[33mcommit 23570efe3dc2d83ff240179c3da5b5d2da6876be[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Thu Jul 16 17:01:26 2026 +0530
+
+    Changes in Register Cron Job File
+
+[33mcommit b8dfd9c6af48586c90029e629bad65c788e8e683[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Thu Jul 16 15:52:47 2026 +0530
+
+    Add Automation Scripts
+
+[33mcommit a6121020ee0fee7ba12a466a7be7290cdb4779f9[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue Jul 14 15:14:34 2026 +0530
+
+    Add /RFP Routes Functionality in all
+
+[33mcommit 409b5fc11533366e5fe637007a5f914da9f7339d[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue Jul 14 13:06:08 2026 +0530
+
+    Small Changes || Add App Proxy Plan File
+
+[33mcommit e04851c04339f969fe3bd787f484bd0f778002df[m
+Merge: 05ad290 6aa8ad8
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Fri Jul 10 16:10:10 2026 +0530
+
+    Merge branch 'main' of https://dev.azure.com/dynatechconsultancy/Dynatech%20AI-ML/_git/bahra-cables-smart-rfp
+
+[33mcommit 05ad290a5d7d4a90229228a0b74889662a2a295f[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Fri Jul 10 16:09:48 2026 +0530
+
+    Add Requirements file
+
+[33mcommit 6aa8ad830749d8b9d5cd555b62af828d73291123[m
+Author: Manish Soni <manish.soni@dynatechconsultancy.com>
+Date:   Fri Jul 10 12:39:00 2026 +0300
+
+    Remove old files
+
+[33mcommit ce4ae9138d2e00846f9a6e6597c5391f3b10a868[m[33m ([m[1;31morigin/arrange_code[m[33m)[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Fri Jul 10 13:13:07 2026 +0530
+
+    After Rearrage Code Backend-frontend folder
+
+[33mcommit ad2a4cbaec52286e22cde993455e904881b4e417[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Thu Jul 9 14:49:38 2026 +0530
+
+    Fix actionable-card Submit 403 when Entra token omits the user email
+    
+    Microsoft's v1.0 Actions token does not always carry the acting user's email
+    (preferred_username/upn/unique_name all absent), so submitter_email resolved to
+    "unknown" and the Step-3 "submitter must match the card email" check always
+    403'd on Submit (Refresh was unaffected — it falls back to the body email).
+    
+    Only enforce the strict identity match when the token actually provides an
+    email; otherwise rely on the cryptographically verified Microsoft caller (azp)
+    plus the Step-3a team-membership check. Also dump the token identity claims on
+    successful verification to reveal which claim (if any) carries the user.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+[33mcommit 3b639e0a36154d5a867eca8f730029361049da62[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Thu Jul 9 14:39:31 2026 +0530
+
+    Accept v1.0 issuer + unique_name for actionable-card Entra tokens
+    
+    Microsoft's Actions service sends a v1.0 token (iss https://sts.windows.net/
+    <tenant>/) rather than v2.0, so issuer validation rejected it with 401
+    "Invalid issuer" even though signature, audience and azp all matched. Validate
+    the issuer manually against BOTH the v1.0 (sts.windows.net) and v2.0
+    (login.microsoftonline.com/.../v2.0) forms (PyJWT's issuer= accepts one value).
+    
+    Also read the acting user's email from unique_name (v1.0 claim) in addition to
+    preferred_username/upn/email across all three handlers, so submit attribution
+    still works with v1.0 tokens.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+[33mcommit 909bf775bcf905b09e8b37140a6535c16d3bddf6[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Thu Jul 9 13:40:45 2026 +0530
+
+    Harden actionable-card Entra token validation + add diagnostic logging
+    
+    - Accept the token `aud` as either the AppIdUri or the bare app client-id
+      (Azure v2.0 may issue either form), removing a spurious 401 on aud mismatch.
+    - On any InvalidTokenError, decode the token unverified and print the real
+      aud/iss/azp so failures show the actual reason instead of Outlook's opaque
+      "Could not complete the requested action."
+    - Log the azp value (and expected) when the caller check fails.
+    - Add an entry log line to /response/refresh (previously silent on arrival).
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+[33mcommit 1122c157129b40c0918ca50d2d2589fc93673bae[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Thu Jul 9 11:14:49 2026 +0530
+
+    Re-migrate actionable-card token verification to Microsoft Entra ID
+    
+    Legacy EAT (substrate.office.com) token auth was retired by Microsoft on
+    2026-06-08, so the Adaptive Card Submit/Refresh/Decline callbacks stopped
+    reaching the backend. Restore Entra v2.0 token validation in
+    routes/actionable_cards.py (signature via tenant JWKS, exp, iss, aud=AppIdUri,
+    azp=Microsoft Actions app id) and read the acting user email from
+    preferred_username/upn (Entra sub is opaque).
+    
+    The earlier Entra migration (3dc37d1) was reverted (71f2675) because it imported
+    ACTIONABLE_CARD_ACTIONS_APP_ID / ACTIONABLE_CARD_APP_ID_URI from config.config,
+    which were never defined. Those constants are now added in config/config.py
+    (gitignored, applied on the server); ACTIONABLE_CARD_APP_ID_URI must be set to
+    the AppIdUri after completing the Entra provider migration in the Actionable
+    Email Developer Dashboard.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+[33mcommit 71f2675f760edd4ac7a6ca04ac5640845d06baf4[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Wed Jul 8 17:08:37 2026 +0530
+
+    Revert actionable-card token verification to legacy (pre-Entra)
+    
+    Reverts only routes/actionable_cards.py from 3dc37d1 back to the legacy
+    substrate.office.com EAT token verification, per request (Entra migration
+    not needed).
+    
+    Intentionally KEPT from 3dc37d1:
+    - dashboard_main.py health-check fix (probes users table, not the dead
+      cr673_bahra_logins table)
+    - docs/03-operations/09-Deployment-Guide.md troubleshooting-row update
+    
+    Note: Microsoft retired the legacy EAT token on 2026-06-08; Outlook card
+    clicks (Submit/Decline/Upload) may fail token verification until Entra is
+    reinstated.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+[33mcommit 3dc37d108b2128451df37b01a45e3b82c7cc108b[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Wed Jul 8 16:51:51 2026 +0530
+
+    Migrate actionable-card token verification to Microsoft Entra ID
+    
+    - routes/actionable_cards.py: validate Outlook Actions tokens as Entra ID
+      v2.0 (legacy substrate EAT retired 2026-06-08) — verify signature, exp,
+      issuer, audience (AppIdUri) and azp (Microsoft Actions app id); read the
+      acting user email from preferred_username/upn since Entra sub is opaque
+    - dashboard_main.py: health check probes the users table via
+      USERS_TABLE_API/USERS_TABLE_LOGICAL constants
+    - docs/03-operations/09-Deployment-Guide.md: update troubleshooting row for
+      the users table
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+[33mcommit 4e8e31fd68ade9362a077a14772ee71ee786f037[m
+Author: Manish Soni <manish.soni@dynatechconsultancy.com>
+Date:   Wed Jul 8 13:59:03 2026 +0300
+
+    Vite File Chage
+
+[33mcommit a2179c39e099645ec5c7ad5bfe357b6f9dd4bc48[m
+Author: Manish Soni <manish.soni@dynatechconsultancy.com>
+Date:   Tue Jul 7 15:58:24 2026 +0300
+
+    Final Changes
+
+[33mcommit 5172931ccd5a4977a4066420faa6a42a25965841[m
+Merge: 8cb3f55 9153181
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue Jul 7 18:05:43 2026 +0530
+
+    Merge remote-tracking branch 'github/new_requirement_12_05_2026' into new_requirement_12_05_2026
+    
+    # Conflicts:
+    #       Support-Files/.prefill_matched_data_progress.json
+    #       frontend/vite.config.js
+    #       frontend/vite.config.ts
+
+[33mcommit 91531813b0da0845826c4c5ac38f9b3b1c5e8246[m
+Author: ManishDyna <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue Jul 7 17:57:44 2026 +0530
+
+    Update owner information in README.md
+
+[33mcommit e19571fbdd47549d8fa5c6b1d401a53e1e04d9d2[m
+Author: ManishDyna <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue Jul 7 17:56:30 2026 +0530
+
+    Change owner from Samir Tak to Manish Soni
+    
+    Updated the owner contact information in the README.
+
+[33mcommit 8cb3f559b056cd5c50f7339f5f17670c0e9b988e[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue Jul 7 16:27:32 2026 +0530
+
+    Add partial Content in this and Udate
+
+[33mcommit 017cf04b1878db0a4003ecc34a619a7dfbe640e4[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue Jul 7 15:00:20 2026 +0530
+
+    https Plan Fixes and Searching polishing in activity log
+
+[33mcommit 42cbfa0e4a9bdec7357bd8fc329225332c841dbe[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Wed Jun 24 14:03:01 2026 +0530
+
+    Add HostName in vite File
+
+[33mcommit 3a132fe4100fe4ff6ff8cfa73ebc7a41d7ba0265[m
+Author: Manish Soni <manish.soni@dynatechconsultancy.com>
+Date:   Tue Jun 23 08:25:41 2026 +0300
+
+    Before Production Changes on ther Server
+
+[33mcommit ae990071aa3beaf9d8c2844a77a35e7af53781e7[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Mon Jun 22 19:03:04 2026 +0530
+
+    Stop tracking config/config.py (contains secrets)
+    
+    It was committed before being added to .gitignore, so git kept
+    pushing it. Untracked via git rm --cached; local file is kept.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+[33mcommit f3d6199ec2333897640c4ad7ad5c3a92fe629e77[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Mon Jun 22 18:56:01 2026 +0530
+
+    UOM and Quantity Changes
+
+[33mcommit e2d01abda5fde6ffc4eec80c74d5fb513df1a5ec[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Fri Jun 5 12:27:40 2026 +0530
+
+    Last changes Befroe changes the Enviromanet
+
+[33mcommit 9fdd88c0a902fb454bc891c4ee49f2c73047d55c[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Wed Jun 3 14:19:04 2026 +0530
+
+    Update Code
+
+[33mcommit 8226f57456e162757467a726cb87be72dbde8aa9[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Fri May 29 15:58:21 2026 +0530
+
+    Chnages
+
+[33mcommit 29815b1b33b2f05edb1376c1ad0173846fe3013a[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Wed May 27 15:08:30 2026 +0530
+
+    update Json Data in the table with unit or measurement and Quantity Process to the excel
+
+[33mcommit e40a1efd00534dc2557ec83ec44b7ce379e3d098[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Wed May 27 11:07:18 2026 +0530
+
+    Apply Changes
+
+[33mcommit 7e65828cdd64150e8ea605693774a2d782f0777f[m
+Author: Manish Soni <manish.soni@dynatechconsultancy.com>
+Date:   Tue May 26 09:18:57 2026 +0300
+
+    Data Coplte
+
+[33mcommit 4f54cdca42de4fddac92b92a21890091ff8d336a[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Mon May 25 19:07:58 2026 +0530
+
+    Delete Unwanted Files || REmove timeZone Convertion || Update Get RFP Data Flow
+
+[33mcommit f4de3aac02947b6bd494a450a0ba5e45002cfd9f[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Thu May 21 12:42:45 2026 +0530
+
+    Updates Changes , Now Moving to Dataverse change for Duplicate RFP
+
+[33mcommit 8622348802d68f4f19284bf6f4b8d877ae8fe8df[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue May 19 17:18:43 2026 +0530
+
+    TDS file Changes
+
+[33mcommit 2c7e32f85026e0b3bed70095f0262f36d4aa848f[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue May 19 16:36:01 2026 +0530
+
+    Decline button Changes
+
+[33mcommit 36b3ddfc895dda8b3a68e210ce48870608110915[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Tue May 19 15:18:03 2026 +0530
+
+    All Misllinues changes are done
+
+[33mcommit ef5a400e2b32f5c69bb6ff90a0343a7ccbe842e6[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Sun May 17 18:49:08 2026 +0530
+
+    Final Code
+
+[33mcommit b9ecd40332cec67e43e8e905d289893b21c9df24[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Sun May 17 16:35:46 2026 +0530
+
+    Changes
+
+[33mcommit a97d5c1646b362c1508758c55fce119c5ce68f70[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Sun May 17 16:09:05 2026 +0530
+
+    Changes
+
+[33mcommit de512fc77c519f56369d2b2026f4e7cecbec1d67[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Sun May 17 15:43:55 2026 +0530
+
+    Changes
+
+[33mcommit aa8d23be6b44268106333a2fec088386a6645352[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Sun May 17 15:13:42 2026 +0530
+
+    change
+
+[33mcommit 2131b73fe8c1e5bec9ab858fe3c6c8d43e069a2d[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Sun May 17 14:42:19 2026 +0530
+
+    Add New Features
+
+[33mcommit f8845b2b8ee7b2d006d06b834c606b9e661902b9[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Sun May 17 13:27:13 2026 +0530
+
+    Developement All Functionality Related to New udpates
+
+[33mcommit 4bb9a03a82cf337a2a7a5c42d9387a83919d8108[m
+Author: Manish Soni <Manish.Soni@dynatechconsultancy.com>
+Date:   Fri May 15 14:15:23 2026 +0530
+
+    Updte All Local PC Changes
