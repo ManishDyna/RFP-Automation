@@ -47,7 +47,7 @@ CLIENT_ID, CLIENT_SECRET, TENANT_ID,
     EMAIL_TO_AUTOMATION_FAILURE,
     EMAIL_TO_RFP_SAVED_DRAFT,
 )
-from config.runtime_config import USERNAME, PASSWORD
+from helpers.credentials_provider import get_sap_credentials
 from helpers.sharepoint_helper import (
     GraphClient
 )

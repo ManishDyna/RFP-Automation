@@ -152,7 +152,9 @@ async def login_form_present(page) -> bool:
 async def login_and_select_company(page, company_name: str | None = None):
     target_company = (company_name or COMPANY_NAME).strip() or COMPANY_NAME
     await page.goto(URL, timeout=60000)
-    await fill_login_credentials(page, USERNAME, PASSWORD)
+    # Read fresh from Dataverse so a password changed on the dashboard is used immediately.
+    portal_username, portal_password = get_sap_credentials()
+    await fill_login_credentials(page, portal_username, portal_password)
     async with page.expect_navigation(wait_until="domcontentloaded", timeout=60000):
         await page.click('input[type="submit"]')
     log_event("LOGIN", "Login", "Success", "Logged in")

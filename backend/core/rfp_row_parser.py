@@ -2,8 +2,8 @@
 
 This module is deliberately dependency-free — it imports nothing but `re`, and
 in particular nothing from `core.common_imports`, `helpers.core_helper` or
-`config.runtime_config`. Those build a live `DataverseClient` and fetch portal
-credentials *at import time*, which would make the offline selector check
+`helpers.credentials_provider`. Those build a live `DataverseClient` *at import
+time*, which would make the offline selector check
 (`Support-Files/verify_open_rfp_selectors.py`) impossible to run without a
 network and secrets.
 

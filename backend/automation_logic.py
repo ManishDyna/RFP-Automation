@@ -9,7 +9,7 @@ from rfp.submit_rfp import submit_rfp
 from core.common_imports import *
 from config.config import resolve_company_name
 from services.system_settings_service import get_setting
-from config.runtime_config import USERNAME, PASSWORD
+from helpers.credentials_provider import get_sap_credentials
 from rfp.download_rfp import *
 from core.common_process import *
 from helpers.email_helper import *  # if this file exists
@@ -157,8 +157,10 @@ async def ensure_logged_in(page, retry_count=3):
             await page.goto(get_setting("URL", ""), wait_until="domcontentloaded", timeout=60000)
             await asyncio.sleep(1)
             
-            # Fill login credentials (waits for the fields itself)
-            await fill_login_credentials(page, USERNAME, PASSWORD)
+            # Fill login credentials (waits for the fields itself). Read fresh from
+            # Dataverse so a password changed on the dashboard is used immediately.
+            portal_username, portal_password = get_sap_credentials()
+            await fill_login_credentials(page, portal_username, portal_password)
 
             # Submit login
             try:
@@ -1595,7 +1597,9 @@ async def run_automation_download_all_rfps(selected_company: str = ""):
             # Login
             log_event("ALL_RFPS", "Login", "Start", "Starting login")
             await page.goto(get_setting("URL", ""), wait_until="domcontentloaded")
-            await fill_login_credentials(page, USERNAME, PASSWORD)
+            # Read fresh from Dataverse so a password changed on the dashboard is used immediately.
+            portal_username, portal_password = get_sap_credentials()
+            await fill_login_credentials(page, portal_username, portal_password)
 
             try:
                 async with page.expect_navigation(wait_until="networkidle", timeout=60000):
